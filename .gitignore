@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+outputs/
+.tmp/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+.forge/
+.pi
