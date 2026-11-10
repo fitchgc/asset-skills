@@ -9,3 +9,6 @@ outputs/
 !.env.example
 .forge/
 .pi
+dist/
+*.lock
+.asx-runtime.lock

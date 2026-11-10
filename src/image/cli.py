@@ -1,0 +1,527 @@
+from __future__ import annotations
+
+import argparse
+import sqlite3
+import sys
+from pathlib import Path
+from typing import Any, NoReturn
+
+from .artifacts import recent_payload
+from .batches import execute_batch
+from .client import AsynxClient
+from .config import (
+    config_status,
+    configure,
+    doctor,
+    legacy_installation_notice,
+    load_credentials,
+)
+from .constants import (
+    DEFAULT_BATCH_SUBMISSIONS_PER_POLL,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_QUALITY,
+    KNOWN_STATUSES,
+    VERSION,
+)
+from .errors import AsxError
+from .local_images import execute_local_image
+from .output import emit, log
+from .tasks import (
+    cancel_local_task,
+    history_payload,
+    local_asset_payload,
+    local_task_status,
+    local_tasks_payload,
+    models_payload,
+    poll_local_tasks,
+    recover_tasks,
+    refresh_task,
+    run_submission,
+    task_payload,
+    wait_and_download,
+)
+
+
+def _add_image_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--prompt", required=True)
+    parser.add_argument("--model")
+    parser.add_argument("--image-size")
+    parser.add_argument("--aspect-ratio")
+    parser.add_argument("--quality", help=f"模型原生质量参数，默认 {DEFAULT_QUALITY}")
+    parser.add_argument("--count", type=int, default=1)
+    parser.add_argument("--output-format", choices=("png", "jpeg", "webp"))
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--idempotency-key")
+    parser.add_argument("--detach", action="store_true")
+    parser.add_argument("--ui", action="store_true", help="启动交互式 Web 视觉工作台")
+    parser.add_argument("--no-open", action="store_true", help="不自动在浏览器中打开工作台")
+    parser.add_argument(
+        "--keep-reference-original",
+        action="store_true",
+        help="保留符合限制的参考图原始编码，不进行 WebP 归一化",
+    )
+
+
+def _add_batch_creation_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--operation", choices=("generate", "edit"), default="generate", help="批次类型"
+    )
+    parser.add_argument("--prompt", required=True, help="提示词或编辑指令")
+    parser.add_argument("--model", help="模型名称或唯一片段")
+    parser.add_argument("--image-size", help="图片尺寸档位")
+    parser.add_argument("--aspect-ratio", help="宽高比")
+    parser.add_argument("--quality", help=f"模型原生质量参数，默认 {DEFAULT_QUALITY}")
+    parser.add_argument("--count", type=int, default=1, help="每个 Task 的输出数量")
+    parser.add_argument(
+        "--output-format",
+        choices=("png", "jpeg", "webp"),
+        help="输出格式",
+    )
+    parser.add_argument("--total", type=int, default=1, help="批次中的 Task 数量")
+    parser.add_argument("--output-dir", help="输出目录，默认 generated-images/<批次 ID>")
+    parser.add_argument("--name", help="批次名称")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_BATCH_SUBMISSIONS_PER_POLL,
+        help="本次最多提交的 Task 数",
+    )
+    parser.add_argument("--reference", action="append", default=[], help="生成参考图，可重复")
+    parser.add_argument("--image", action="append", default=[], help="编辑输入图，可重复")
+    parser.add_argument("--mask", help="编辑 Mask 图片")
+    parser.add_argument(
+        "--keep-reference-original",
+        action="store_true",
+        help="保留符合限制的参考图原始编码，不进行 WebP 归一化",
+    )
+
+
+def _add_batch_add_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    parser.add_argument("--total", type=int, default=1, help="追加的 Task 数量")
+    parser.add_argument("--prompt", help="新的提示词；省略时沿用批次设置")
+    parser.add_argument("--model", help=argparse.SUPPRESS)
+    parser.add_argument("--image-size", help="覆盖图片尺寸档位")
+    parser.add_argument("--aspect-ratio", help="覆盖宽高比")
+    parser.add_argument("--quality", help="覆盖质量参数")
+    parser.add_argument("--count", type=int, help="覆盖每个 Task 的输出数量")
+    parser.add_argument(
+        "--output-format", choices=("png", "jpeg", "webp"), help="覆盖输出格式"
+    )
+    parser.add_argument("--reference", action="append", help="生成参考图，可重复")
+    parser.add_argument("--image", action="append", help="编辑输入图，可重复")
+    parser.add_argument("--mask", help="覆盖编辑 Mask 图片")
+    parser.add_argument(
+        "--keep-reference-original",
+        action="store_true",
+        help="保留新传入且符合限制的参考图原始编码",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_BATCH_SUBMISSIONS_PER_POLL,
+        help="本次最多提交的 Task 数",
+    )
+
+
+def _add_local_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--output", required=True, help="输出文件路径")
+    parser.add_argument("--format", choices=("png", "jpeg", "jpg", "webp"))
+
+
+def _add_local_image_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    image = commands.add_parser("image", help="本地确定性图片处理，不调用 Asynx")
+    image_commands = image.add_subparsers(dest="image_command", required=True)
+
+    info = image_commands.add_parser("info", help="查看本地图片信息")
+    info.add_argument("input")
+
+    convert = image_commands.add_parser("convert", help="转换图片格式")
+    convert.add_argument("input")
+    _add_local_output_options(convert)
+
+    resize = image_commands.add_parser("resize", help="调整图片尺寸")
+    resize.add_argument("input")
+    _add_local_output_options(resize)
+    resize.add_argument("--width", type=int)
+    resize.add_argument("--height", type=int)
+
+    crop = image_commands.add_parser("crop", help="裁剪图片")
+    crop.add_argument("input")
+    _add_local_output_options(crop)
+    crop.add_argument("--box", required=True, help="left,top,right,bottom")
+
+    slice_command = image_commands.add_parser("slice", help="按网格切图")
+    slice_command.add_argument("input")
+    slice_command.add_argument("--output-dir", required=True)
+    slice_command.add_argument("--rows", type=int, required=True)
+    slice_command.add_argument("--columns", type=int, required=True)
+    slice_command.add_argument("--prefix", default="tile")
+    slice_command.add_argument("--format", choices=("png", "jpeg", "jpg", "webp"))
+
+    sheet = image_commands.add_parser("contact-sheet", help="生成联系表")
+    sheet.add_argument("inputs", nargs="+")
+    _add_local_output_options(sheet)
+    sheet.add_argument("--columns", type=int, default=4)
+    sheet.add_argument("--cell-width", type=int, default=320)
+    sheet.add_argument("--cell-height", type=int, default=320)
+    sheet.add_argument("--background", default="#ffffff")
+
+    mask = image_commands.add_parser("apply-mask", help="将 Mask 应用为透明度")
+    mask.add_argument("input")
+    mask.add_argument("--mask", required=True)
+    _add_local_output_options(mask)
+
+    mask_alias = image_commands.add_parser("mask", help="将 Mask 应用为透明度")
+    mask_alias.add_argument("input")
+    mask_alias.add_argument("--mask", required=True)
+    _add_local_output_options(mask_alias)
+
+    pad = image_commands.add_parser("pad", help="填充扩展图片边距")
+    pad.add_argument("input")
+    _add_local_output_options(pad)
+    pad.add_argument("--padding", type=int, help="四周边距像素")
+    pad.add_argument("--width", type=int, help="目标宽度")
+    pad.add_argument("--height", type=int, help="目标高度")
+    pad.add_argument("--background", default="transparent", help="填充背景色，默认透明")
+
+    trim = image_commands.add_parser("trim", help="裁切透明边界")
+    trim.add_argument("input")
+    _add_local_output_options(trim)
+
+    alpha_bleed = image_commands.add_parser("alpha-bleed", help="修复透明图边缘杂色")
+    alpha_bleed.add_argument("input")
+    _add_local_output_options(alpha_bleed)
+
+    rembg = image_commands.add_parser("remove-background", help="本地简单背景移除")
+    rembg.add_argument("input")
+    _add_local_output_options(rembg)
+    rembg.add_argument("--threshold", type=int, default=30, help="颜色距离容差")
+
+    batch_convert = image_commands.add_parser("batch-convert", help="批量转换目录图片")
+    batch_convert.add_argument("--input-dir", required=True)
+    batch_convert.add_argument("--output-dir", required=True)
+    batch_convert.add_argument("--format", choices=("png", "jpeg", "jpg", "webp"), required=True)
+    batch_convert.add_argument("--recursive", action="store_true")
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description="通过 Asynx 生成和编辑图片")
+    result.add_argument("--version", action="version", version=VERSION)
+    commands = result.add_subparsers(dest="command", required=True)
+    _add_local_image_commands(commands)
+
+    configure_command = commands.add_parser("configure", help="安全保存 Asynx API Key")
+    configure_command.add_argument(
+        "--base-url",
+        help="使用自托管 Asynx 服务地址；使用公共服务时无需设置",
+    )
+    update = commands.add_parser("update", help="检查、安装或回滚 Skill 更新")
+    update_commands = update.add_subparsers(dest="update_command", required=True)
+    update_commands.add_parser("status", help="离线查看版本、安装位置和最近检查结果")
+    check = update_commands.add_parser("check", help="检查稳定版更新，结果缓存 6 小时")
+    check.add_argument("--force", action="store_true", help="立即联网检查，忽略缓存")
+    apply = update_commands.add_parser("apply", help="升级已安装副本，并保留旧版本备份")
+    apply.add_argument("--target", choices=("all", "current", "codex", "claude"), default="all", help="更新范围，默认所有已安装副本")
+    apply.add_argument("--force", action="store_true", help="备份后覆盖安装目录中的本地改动")
+    update_commands.add_parser("rollback", help="恢复最近一次更新的全部副本，或恢复中断的更新")
+    config = commands.add_parser("config", help="查看本机 Asynx 配置")
+    config_commands = config.add_subparsers(dest="config_command", required=True)
+    config_commands.add_parser("status", help="安全查看配置状态，不显示完整 API Key")
+
+    doctor_command = commands.add_parser("doctor", help="诊断配置和 Skill 安装状态")
+    doctor_command.add_argument(
+        "--verify",
+        action="store_true",
+        help="连接 Asynx 验证凭据；默认诊断不会联网",
+    )
+    doctor_command.add_argument("--updates", action="store_true", help="同时检查 Skill 更新，使用 6 小时缓存")
+    models = commands.add_parser("models", help="列出可用图片模型")
+    models.add_argument("--operation", choices=("all", "generate", "edit"), default="all")
+
+    ui = commands.add_parser("ui", help="启动本地视觉交互工作台")
+    ui_commands = ui.add_subparsers(dest="ui_command", required=True)
+    ui_region = ui_commands.add_parser("region-edit", help="局部重绘视觉批注工作台")
+    ui_region.add_argument("--image", required=True)
+    ui_region.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    ui_region.add_argument("--no-open", action="store_true")
+    ui_tools = ui_commands.add_parser("tools", help="交互式本地图片处理工作台")
+    ui_tools.add_argument("--image", required=True)
+    ui_tools.add_argument("--output", help="输出图片路径")
+    ui_tools.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    ui_tools.add_argument("--no-open", action="store_true")
+    ui_annotate = ui_commands.add_parser("annotate", help="手绘涂鸦视觉批注工作台")
+    ui_annotate.add_argument("--image", required=True)
+    ui_annotate.add_argument("--output", help="输出图片路径")
+    ui_annotate.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+    ui_annotate.add_argument("--no-open", action="store_true")
+
+    generate = commands.add_parser("generate", help="生成一张或多张图片")
+    _add_image_options(generate)
+    generate.add_argument("--reference", action="append", default=[])
+
+    edit = commands.add_parser("edit", help="编辑已有图片")
+    _add_image_options(edit)
+    edit.add_argument("--image", action="append", default=[])
+    edit.add_argument("--from-task", help="使用本机索引中指定 Task 的已下载图片")
+    edit.add_argument("--mask")
+
+    status = commands.add_parser("status", help="查询一个 Task")
+    status.add_argument("task_id")
+
+    wait = commands.add_parser("wait", help="等待并下载一个 Task")
+    wait.add_argument("task_id")
+    wait.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
+
+    history = commands.add_parser("history", help="查询历史 Task")
+    history.add_argument("--status", choices=tuple(sorted(KNOWN_STATUSES)), help="按状态筛选")
+    history.add_argument("--model", help="按模型筛选")
+    history.add_argument("--limit", type=int, default=20, help="返回数量")
+
+    recent = commands.add_parser("recent", help="查询本机已下载的生成结果")
+    recent.add_argument("--query", help="按 Task ID、Prompt、模型或文件名筛选")
+    recent.add_argument("--limit", type=int, default=20, help="返回数量")
+    recent.add_argument("--latest", action="store_true", help="只返回最近一个结果")
+    recent.add_argument("--all-modalities", action="store_true", help="显示所有模态的生成结果")
+
+    task = commands.add_parser("task", help="管理本地任务记录")
+    task_commands = task.add_subparsers(dest="task_command", required=True)
+    task_list = task_commands.add_parser("list", help="列出本地任务")
+    task_list.add_argument("--status", help="按本地状态筛选")
+    task_list.add_argument("--limit", type=int, default=50, help="返回数量")
+    task_list.add_argument("--all-modalities", action="store_true", help="显示所有模态的本地任务")
+    task_status = task_commands.add_parser("status", help="查看本地任务快照")
+    task_status.add_argument("task_id")
+    task_status.add_argument("--refresh", action="store_true", help="查询最新进度并下载已完成结果，不提交任务")
+    task_poll = task_commands.add_parser("poll", help="刷新一个或全部本地任务")
+    task_poll.add_argument("task_id", nargs="?")
+    task_poll.add_argument("--limit", type=int, default=50, help="最多刷新任务数")
+    task_recover = task_commands.add_parser("recover", help="恢复提交中断的原任务，可能提交请求")
+    task_recover.add_argument("task_id", nargs="?", help="只恢复此任务；省略时检查最近一批记录")
+    task_recover.add_argument("--limit", type=int, default=50, help="未指定 ID 时最多检查的任务数")
+    task_cancel = task_commands.add_parser("cancel", help="请求取消远端任务")
+    task_cancel.add_argument("task_id")
+
+    asset = commands.add_parser("asset", help="查看本地 Asset")
+    asset_commands = asset.add_subparsers(dest="asset_command", required=True)
+    asset_list = asset_commands.add_parser("list", help="列出任务输出 Asset")
+    asset_list.add_argument("task_id")
+
+    batch = commands.add_parser("batch", help="管理可恢复的本地批次")
+    batch_commands = batch.add_subparsers(dest="batch_command", required=True)
+    create = batch_commands.add_parser("create", help="创建并启动批次")
+    _add_batch_creation_options(create)
+    add = batch_commands.add_parser("add", help="向批次追加 Task")
+    _add_batch_add_options(add)
+
+    poll = batch_commands.add_parser("poll", help="推进一次批次轮询")
+    poll.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    poll.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_BATCH_SUBMISSIONS_PER_POLL,
+        help="本次最多提交的 Task 数",
+    )
+
+    batch_wait = batch_commands.add_parser("wait", help="持续轮询批次直到完成")
+    batch_wait.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    batch_wait.add_argument("--interval", type=float, default=10, help="轮询间隔秒数")
+    batch_wait.add_argument("--max-wait", type=float, default=0, help="最多等待秒数，0 表示不限制")
+
+    batch_status = batch_commands.add_parser("status", help="查询批次状态")
+    batch_status.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    batch_status.add_argument("--refresh", action="store_true", help="刷新已提交任务并下载结果，不提交新任务")
+    batch_status.add_argument("--items", action="store_true", help="列出每个 Task")
+    batch_commands.add_parser("list", help="列出本机批次")
+
+    pause = batch_commands.add_parser("pause", help="暂停提交新 Task")
+    pause.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    resume = batch_commands.add_parser("resume", help="恢复批次提交")
+    resume.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    cancel = batch_commands.add_parser("cancel", help="取消批次中的 Task")
+    cancel.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    return result
+
+
+def _client() -> AsynxClient:
+    api_key, base_url = load_credentials()
+    return AsynxClient(base_url, api_key)
+
+
+def _ui_static_dir() -> Path:
+    bundled = Path(__file__).resolve().parent / "ui"
+    if bundled.is_dir():
+        return bundled
+    # Development fallback
+    repo_ui = Path(__file__).resolve().parents[2] / "src" / "ui" / "image"
+    return repo_ui if repo_ui.is_dir() else bundled
+
+
+def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
+    if args.command == "ui":
+        from .ui_server import launch_workbench
+        ui_static = _ui_static_dir()
+        open_browser = not getattr(args, "no_open", False)
+        if args.ui_command == "region-edit":
+            return launch_workbench(
+                mode="region_edit",
+                source_path=args.image,
+                output_dir=args.output_dir,
+                static_dir=ui_static,
+                client=_client(),
+                open_browser=open_browser,
+            )
+        if args.ui_command == "tools":
+            return launch_workbench(
+                mode="image_tools",
+                source_path=args.image,
+                output_path=args.output,
+                output_dir=args.output_dir,
+                static_dir=ui_static,
+                open_browser=open_browser,
+            )
+        if args.ui_command == "annotate":
+            return launch_workbench(
+                mode="image_annotate",
+                source_path=args.image,
+                output_path=args.output,
+                output_dir=args.output_dir,
+                static_dir=ui_static,
+                open_browser=open_browser,
+            )
+    if args.command == "update":
+        from .updates import update_apply, update_check, update_rollback, update_status
+
+        if args.update_command == "status":
+            return update_status(), 0
+        if args.update_command == "check":
+            checked = update_check(force=args.force)
+            return checked, 0 if checked["ok"] else 2
+        if args.update_command == "apply":
+            return update_apply(target=args.target, force=args.force, already_locked=locked_root), 0
+        return update_rollback(already_locked=locked_root), 0
+    if args.command == "image":
+        return execute_local_image(args)
+    if args.command == "configure":
+        return configure(args.base_url), 0
+    if args.command == "config" and args.config_command == "status":
+        return config_status(), 0
+    if args.command == "doctor":
+        payload = doctor(verify=args.verify, modality="image")
+        if args.updates:
+            from .updates import update_check
+
+            payload["updates"] = update_check()
+        return payload, 0 if payload["ok"] else 2
+    if args.command == "recent":
+        modality = None if getattr(args, "all_modalities", False) else "image"
+        return recent_payload(args.query, args.limit, latest=args.latest, modality=modality), 0
+    if args.command == "task":
+        modality = None if getattr(args, "all_modalities", False) else "image"
+        if args.task_command == "list":
+            return local_tasks_payload(modality=modality, status=args.status, limit=args.limit), 0
+        if args.task_command == "status":
+            if args.refresh:
+                result, code = refresh_task(_client(), args.task_id)
+                return {"ok": result["ok"], "schema_version": 2, "task": result}, code
+            return local_task_status(args.task_id), 0
+        client = _client()
+        if args.task_command == "poll":
+            return poll_local_tasks(client, args.task_id, limit=args.limit, modality=modality), 0
+        if args.task_command == "recover":
+            result = recover_tasks(client, args.task_id, limit=args.limit, modality=modality)
+            return result, 0 if result["ok"] else 4
+        if args.task_command == "cancel":
+            return cancel_local_task(client, args.task_id)
+    if args.command == "asset" and args.asset_command == "list":
+        return local_asset_payload(args.task_id), 0
+    if (
+        args.command == "batch"
+        and args.batch_command in {"list", "status"}
+        and not getattr(args, "refresh", False)
+    ):
+        setattr(args, "modality", "image")
+        return execute_batch(None, args)
+    client = _client()
+    if args.command == "models":
+        return models_payload(client, args.operation), 0
+    if args.command == "generate":
+        return run_submission(client, args, "image.generate")
+    if args.command == "edit":
+        if getattr(args, "ui", False):
+            from .ui_server import launch_workbench
+            img_path = args.image[0] if args.image else None
+            if not img_path and getattr(args, "from_task", None):
+                from .state import connect_db as connect_ledger_db, task_paths
+                conn = connect_ledger_db()
+                try:
+                    paths = task_paths(conn, args.from_task)
+                    img_path = paths[0] if paths else None
+                finally:
+                    conn.close()
+            return launch_workbench(
+                mode="region_edit",
+                source_path=img_path,
+                output_dir=args.output_dir,
+                static_dir=_ui_static_dir(),
+                client=client,
+                open_browser=not getattr(args, "no_open", False),
+            )
+        return run_submission(client, args, "image.edit")
+    if args.command == "status":
+        task, request_id = client.task(args.task_id)
+        return task_payload(task, request_id), 0
+    if args.command == "wait":
+        return wait_and_download(client, args.task_id, args.output_dir)
+    if args.command == "history":
+        return history_payload(client, status=args.status, model=args.model, limit=args.limit), 0
+    if args.command == "batch":
+        setattr(args, "modality", "image")
+        return execute_batch(client, args)
+    raise AssertionError("unreachable")
+
+
+def main(*, locked_root: Path | None = None) -> NoReturn:
+    args: argparse.Namespace | None = None
+    try:
+        args = parser().parse_args()
+        payload, exit_code = execute(args, locked_root=locked_root)
+        if exit_code == 0 and payload.get("ok") and (
+            (args.command in {"generate", "edit", "wait"} and payload.get("status") == "succeeded")
+            or (args.command == "batch" and payload.get("batch", {}).get("status") == "completed")
+        ):
+            from .updates import automatic_update_notice
+
+            notice = automatic_update_notice()
+            if notice:
+                payload["update_notice"] = notice
+    except AsxError as exc:
+        payload, exit_code = exc.payload(), exc.exit_code
+    except KeyboardInterrupt:
+        payload, exit_code = {
+            "ok": False,
+            "error": {"code": "interrupted", "message": "Operation interrupted"},
+        }, 130
+    except (OSError, sqlite3.Error) as exc:
+        payload, exit_code = AsxError(
+            f"本地状态读写失败：{exc}",
+            code="state_io_error",
+            exit_code=2,
+        ).payload(), 2
+    except Exception as exc:  # noqa: BLE001 - CLI must always emit one JSON object
+        payload, exit_code = AsxError(
+            f"操作失败：{exc}", code="unexpected_error", exit_code=2
+        ).payload(), 2
+    legacy_notice = legacy_installation_notice()
+    if legacy_notice:
+        payload["legacy_installation_notice"] = legacy_notice
+    if args is not None and args.command == "configure" and sys.stdout.isatty():
+        # configure is the one CLI interaction users perform themselves.
+        # Keep redirected stdout JSON for callers that consume its existing contract.
+        if not payload.get("ok"):
+            log(payload["error"]["message"])
+        if legacy_notice:
+            log("发现旧版 asx 入口，可让 Agent 帮你检查和清理；密钥和任务记录应保留。")
+    else:
+        emit(payload)
+    raise SystemExit(exit_code)

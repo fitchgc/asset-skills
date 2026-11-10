@@ -1,6 +1,6 @@
 # Agent Asset Skills Specification
 
-Status: ready-for-agent
+Status: implemented
 
 ## Problem Statement
 

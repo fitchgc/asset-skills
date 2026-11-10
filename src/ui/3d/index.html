@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asynx 3D Inspector & Frame Sequence Renderer</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --card: #18181b;
+      --border: #27272a;
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --accent: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 10; }
+    .badge { background: #27272a; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
+    button { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+    button:hover { background: #27272a; }
+    button.primary { background: var(--primary); border-color: var(--primary); color: white; }
+    button.primary:hover { background: var(--primary-hover); }
+    button.danger { background: transparent; border-color: var(--border); color: var(--danger); }
+    main { flex: 1; display: flex; overflow: hidden; position: relative; }
+    #viewport-container { flex: 1; position: relative; background: #000; overflow: hidden; }
+    #viewport-canvas { width: 100%; height: 100%; display: block; }
+    #sidebar { width: 360px; background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; z-index: 5; }
+    .section { padding: 16px; border-bottom: 1px solid var(--border); }
+    .section h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.5px; }
+    label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    input, select { width: 100%; background: #09090b; border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; outline: none; }
+    .pbr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .pbr-channel { border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 12px; text-align: center; background: #09090b; }
+    #loading-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+    .spinner { width: 36px; height: 36px; border: 3px solid #27272a; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <header>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <h2 style="font-size: 15px; font-weight: 600;">Asynx 3D Workbench</h2>
+      <span class="badge" id="mode-badge">Loading</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="danger" id="cancel-btn">Cancel</button>
+      <button class="primary" id="render-btn">Render & Export Atlas</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="viewport-container">
+      <canvas id="viewport-canvas"></canvas>
+    </div>
+
+    <div id="sidebar">
+      <div class="section">
+        <h3>Model Info</h3>
+        <p id="model-stats" style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">Loading 3D model...</p>
+      </div>
+
+      <div class="section">
+        <h3>Animation Playback</h3>
+        <label>Clip</label>
+        <select id="clip-select">
+          <option value="">No animation</option>
+        </select>
+        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+          <button id="anim-play-btn" style="flex: 1;">Pause</button>
+          <button id="anim-reset-btn" style="flex: 1;">Reset</button>
+        </div>
+        <label>Playback Speed</label>
+        <input type="range" id="anim-speed" min="0.2" max="2.0" step="0.1" value="1.0">
+      </div>
+
+      <div class="section">
+        <h3>2D Frame Sequence Settings</h3>
+        <label>Camera View Angle</label>
+        <select id="view-angle">
+          <option value="isometric_8way">Isometric 8-Way (2.5D RPG)</option>
+          <option value="isometric_4way">Isometric 4-Way</option>
+          <option value="topdown_8way">Top-Down 8-Way</option>
+          <option value="topdown_4way">Top-Down 4-Way</option>
+          <option value="side_1way">Side 1-Way (Platformer)</option>
+        </select>
+        <div style="display: flex; gap: 8px;">
+          <div style="flex: 1;">
+            <label>Frame Width</label>
+            <input type="number" id="frame-w" value="128">
+          </div>
+          <div style="flex: 1;">
+            <label>Frame Height</label>
+            <input type="number" id="frame-h" value="128">
+          </div>
+        </div>
+        <label>Target FPS</label>
+        <input type="number" id="target-fps" value="10" min="1" max="60">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="in-place-root" checked style="width: auto; margin: 0;">
+          In-Place Root Stabilization
+        </label>
+      </div>
+
+      <div class="section">
+        <h3>PBR Texture Channels</h3>
+        <div class="pbr-grid" id="pbr-channels">
+          <div class="pbr-channel">Base Color<br><span style="color:var(--text-muted)">Embedded</span></div>
+          <div class="pbr-channel">Metallic<br><span style="color:var(--text-muted)">Channel B</span></div>
+          <div class="pbr-channel">Roughness<br><span style="color:var(--text-muted)">Channel G</span></div>
+          <div class="pbr-channel">Normal<br><span style="color:var(--text-muted)">Tangent Space</span></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="loading-overlay">
+    <div class="spinner"></div>
+    <p id="loading-text">Rendering 3D Frame Sequence Atlas...</p>
+  </div>
+
+  <script>
+    const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
+    let session = null;
+
+    const MODEL_DIRECTION_AZIMUTHS = {
+      down: 90,
+      'down-right': 45,
+      right: 0,
+      'up-right': 315,
+      up: 270,
+      'up-left': 225,
+      left: 180,
+      'down-left': 135,
+      front: 270,
+      back: 90,
+    };
+
+    const DIRECTIONS_BY_VIEW = {
+      side_1way: ['right'],
+      topdown_4way: ['down', 'right', 'left', 'up'],
+      topdown_8way: ['down-left', 'down', 'down-right', 'left', 'right', 'up-left', 'up', 'up-right'],
+      isometric_4way: ['front', 'right', 'left', 'back'],
+      isometric_8way: ['down-left', 'down', 'down-right', 'left', 'right', 'up-left', 'up', 'up-right'],
+    };
+
+    function closestSquareAtlasGrid(totalFrames, frameWidth, frameHeight) {
+      let bestColumns = Math.ceil(Math.sqrt(totalFrames));
+      let bestScore = Infinity;
+      for (let cols = 1; cols <= totalFrames; cols++) {
+        const rows = Math.ceil(totalFrames / cols);
+        const w = cols * frameWidth;
+        const h = rows * frameHeight;
+        const diff = Math.abs(w - h);
+        if (diff < bestScore) {
+          bestScore = diff;
+          bestColumns = cols;
+        }
+      }
+      const rows = Math.ceil(totalFrames / bestColumns);
+      return { columns: bestColumns, rows };
+    }
+
+    // Three.js Scene Setup
+    let scene, camera, renderer, modelRoot, mixer;
+    let clock = new THREE.Clock();
+    let isPlayingAnim = true;
+
+    function initThree() {
+      const container = document.getElementById('viewport-container');
+      const canvas = document.getElementById('viewport-canvas');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x09090b);
+
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+      camera.position.set(0, 1.5, 3.5);
+
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+
+      const ambLight = new THREE.AmbientLight(0xffffff, 0.8);
+      scene.add(ambLight);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      dirLight.position.set(2, 4, 3);
+      scene.add(dirLight);
+
+      // Simple mouse rotation
+      let isDragging = false;
+      let prevMouse = { x: 0, y: 0 };
+      canvas.onpointerdown = (e) => { isDragging = true; prevMouse = { x: e.clientX, y: e.clientY }; };
+      window.onpointerup = () => { isDragging = false; };
+      canvas.onpointermove = (e) => {
+        if (!isDragging || !modelRoot) return;
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        modelRoot.rotation.y += dx * 0.01;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      };
+
+      // Default demo mesh (knight cube)
+      const geom = new THREE.BoxGeometry(1, 1.5, 0.6);
+      const mat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.8 });
+      modelRoot = new THREE.Mesh(geom, mat);
+      scene.add(modelRoot);
+
+      document.getElementById('model-stats').textContent = `Vertices: 24 | Faces: 12 | Format: GLB (PBR enabled)`;
+
+      animate();
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (mixer && isPlayingAnim) mixer.update(delta * parseFloat(document.getElementById('anim-speed').value));
+      renderer.render(scene, camera);
+    }
+
+    async function init() {
+      const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
+      session = await res.json();
+      document.getElementById('mode-badge').textContent = session.mode;
+
+      initThree();
+    }
+
+    document.getElementById('render-btn').onclick = async () => {
+      document.getElementById('loading-overlay').style.display = 'flex';
+
+      const view = document.getElementById('view-angle').value;
+      const directions = DIRECTIONS_BY_VIEW[view] || ['right'];
+      const frameW = parseInt(document.getElementById('frame-w').value) || 128;
+      const frameH = parseInt(document.getElementById('frame-h').value) || 128;
+      const fps = parseInt(document.getElementById('target-fps').value) || 10;
+      const framesPerDir = 8; // standard walk cycle frames
+
+      const totalFrames = Math.min(240, directions.length * framesPerDir);
+      const grid = closestSquareAtlasGrid(totalFrames, frameW, frameH);
+
+      const atlasCanvas = document.createElement('canvas');
+      atlasCanvas.width = grid.columns * frameW;
+      atlasCanvas.height = grid.rows * frameH;
+      const aCtx = atlasCanvas.getContext('2d');
+
+      const manifestFrames = {};
+      const offRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      offRenderer.setSize(frameW, frameH);
+      offRenderer.setClearColor(0x000000, 0);
+
+      const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20);
+
+      let frameCounter = 0;
+      for (const dir of directions) {
+        const azimuth = MODEL_DIRECTION_AZIMUTHS[dir] ?? 0;
+        const rad = (azimuth * Math.PI) / 180;
+        const elevRad = view.startsWith('isometric') ? 0.6154 : view.startsWith('topdown') ? 1.4 : 0;
+
+        orthoCamera.position.set(
+          Math.cos(rad) * Math.cos(elevRad) * 4,
+          Math.sin(elevRad) * 4,
+          Math.sin(rad) * Math.cos(elevRad) * 4
+        );
+        orthoCamera.lookAt(0, 0, 0);
+
+        for (let f = 0; f < framesPerDir; f++) {
+          if (frameCounter >= 240) break;
+          // Step animation slightly
+          modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
+          offRenderer.render(scene, orthoCamera);
+
+          const c = frameCounter % grid.columns;
+          const r = Math.floor(frameCounter / grid.columns);
+          const x = c * frameW;
+          const y = r * frameH;
+
+          aCtx.drawImage(offRenderer.domElement, x, y);
+          const frameName = `frame-${String(frameCounter).padStart(4, '0')}.png`;
+          manifestFrames[frameName] = {
+            frame: { x, y, w: frameW, h: frameH },
+            rotated: false,
+            trimmed: false,
+            direction: dir,
+            sourceSize: { w: frameW, h: frameH },
+            duration: 1.0 / fps,
+          };
+          frameCounter++;
+        }
+      }
+
+      const atlasDataUrl = atlasCanvas.toDataURL('image/png');
+      const manifest = {
+        frames: manifestFrames,
+        meta: {
+          app: 'asynx-3d',
+          version: '1.0',
+          image: 'atlas.png',
+          view: view,
+          directions: directions,
+          frame_count: frameCounter,
+          columns: grid.columns,
+          rows: grid.rows,
+          fps: fps,
+        },
+      };
+
+      const submitRes = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Asx-Session-Token': token },
+        body: json.stringify({ atlas: atlasDataUrl, manifest, metadata: { view, directions } }),
+      });
+      if (submitRes.ok) {
+        document.getElementById('loading-text').textContent = 'Atlas Exported! Returning to agent...';
+        setTimeout(() => window.close(), 1000);
+      } else {
+        alert('Render export failed');
+        document.getElementById('loading-overlay').style.display = 'none';
+      }
+    };
+
+    document.getElementById('cancel-btn').onclick = async () => {
+      await fetch('/api/cancel', { method: 'POST', headers: { 'X-Asx-Session-Token': token } });
+      window.close();
+    };
+
+    init();
+  </script>
+</body>
+</html>

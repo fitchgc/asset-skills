@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asynx Video Frame Sequence Extractor</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --card: #18181b;
+      --border: #27272a;
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --accent: #10b981;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
+    .badge { background: #27272a; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
+    button { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
+    button:hover { background: #27272a; }
+    button.primary { background: var(--primary); border-color: var(--primary); color: white; }
+    button.primary:hover { background: var(--primary-hover); }
+    button.danger { background: transparent; border-color: var(--border); color: var(--danger); }
+    main { flex: 1; display: flex; overflow: hidden; }
+    #viewport { flex: 1; display: flex; flex-direction: column; background: #000; align-items: center; justify-content: center; position: relative; overflow: auto; }
+    #preview-canvas { max-width: 80%; max-height: 60%; box-shadow: 0 4px 20px rgba(0,0,0,0.6); background-image: radial-gradient(#27272a 1px, transparent 1px); background-size: 12px 12px; }
+    #playback-bar { width: 100%; background: var(--card); border-top: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 14px; }
+    #sidebar { width: 360px; background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+    .section { padding: 16px; border-bottom: 1px solid var(--border); }
+    .section h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.5px; }
+    label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+    input, select { width: 100%; background: #09090b; border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; outline: none; }
+    .frames-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; max-height: 200px; overflow-y: auto; padding: 4px; }
+    .frame-thumb { position: relative; aspect-ratio: 1; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: #000; }
+    .frame-thumb img { width: 100%; height: 100%; object-fit: contain; }
+    .frame-thumb .idx { position: absolute; left: 2px; bottom: 2px; font-size: 10px; background: rgba(0,0,0,0.7); padding: 1px 4px; border-radius: 2px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <h2 style="font-size: 15px; font-weight: 600;">Asynx Video Workbench</h2>
+      <span class="badge" id="mode-badge">Loading</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+      <button class="danger" id="cancel-btn">Cancel</button>
+      <button class="primary" id="export-btn">Export Atlas</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="viewport">
+      <video id="source-video" style="display: none;" playsinline crossorigin="anonymous"></video>
+      <canvas id="preview-canvas"></canvas>
+      <div id="playback-bar">
+        <button id="play-btn">Play</button>
+        <span id="frame-counter" style="font-size: 12px; color: var(--text-muted); min-width: 60px;">0 / 0</span>
+        <input type="range" id="timeline-slider" min="0" max="0" value="0" style="flex: 1; margin: 0;">
+        <span id="fps-display" style="font-size: 12px; color: var(--text-muted);">10 FPS</span>
+      </div>
+    </div>
+
+    <div id="sidebar">
+      <div class="section">
+        <h3>Sampling Settings</h3>
+        <label>Start Time (s)</label>
+        <input type="number" id="start-time" value="0.0" step="0.1" min="0">
+        <label>End Time (s)</label>
+        <input type="number" id="end-time" value="0.0" step="0.1" min="0">
+        <label>Playback FPS</label>
+        <input type="number" id="sample-fps" value="10" min="1" max="60">
+        <label>Total Target Frames</label>
+        <input type="number" id="target-frames" value="16" min="2" max="120">
+        <button onclick="resampleFrames()" style="width: 100%;">Sample Frames</button>
+      </div>
+
+      <div class="section">
+        <h3>Background Removal</h3>
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="remove-bg" style="width: auto; margin: 0;">
+          Chroma-Key Background Removal
+        </label>
+        <label>Color Distance Tolerance</label>
+        <input type="range" id="bg-tolerance" min="5" max="80" value="30">
+      </div>
+
+      <div class="section">
+        <h3>Extracted Frames (<span id="frame-count-label">0</span>)</h3>
+        <div class="frames-grid" id="frames-container"></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
+    let session = null;
+    let video = document.getElementById('source-video');
+    let previewCanvas = document.getElementById('preview-canvas');
+    let pCtx = previewCanvas.getContext('2d');
+
+    let sampledFrames = [];
+    let currentFrameIdx = 0;
+    let isPlaying = false;
+    let playbackInterval = null;
+
+    async function init() {
+      const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
+      session = await res.json();
+      document.getElementById('mode-badge').textContent = session.mode;
+
+      if (session.mode === 'sequence_preview') {
+        document.getElementById('export-btn').style.display = 'none';
+        loadSequencePreview();
+        return;
+      }
+
+      video.src = '/api/source?token=' + encodeURIComponent(token);
+      video.onloadedmetadata = () => {
+        document.getElementById('end-time').value = video.duration.toFixed(2);
+        resampleFrames();
+      };
+    }
+
+    async function resampleFrames() {
+      const startTime = parseFloat(document.getElementById('start-time').value) || 0;
+      const endTime = parseFloat(document.getElementById('end-time').value) || video.duration;
+      const targetFrames = parseInt(document.getElementById('target-frames').value) || 16;
+      const removeBg = document.getElementById('remove-bg').checked;
+      const tolerance = parseInt(document.getElementById('bg-tolerance').value) || 30;
+
+      sampledFrames = [];
+      const duration = Math.max(0.1, endTime - startTime);
+      const step = duration / targetFrames;
+
+      previewCanvas.width = video.videoWidth || 256;
+      previewCanvas.height = video.videoHeight || 256;
+
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = previewCanvas.width;
+      offCanvas.height = previewCanvas.height;
+      const oCtx = offCanvas.getContext('2d');
+
+      for (let i = 0; i < targetFrames; i++) {
+        const time = startTime + i * step;
+        video.currentTime = time;
+        await new Promise(r => video.onseeked = r);
+
+        oCtx.drawImage(video, 0, 0, offCanvas.width, offCanvas.height);
+        if (removeBg) {
+          const imgData = oCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+          const bgR = imgData.data[0], bgG = imgData.data[1], bgB = imgData.data[2];
+          for (let p = 0; p < imgData.data.length; p += 4) {
+            const r = imgData.data[p], g = imgData.data[p+1], b = imgData.data[p+2];
+            const dist = Math.sqrt((r-bgR)**2 + (g-bgG)**2 + (b-bgB)**2);
+            if (dist < tolerance) imgData.data[p+3] = 0;
+          }
+          oCtx.putImageData(imgData, 0, 0);
+        }
+
+        const dataUrl = offCanvas.toDataURL('image/png');
+        sampledFrames.push(dataUrl);
+      }
+
+      renderThumbs();
+      document.getElementById('timeline-slider').max = sampledFrames.length - 1;
+      showFrame(0);
+      startPlayback();
+    }
+
+    function renderThumbs() {
+      const container = document.getElementById('frames-container');
+      document.getElementById('frame-count-label').textContent = sampledFrames.length;
+      container.innerHTML = sampledFrames.map((url, i) => `
+        <div class="frame-thumb" onclick="showFrame(${i})">
+          <img src="${url}">
+          <span class="idx">${i + 1}</span>
+        </div>
+      `).join('');
+    }
+
+    function showFrame(index) {
+      if (!sampledFrames.length) return;
+      currentFrameIdx = (index + sampledFrames.length) % sampledFrames.length;
+      const img = new Image();
+      img.onload = () => {
+        pCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        pCtx.drawImage(img, 0, 0);
+      };
+      img.src = sampledFrames[currentFrameIdx];
+      document.getElementById('frame-counter').textContent = `${currentFrameIdx + 1} / ${sampledFrames.length}`;
+      document.getElementById('timeline-slider').value = currentFrameIdx;
+    }
+
+    function startPlayback() {
+      if (playbackInterval) clearInterval(playbackInterval);
+      const fps = parseInt(document.getElementById('sample-fps').value) || 10;
+      isPlaying = true;
+      document.getElementById('play-btn').textContent = 'Pause';
+      playbackInterval = setInterval(() => {
+        showFrame(currentFrameIdx + 1);
+      }, 1000 / fps);
+    }
+
+    document.getElementById('play-btn').onclick = () => {
+      if (isPlaying) {
+        clearInterval(playbackInterval);
+        isPlaying = false;
+        document.getElementById('play-btn').textContent = 'Play';
+      } else {
+        startPlayback();
+      }
+    };
+
+    document.getElementById('timeline-slider').oninput = (e) => {
+      if (isPlaying) {
+        clearInterval(playbackInterval);
+        isPlaying = false;
+        document.getElementById('play-btn').textContent = 'Play';
+      }
+      showFrame(parseInt(e.target.value));
+    };
+
+    document.getElementById('export-btn').onclick = async () => {
+      if (!sampledFrames.length) return alert('No frames sampled');
+      const cols = Math.ceil(Math.sqrt(sampledFrames.length));
+      const rows = Math.ceil(sampledFrames.length / cols);
+      const frameW = previewCanvas.width;
+      const frameH = previewCanvas.height;
+
+      const atlasCanvas = document.createElement('canvas');
+      atlasCanvas.width = cols * frameW;
+      atlasCanvas.height = rows * frameH;
+      const aCtx = atlasCanvas.getContext('2d');
+
+      const manifestFrames = {};
+      const fps = parseInt(document.getElementById('sample-fps').value) || 10;
+      const frameDuration = 1.0 / fps;
+
+      for (let i = 0; i < sampledFrames.length; i++) {
+        const c = i % cols;
+        const r = Math.floor(i / cols);
+        const x = c * frameW;
+        const y = r * frameH;
+
+        const img = new Image();
+        img.src = sampledFrames[i];
+        await new Promise(res => img.onload = res);
+        aCtx.drawImage(img, x, y);
+
+        const frameName = `frame-${String(i).padStart(4, '0')}.png`;
+        manifestFrames[frameName] = {
+          frame: { x, y, w: frameW, h: frameH },
+          rotated: false,
+          trimmed: false,
+          spriteSourceSize: { x: 0, y: 0, w: frameW, h: frameH },
+          sourceSize: { w: frameW, h: frameH },
+          duration: frameDuration,
+        };
+      }
+
+      const atlasDataUrl = atlasCanvas.toDataURL('image/png');
+      const manifest = {
+        frames: manifestFrames,
+        meta: {
+          app: 'asynx-video',
+          version: '1.0',
+          image: 'atlas.png',
+          format: 'RGBA8888',
+          size: { w: atlasCanvas.width, h: atlasCanvas.height },
+          scale: 1,
+          frame_count: sampledFrames.length,
+          columns: cols,
+          rows: rows,
+          fps: fps,
+        },
+      };
+
+      const res = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Asx-Session-Token': token },
+        body: json.stringify({ atlas: atlasDataUrl, manifest }),
+      });
+      if (res.ok) {
+        alert('Atlas exported successfully!');
+        window.close();
+      } else {
+        alert('Export failed');
+      }
+    };
+
+    document.getElementById('cancel-btn').onclick = async () => {
+      await fetch('/api/cancel', { method: 'POST', headers: { 'X-Asx-Session-Token': token } });
+      window.close();
+    };
+
+    async function loadSequencePreview() {
+      const manifestRes = await fetch('/api/manifest?token=' + encodeURIComponent(token));
+      const manifest = await manifestRes.json();
+      const atlasImg = new Image();
+      atlasImg.onload = () => {
+        const frameKeys = Object.keys(manifest.frames || {});
+        let idx = 0;
+        setInterval(() => {
+          if (!frameKeys.length) return;
+          const k = frameKeys[idx % frameKeys.length];
+          const f = manifest.frames[k].frame;
+          previewCanvas.width = f.w;
+          previewCanvas.height = f.h;
+          pCtx.clearRect(0, 0, f.w, f.h);
+          pCtx.drawImage(atlasImg, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h);
+          idx++;
+        }, 1000 / (manifest.meta?.fps || 10));
+      };
+      atlasImg.src = '/api/source?token=' + encodeURIComponent(token);
+    }
+
+    init();
+  </script>
+</body>
+</html>

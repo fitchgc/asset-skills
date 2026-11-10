@@ -1,0 +1,4 @@
+interface:
+  command: "python3 scripts/asynx.py"
+  input_schema:
+    type: object

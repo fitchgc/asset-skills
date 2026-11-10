@@ -4,8 +4,12 @@
 
 **Blocked by:** 03: `asynx-audio` Asset Skill (Cloud Generation & Keyless Local Audio Post-Processing), 06: `asynx-video` Local UI Workbench (Interactive Video Frame Sequence Extractor & Atlas Previewer), 07: `asynx-3d` Local UI Workbench (WebGL 3D/PBR Inspector & Multi-Angle Frame Sequence Renderer)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Running the release packaging command produces four self-contained zip archives (`asynx-image.zip`, `asynx-audio.zip`, `asynx-video.zip`, `asynx-3d.zip`) and verified SHA-256 package manifests sharing a single lockstep semantic version.
-- [ ] Each Asset Skill's `update status` and `update apply` commands discover releases for its own skill identifier, validate package integrity and file safety rules, hold an exclusive runtime lock during replacement across known agent skill installation paths, and atomically roll back from the transaction journal if replacement fails.
-- [ ] An end-to-end cross-skill integration test installs all four built zip packages into an isolated temporary agent skills directory and executes a complete multi-modal game asset workflow using a single shared configuration and state ledger: generating a character concept in `asynx-image`, chaining its task ID via `--from-task` into both `asynx-video` (followed by spritesheet extraction) and `asynx-3d` (`generate` → `rig` → `animate` → `model3d info`), and generating + normalizing companion sound effects in `asynx-audio`.
+- [x] Running the release packaging command produces four self-contained zip archives (`asynx-image.zip`, `asynx-audio.zip`, `asynx-video.zip`, `asynx-3d.zip`) and verified SHA-256 package manifests sharing a single lockstep semantic version.
+- [x] Each Asset Skill's `update status` and `update apply` commands discover releases for its own skill identifier, validate package integrity and file safety rules, hold an exclusive runtime lock during replacement across known agent skill installation paths, and atomically roll back from the transaction journal if replacement fails.
+- [x] An end-to-end cross-skill integration test installs all four built zip packages into an isolated temporary agent skills directory and executes a complete multi-modal game asset workflow using a single shared configuration and state ledger: generating a character concept in `asynx-image`, chaining its task ID via `--from-task` into both `asynx-video` (followed by spritesheet extraction) and `asynx-3d` (`generate` → `rig` → `animate` → `model3d info`), and generating + normalizing companion sound effects in `asynx-audio`.
+
+## Answer
+
+Implemented the lockstep packaging and release pipeline generating four self-contained standalone `.zip` packages and SHA-256 manifests under version `0.7.0` (`asynx-image`, `asynx-audio`, `asynx-video`, `asynx-3d`). Updated self-updater logic to dynamically resolve releases and receipts per skill name with runtime lock protection and transactional rollback. Created comprehensive cross-skill integration tests in `tests/test_issue_08_cross_skill_integration.py` verifying full end-to-end multi-modal pipeline execution across Image, Video, 3D, and Audio using shared credentials and the unified state ledger.
