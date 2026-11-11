@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import cgi
 import io
 import json
 import mimetypes
@@ -99,6 +98,26 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(session_data)
                 return
 
+            if path == "/api/result":
+                r_path = parse_qs(parsed.query).get("path", [None])[0]
+                if r_path:
+                    res_file = Path(r_path).expanduser().resolve()
+                    if res_file.is_file():
+                        mime, _ = mimetypes.guess_type(str(res_file))
+                        mime = mime or "image/png"
+                        size = res_file.stat().st_size
+                        self.send_response(200)
+                        self.send_header("Content-Type", mime)
+                        self.send_header("Content-Length", str(size))
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        with res_file.open("rb") as f:
+                            while chunk := f.read(64 * 1024):
+                                self.wfile.write(chunk)
+                        return
+                self._send_json({"ok": False, "error": {"code": "not_found", "message": "Result file not found"}}, status=404)
+                return
+
             if path == "/api/source" and self.server.source_path:
                 source_file = Path(self.server.source_path).resolve()
                 if not source_file.is_file():
@@ -172,11 +191,19 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/submit":
             try:
+                import importlib
+                from . import reference_media
+                importlib.reload(reference_media)
                 res_payload, exit_code = self.server.handle_submit(body)
+                if not res_payload.get("ok", True) or exit_code != 0:
+                    err_info = res_payload.get("error") or {"code": "task_failed", "message": "任务执行失败"}
+                    self._send_json({"ok": False, "error": err_info, "result": res_payload}, status=400)
+                    return
                 self._send_json({"ok": True, "result": res_payload})
                 self.server.result_payload = res_payload
                 self.server.exit_code = exit_code
-                self.server.shutdown_event.set()
+                if not body.get("keep_alive"):
+                    threading.Timer(1.5, self.server.shutdown_event.set).start()
             except AsxError as exc:
                 self._send_json(exc.payload(), status=400)
             except Exception as exc:
@@ -200,7 +227,22 @@ class WorkbenchServer(ThreadingHTTPServer):
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
-        super().__init__((host, port), WorkbenchRequestHandler)
+        if port != 0:
+            super().__init__((host, port), WorkbenchRequestHandler)
+        else:
+            # 优先使用固定的默认端口 51888，被占用时顺延，保证会话链接稳定
+            initialized = False
+            last_err = None
+            for p in list(range(51888, 51901)) + [0]:
+                try:
+                    super().__init__((host, p), WorkbenchRequestHandler)
+                    initialized = True
+                    break
+                except OSError as err:
+                    last_err = err
+                    continue
+            if not initialized and last_err:
+                raise last_err
         self.mode = mode
         self.source_path = source_path
         self.output_path = output_path
@@ -223,12 +265,14 @@ class WorkbenchServer(ThreadingHTTPServer):
                 self.models = []
 
     def handle_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        mode = self.mode
+        mode = body.get("mode") or self.mode
 
-        if mode == "region_edit":
-            return self._handle_region_edit_submit(body)
-        elif mode in {"tools", "image_tools", "annotate", "image_annotate"}:
+        if mode in {"tools", "image_tools", "annotate", "image_annotate"} or body.get("recipe") or (
+            "image_data" in body and "mask" not in body and "annotations" not in body and "prompt" not in body
+        ):
             return self._handle_image_tool_submit(body)
+        elif mode == "region_edit":
+            return self._handle_region_edit_submit(body)
         elif mode in {"video_frame_sequence", "frame_sequence", "model3d_render_sequence", "render_sequence"}:
             return self._handle_atlas_submit(body)
         elif mode in {"model3d_viewer", "viewer"}:
@@ -244,6 +288,7 @@ class WorkbenchServer(ThreadingHTTPServer):
 
         mask_data_url = body.get("mask")
         preview_data_url = body.get("annotation_preview")
+        source_data_url = body.get("source_data")
         annotations = body.get("annotations", [])
         overall_prompt = body.get("prompt", "").strip()
         selected_model = body.get("model") or "gpt-image-2.5-sunburst"
@@ -254,7 +299,12 @@ class WorkbenchServer(ThreadingHTTPServer):
         token = secrets.token_hex(6)
         mask_path = dest_dir / f"mask_{token}.png"
         preview_path = dest_dir / f"preview_{token}.png"
+        clean_source_path = Path(self.source_path)
 
+        if source_data_url:
+            source_bytes, _ = _decode_data_url(source_data_url)
+            clean_source_path = dest_dir / f"source_{token}.png"
+            clean_source_path.write_bytes(source_bytes)
         if mask_data_url:
             mask_bytes, _ = _decode_data_url(mask_data_url)
             mask_path.write_bytes(mask_bytes)
@@ -274,10 +324,14 @@ class WorkbenchServer(ThreadingHTTPServer):
         final_prompt = "\n\n".join(prompt_parts) or "Edit the marked regions"
 
         # Prepare images: [source_image, annotation_preview_image]
+        input_paths = [str(clean_source_path)]
+        if preview_data_url and preview_path.is_file():
+            input_paths.append(str(preview_path))
+
         from .reference_media import prepare_inputs
         images, prepared_mask = prepare_inputs(
-            [self.source_path, str(preview_path)],
-            mask=str(mask_path) if mask_data_url else None,
+            input_paths,
+            mask=str(mask_path) if (mask_data_url and mask_path.is_file()) else None,
             keep_original=False,
         )
         request_input: dict[str, Any] = {
@@ -293,7 +347,7 @@ class WorkbenchServer(ThreadingHTTPServer):
         }
 
         idempotency_key = f"asx-ui-region-{token}"
-        return run_task_submission(
+        res_payload, exit_code = run_task_submission(
             self.client,
             task_type="image.edit",
             body=request_body,
@@ -302,9 +356,25 @@ class WorkbenchServer(ThreadingHTTPServer):
             idempotency_key=idempotency_key,
             modality="image",
         )
+        # Fallback if the selected model does not support mask parameter (e.g., gemini-*-image)
+        err_msg = str((res_payload.get("error") or {}).get("message", ""))
+        if not res_payload.get("ok") and "mask" in err_msg and "mask" in request_input:
+            fallback_input = dict(request_input)
+            fallback_input.pop("mask", None)
+            fallback_body = {"model": selected_model, "input": fallback_input}
+            res_payload, exit_code = run_task_submission(
+                self.client,
+                task_type="image.edit",
+                body=fallback_body,
+                model=selected_model,
+                output_dir=str(dest_dir),
+                idempotency_key=f"asx-ui-region-nomask-{token}",
+                modality="image",
+            )
+        return res_payload, exit_code
 
     def _handle_image_tool_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        image_data = body.get("image_data")
+        image_data = body.get("image_data") or body.get("annotation_preview") or body.get("mask")
         if not image_data:
             raise AsxError("No image data provided in submission", code="missing_image_data")
 
@@ -342,6 +412,7 @@ class WorkbenchServer(ThreadingHTTPServer):
                 "size_bytes": len(data),
                 "recipe": body.get("recipe"),
             },
+            "files": [str(out_file)],
         }, 0
 
     def _handle_atlas_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
@@ -371,6 +442,40 @@ class WorkbenchServer(ThreadingHTTPServer):
         }, 0
 
 
+def _safe_open_browser(url: str) -> bool:
+    """尝试在系统浏览器中打开 URL，静默捕获无桌面环境或 AppleScript 权限错误，避免 stderr 污染终端。"""
+    import subprocess
+    import sys
+
+    if sys.platform == "darwin":
+        try:
+            res = subprocess.run(
+                ["/usr/bin/open", url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            if res.returncode == 0:
+                return True
+        except Exception:
+            pass
+        # 在 macOS 上如果 open 失败（例如无 GUI 权限的后台守护进程），webbrowser 会尝试多个 AppleScript 方案并在 stderr 抛错，此处直接静默返回
+        return False
+
+    try:
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        old_stderr = os.dup(2)
+        try:
+            os.dup2(devnull_fd, 2)
+            return bool(webbrowser.open(url))
+        finally:
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+            os.close(devnull_fd)
+    except Exception:
+        return False
+
+
 def launch_workbench(
     *,
     mode: str,
@@ -397,10 +502,7 @@ def launch_workbench(
 
     log(f"Local UI Workbench available at: {url}")
     if open_browser:
-        try:
-            webbrowser.open(url)
-        except Exception:
-            pass
+        _safe_open_browser(url)
 
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()

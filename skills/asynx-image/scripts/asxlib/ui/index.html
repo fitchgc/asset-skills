@@ -1,385 +1,1628 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Asynx Local UI Workbench</title>
   <style>
     :root {
-      --bg: #09090b;
-      --card: #18181b;
-      --border: #27272a;
-      --text: #f4f4f5;
-      --text-muted: #a1a1aa;
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
+      --bg: #f7f7f5;
+      --card: #ffffff;
+      --border: #e4e4e7;
+      --border-dark: #d4d4d8;
+      --text: #171717;
+      --text-muted: #737373;
+      --text-sub: #52525b;
+      --primary: #18181b;
+      --primary-hover: #000000;
       --danger: #ef4444;
-      --accent: #10b981;
+      --accent: #ef4444;
+      --tab-bg: #eeeeea;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; }
-    .title-group { display: flex; align-items: center; gap: 12px; }
-    .badge { background: #27272a; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
-    .actions { display: flex; gap: 8px; }
-    button { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
-    button:hover { background: #27272a; }
-    button.primary { background: var(--primary); border-color: var(--primary); color: white; }
-    button.primary:hover { background: var(--primary-hover); }
-    button.danger { background: transparent; border-color: var(--border); color: var(--danger); }
-    button.active { background: #3b82f633; border-color: var(--primary); color: var(--primary); }
-    main { flex: 1; display: flex; overflow: hidden; }
-    #canvas-container { flex: 1; position: relative; background: #000000; display: flex; align-items: center; justify-content: center; overflow: auto; background-image: radial-gradient(#27272a 1px, transparent 1px); background-size: 16px 16px; }
-    canvas { box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
-    #sidebar { width: 340px; background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
-    .panel-section { padding: 16px; border-bottom: 1px solid var(--border); }
-    .panel-section h3 { font-size: 13px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 12px; letter-spacing: 0.5px; }
-    .tool-group { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-    label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-    input, select, textarea { width: 100%; background: #09090b; border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; outline: none; }
-    input:focus, select:focus, textarea:focus { border-color: var(--primary); }
-    textarea { resize: vertical; min-height: 80px; }
-    .annotation-item { background: #09090b; border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 8px; font-size: 12px; }
-    .annotation-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; color: var(--text-muted); }
-    #loading-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
-    .spinner { width: 36px; height: 36px; border: 3px solid #27272a; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+    /* 顶部导航 */
+    header {
+      height: 48px;
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+      z-index: 60;
+    }
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .tabs-group {
+      display: flex;
+      background: var(--tab-bg);
+      padding: 3px;
+      border-radius: 9px;
+      gap: 2px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      padding: 5px 14px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .tab-btn:hover {
+      color: var(--text);
+    }
+    .tab-btn.active {
+      background: #ffffff;
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      font-weight: 600;
+    }
+    .header-info {
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header-info .sep {
+      color: #d4d4d8;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-header {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-sub);
+      padding: 5px 12px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-header:hover {
+      border-color: #a1a1aa;
+      color: var(--text);
+      background: #fafafa;
+    }
+
+    /* 主舞台区 */
+    main {
+      flex: 1;
+      position: relative;
+      display: flex;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    #stage-viewport {
+      flex: 1;
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* 棋盘格背景与图片容器 */
+    #image-frame-container {
+      position: absolute;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+      border-radius: 4px;
+    }
+    .checkerboard {
+      background-color: #ffffff;
+      background-image: 
+        linear-gradient(45deg, #e4e4e7 25%, transparent 25%), 
+        linear-gradient(-45deg, #e4e4e7 25%, transparent 25%), 
+        linear-gradient(45deg, transparent 75%, #e4e4e7 75%), 
+        linear-gradient(-45deg, transparent 75%, #e4e4e7 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+    }
+    #source-image-view {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: fill;
+      user-select: none;
+      -webkit-user-drag: none;
+    }
+
+    /* 批注 Canvas 遮罩层 */
+    #stage-canvas {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+    #stage-canvas.tool-brush { cursor: crosshair; }
+    #stage-canvas.tool-annotation { cursor: crosshair; }
+    #stage-canvas.tool-rectangle { cursor: crosshair; }
+    #stage-canvas.tool-lasso { cursor: crosshair; }
+    #stage-canvas.tool-edit { cursor: text; }
+    #stage-canvas.tool-delete { cursor: not-allowed; }
+
+    /* 浮动修改输入框（Text Draft Form） */
+    #text-draft-form {
+      position: absolute;
+      z-index: 50;
+      display: none;
+      height: 40px;
+      width: 280px;
+      align-items: center;
+      gap: 6px;
+      border-radius: 12px;
+      border: 1px solid var(--border-dark);
+      background: rgba(255, 255, 255, 0.98);
+      padding: 0 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      backdrop-filter: blur(8px);
+    }
+    .text-draft-indicator {
+      margin-left: 2px;
+      height: 20px;
+      width: 2.5px;
+      border-radius: 9999px;
+      background-color: #ef4444;
+      flex-shrink: 0;
+    }
+    .text-draft-input {
+      height: 30px;
+      flex: 1;
+      min-width: 0;
+      border-radius: 8px;
+      border: none;
+      background: #fafafa;
+      padding: 0 10px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #ef4444;
+      outline: none;
+      transition: background-color 0.15s;
+    }
+    .text-draft-input::placeholder {
+      font-size: 12px;
+      font-weight: 400;
+      color: #9ca3af;
+    }
+    .text-draft-input:focus {
+      background: #ffffff;
+    }
+    .btn-icon-check {
+      display: inline-flex;
+      height: 28px;
+      width: 28px;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: #171717;
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.15s;
+    }
+    .btn-icon-check:hover {
+      background: #000000;
+    }
+    .btn-icon-cancel {
+      display: inline-flex;
+      height: 28px;
+      width: 28px;
+      flex-shrink: 0;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      border: 1px solid #e4e4e7;
+      background: #ffffff;
+      color: #52525b;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-icon-cancel:hover {
+      border-color: #a1a1aa;
+      color: #171717;
+    }
+
+    /* 底部悬浮控制台 Composer */
+    #region-composer {
+      position: absolute;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(940px, calc(100vw - 32px));
+      border-radius: 20px;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      background: rgba(255, 255, 255, 0.97);
+      padding: 10px;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #region-prompt {
+      height: 68px;
+      min-height: 68px;
+      resize: none;
+      border-radius: 14px;
+      border: 1px solid #e4e4e7;
+      background: #f8fafc;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #111827;
+      outline: none;
+      transition: border-color 0.15s, background-color 0.15s;
+    }
+    #region-prompt::placeholder {
+      font-size: 12px;
+      font-weight: 400;
+      color: #9ca3af;
+    }
+    #region-prompt:focus {
+      border-color: #a1a1aa;
+      background: #ffffff;
+    }
+    .composer-bottom {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .composer-tools {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+    }
+    .tool-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      background: transparent;
+      color: #52525b;
+      border: 1px solid #e4e4e7;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .tool-btn:hover {
+      background: #f4f4f5;
+      color: #18181b;
+    }
+    .tool-btn.active {
+      background: #18181b;
+      color: #ffffff;
+      border-color: #18181b;
+    }
+    .tool-divider {
+      width: 1px;
+      height: 18px;
+      background: #e5e7eb;
+      margin: 0 4px;
+    }
+    .composer-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .model-select-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+    }
+    .model-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: #ffffff;
+      border: 1px solid #e4e4e7;
+      color: #171717;
+      padding: 6px 28px 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .model-select:focus {
+      border-color: #a1a1aa;
+    }
+    .model-select-icon {
+      position: absolute;
+      right: 8px;
+      pointer-events: none;
+      color: #737373;
+    }
+    .btn-submit {
+      background: #18181b;
+      color: #ffffff;
+      border: none;
+      padding: 7px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background-color 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-submit:hover {
+      background: #000000;
+    }
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    /* 图片处理模式侧边面板 (Tools) */
+    #tools-panel {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      bottom: 16px;
+      width: 320px;
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+      display: none;
+      flex-direction: column;
+      gap: 16px;
+      z-index: 40;
+      backdrop-filter: blur(12px);
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .recipe-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .recipe-btn {
+      text-align: left;
+      background: #fafafa;
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .recipe-btn:hover {
+      background: #f4f4f5;
+      border-color: #d4d4d8;
+    }
+    .field-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .field-row label {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .field-row input {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      color: var(--text);
+      outline: none;
+    }
+
+    /* 状态与加载指示器 */
+    #loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(255, 255, 255, 0.85);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      backdrop-filter: blur(4px);
+    }
+    .spinner {
+      width: 36px;
+      height: 36px;
+      border: 3px solid #e4e4e7;
+      border-top-color: #18181b;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
   <header>
-    <div class="title-group">
-      <h2 style="font-size: 16px; font-weight: 600;">Asynx Local UI Workbench</h2>
-      <span class="badge" id="mode-badge">Loading</span>
+    <div class="header-left">
+      <!-- 模式切换 Tabs -->
+      <div class="tabs-group" role="tablist">
+        <button class="tab-btn" id="tab-btn-view" onclick="setAppMode('view')">查看</button>
+        <button class="tab-btn" id="tab-btn-tools" onclick="setAppMode('tools')">图片处理</button>
+        <button class="tab-btn active" id="tab-btn-region" onclick="setAppMode('region_edit')">局部重绘</button>
+      </div>
+      <div class="header-info">
+        <span id="session-title" style="font-weight: 500; color: #171717;">局部重绘</span>
+        <span class="sep">·</span>
+        <span id="image-dimensions" style="color: #737373;">Loading</span>
+      </div>
     </div>
-    <div class="actions">
-      <button class="danger" id="cancel-btn">Cancel</button>
-      <button class="primary" id="submit-btn">Submit</button>
+    <div class="header-actions">
+      <span style="font-size: 12px; color: #a1a1aa; margin-right: 8px;">Asynx Local UI Workbench</span>
+      <button class="btn-header" id="cancel-btn">取消</button>
+      <button class="btn-header" id="finish-btn" style="background: #18181b; color: #ffffff; border-color: #18181b;">完成</button>
     </div>
   </header>
 
   <main>
-    <div id="canvas-container">
-      <div id="canvas-wrapper" style="position: relative;">
-        <canvas id="source-canvas"></canvas>
-        <canvas id="draw-canvas" style="position: absolute; left: 0; top: 0; cursor: crosshair;"></canvas>
+    <div id="stage-viewport">
+      <!-- 图片图层 -->
+      <div id="image-frame-container" class="checkerboard">
+        <img id="source-image-view" alt="工作图" />
       </div>
-    </div>
 
-    <div id="sidebar">
-      <!-- Injected per mode -->
-      <div id="sidebar-content"></div>
+      <!-- 标注与绘制 Canvas -->
+      <canvas id="stage-canvas" class="tool-annotation"></canvas>
+
+      <!-- 浮动文字输入框（指向、框选、圈选绘制完成或编辑时弹出） -->
+      <form id="text-draft-form">
+        <span class="text-draft-indicator"></span>
+        <input type="text" id="text-draft-input" class="text-draft-input" placeholder="这里要怎么改" autocomplete="off" />
+        <button type="submit" class="btn-icon-check" title="确认文字" aria-label="确认文字">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+        </button>
+        <button type="button" class="btn-icon-cancel" id="text-draft-cancel-btn" title="取消文字" aria-label="取消文字">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </form>
+
+      <!-- 底部悬浮控制台 (局部重绘模式) -->
+      <div id="region-composer">
+        <textarea id="region-prompt" placeholder="整体修改要求（可选）"></textarea>
+        <div class="composer-bottom">
+          <div class="composer-tools">
+            <button type="button" class="tool-btn" id="tool-brush" onclick="setTool('brush')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 2 4 4-14 14H4v-4L18 2z"></path><path d="m14.5 5.5 4 4"></path></svg>
+              涂鸦
+            </button>
+            <div id="brush-size-controls" style="display: none; align-items: center; gap: 4px; margin-right: 4px;">
+              <span style="font-size: 11px; color: var(--text-muted); margin-left: 2px;">大小:</span>
+              <button type="button" class="tool-btn" style="padding: 2px 7px; font-size: 11px;" onclick="setBrushRadius(12, this)">细</button>
+              <button type="button" class="tool-btn active" style="padding: 2px 7px; font-size: 11px;" onclick="setBrushRadius(24, this)">中</button>
+              <button type="button" class="tool-btn" style="padding: 2px 7px; font-size: 11px;" onclick="setBrushRadius(48, this)">粗</button>
+            </div>
+            <button type="button" class="tool-btn active" id="tool-annotation" onclick="setTool('annotation')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
+              指向
+            </button>
+            <button type="button" class="tool-btn" id="tool-rectangle" onclick="setTool('rectangle')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
+              框选
+            </button>
+            <button type="button" class="tool-btn" id="tool-lasso" onclick="setTool('lasso')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle></svg>
+              圈选
+            </button>
+            <button type="button" class="tool-btn" id="tool-edit" onclick="setTool('edit')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
+              编辑
+            </button>
+            <button type="button" class="tool-btn" id="tool-delete" onclick="setTool('delete')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path><path d="M22 21H7"></path><path d="m5 11 9 9"></path></svg>
+              删除
+            </button>
+            <div class="tool-divider"></div>
+            <button type="button" class="tool-btn" onclick="clearMarks()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              清空
+            </button>
+          </div>
+
+          <div class="composer-actions">
+            <div class="model-select-wrapper">
+              <select id="model-select" class="model-select">
+                <!-- 模型由 session.models 填充，默认支持 GPT Image 2 -->
+                <option value="gpt-image-2.5-sunburst">GPT Image 2</option>
+              </select>
+              <svg class="model-select-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <button type="button" class="btn-submit" id="submit-btn" onclick="handleSubmit()">
+              提交
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 图片处理工具侧边面板 (图片处理模式) -->
+      <div id="tools-panel">
+        <div class="panel-title">图片预处理</div>
+        <div class="recipe-list">
+          <button class="recipe-btn" onclick="applyRecipe('remove_background')">🪄 扣除背景 (Remove BG)</button>
+          <button class="recipe-btn" onclick="applyRecipe('trim_transparent')">✂️ 裁切透明边缘 (Trim)</button>
+          <button class="recipe-btn" onclick="applyRecipe('inventory_icon')">📦 物品图标 (64x64 + 居中)</button>
+          <button class="recipe-btn" onclick="resetToOriginal()">↺ 还原为原始图片</button>
+        </div>
+        <hr style="border: none; border-top: 1px solid var(--border);" />
+        <div class="field-row">
+          <label>调整尺寸 (宽 / 高)</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="number" id="resize-w" style="flex: 1;" placeholder="宽" />
+            <input type="number" id="resize-h" style="flex: 1;" placeholder="高" />
+          </div>
+          <button class="recipe-btn" style="margin-top: 4px; text-align: center;" onclick="applyResize()">应用缩放</button>
+        </div>
+        <div style="flex: 1;"></div>
+        <button class="btn-submit" style="width: 100%; justify-content: center;" onclick="submitToolImage()">保存修改</button>
+      </div>
     </div>
   </main>
 
   <div id="loading-overlay">
     <div class="spinner"></div>
-    <p id="loading-text">Processing...</p>
+    <p id="loading-text" style="font-size: 13px; font-weight: 500; color: #171717;">处理中...</p>
   </div>
 
   <script>
+    // 常量定义（参考 image-flow 规范）
+    const ANNOTATION_COLOR = '#ef4444';
+    const ANNOTATION_LINE_WIDTH = 2.1;
+    const MASK_STROKE_WIDTH = 2;
+    const ANNOTATION_FONT_SIZE = 13;
+    const ANNOTATION_MIN_LENGTH = 10;
+    const LASSO_MIN_SCREEN_DISTANCE = 3;
+    const LASSO_MIN_POINTS = 3;
+    const ARROW_TARGET_MASK_MIN_SIZE = 32;
+    const ARROW_TARGET_MASK_RATIO = 0.08;
+    const TEXT_DRAFT_WIDTH = 280;
+    const TEXT_DRAFT_HEIGHT = 40;
+    const TEXT_DRAFT_OFFSET_X = 12;
+    const TEXT_DRAFT_OFFSET_Y = 12;
+    const TEXT_DRAFT_EDGE_MARGIN = 16;
+
+    // 状态管理
     const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
     let session = null;
-    let sourceImage = new Image();
-    let currentTool = 'arrow';
+    let appMode = 'region_edit'; // 'view' | 'tools' | 'region_edit'
+    let currentTool = 'annotation'; // 'annotation' | 'rectangle' | 'lasso' | 'edit' | 'delete'
     let marks = [];
-    let isDrawing = false;
-    let startPoint = null;
-    let currentLasso = [];
+    let draft = null;
+    let textDraft = null;
+    let hoveredMarkId = null;
+    let isPointerDown = false;
 
-    const sourceCanvas = document.getElementById('source-canvas');
-    const drawCanvas = document.getElementById('draw-canvas');
-    const sCtx = sourceCanvas.getContext('2d');
-    const dCtx = drawCanvas.getContext('2d');
+    // 图像与几何数据
+    let sourceImage = new Image();
+    let currentImageCanvas = document.createElement('canvas'); // 保存当前编辑后的像素
+    let stageSize = { width: 0, height: 0 };
+    let imageFrame = { left: 0, top: 0, width: 0, height: 0 };
+    let sourceWidth = 0;
+    let sourceHeight = 0;
 
+    // DOM 元素
+    const stageViewport = document.getElementById('stage-viewport');
+    const imageFrameContainer = document.getElementById('image-frame-container');
+    const sourceImageView = document.getElementById('source-image-view');
+    const stageCanvas = document.getElementById('stage-canvas');
+    const sCtx = stageCanvas.getContext('2d');
+    const textDraftForm = document.getElementById('text-draft-form');
+    const textDraftInput = document.getElementById('text-draft-input');
+    const regionComposer = document.getElementById('region-composer');
+    const toolsPanel = document.getElementById('tools-panel');
+
+    // 辅助几何函数
+    function clamp(val, min, max) {
+      return Math.min(Math.max(val, min), max);
+    }
+    function distance(p1, p2) {
+      return Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    }
+    function createElementId() {
+      return 'mark_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    function fitContain(sw, sh, maxW, maxH) {
+      const ratio = Math.min(maxW / sw, maxH / sh, 1);
+      return {
+        width: Math.max(1, Math.round(sw * ratio)),
+        height: Math.max(1, Math.round(sh * ratio)),
+      };
+    }
+
+    // 初始化
     async function init() {
       try {
         const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
         if (!res.ok) throw new Error('Unauthorized or session expired');
         session = await res.json();
-        document.getElementById('mode-badge').textContent = session.mode;
+
+        // 模型选项加载（优先默认选择支持局部重绘 Mask 的 gpt-image-2 模型）
+        const modelSelect = document.getElementById('model-select');
+        if (session.models && session.models.length > 0) {
+          const editModels = session.models.filter(m => {
+            const types = m.task_types || (m.capabilities && m.capabilities.task_types) || [];
+            return !types.length || types.includes('image.edit');
+          });
+          const list = editModels.length > 0 ? editModels : session.models;
+          modelSelect.innerHTML = list.map(m => {
+            const name = m.name || m.id || m.label || m;
+            const label = m.label || (name === 'gpt-image-2' ? 'GPT Image 2' : name);
+            return `<option value="${name}">${label}</option>`;
+          }).join('');
+          const preferred = list.find(m => (m.name || m.id) === 'gpt-image-2') || list.find(m => String(m.name || m.id).startsWith('gpt-image'));
+          if (preferred) {
+            modelSelect.value = preferred.name || preferred.id;
+          }
+        }
+
+        // 根据后端初始模式设置
+        if (session.mode === 'tools' || session.mode === 'image_tools') {
+          setAppMode('tools');
+        } else {
+          setAppMode('region_edit');
+        }
 
         sourceImage.crossOrigin = 'anonymous';
         sourceImage.onload = () => {
-          sourceCanvas.width = sourceImage.naturalWidth;
-          sourceCanvas.height = sourceImage.naturalHeight;
-          drawCanvas.width = sourceImage.naturalWidth;
-          drawCanvas.height = sourceImage.naturalHeight;
-          sCtx.drawImage(sourceImage, 0, 0);
-          setupModeUI();
+          sourceWidth = sourceImage.naturalWidth;
+          sourceHeight = sourceImage.naturalHeight;
+          currentImageCanvas.width = sourceWidth;
+          currentImageCanvas.height = sourceHeight;
+          const ctx = currentImageCanvas.getContext('2d');
+          ctx.drawImage(sourceImage, 0, 0);
+
+          sourceImageView.src = currentImageCanvas.toDataURL('image/png');
+          document.getElementById('image-dimensions').textContent = `${sourceWidth} × ${sourceHeight}`;
+          document.getElementById('resize-w').value = sourceWidth;
+          document.getElementById('resize-h').value = sourceHeight;
+
+          measureStage();
+          render();
         };
         sourceImage.src = '/api/source?token=' + encodeURIComponent(token);
       } catch (err) {
-        alert('Failed to load session: ' + err.message);
+        alert('加载工作台失败: ' + err.message);
       }
     }
 
-    function setupModeUI() {
-      const sidebar = document.getElementById('sidebar-content');
-      if (session.mode === 'region_edit') {
-        sidebar.innerHTML = `
-          <div class="panel-section">
-            <h3>Annotation Tools</h3>
-            <div class="tool-group">
-              <button class="active" onclick="setTool('arrow', this)">Arrow</button>
-              <button onclick="setTool('rectangle', this)">Rectangle</button>
-              <button onclick="setTool('lasso', this)">Lasso</button>
-              <button onclick="clearMarks()">Clear</button>
-            </div>
-          </div>
-          <div class="panel-section">
-            <h3>Region Instructions</h3>
-            <div id="annotations-list">
-              <p style="color: var(--text-muted); font-size: 12px;">Draw an arrow, rectangle or lasso on the image to add instructions.</p>
-            </div>
-          </div>
-          <div class="panel-section">
-            <h3>Overall Prompt</h3>
-            <textarea id="overall-prompt" placeholder="Overall image modification prompt..."></textarea>
-            <label>Model</label>
-            <select id="model-select">
-              ${(session.models || []).map(m => `<option value="${m.name}">${m.name}</option>`).join('')}
-            </select>
-          </div>
-        `;
-        setupDrawingListeners();
-      } else if (session.mode === 'tools' || session.mode === 'image_tools') {
-        document.getElementById('submit-btn').textContent = 'Save Image';
-        sidebar.innerHTML = `
-          <div class="panel-section">
-            <h3>Game Asset Recipes</h3>
-            <div class="tool-group" style="flex-direction: column;">
-              <button onclick="applyRecipe('inventory_icon')">Inventory Icon (64x64 trim + pad)</button>
-              <button onclick="applyRecipe('remove_background')">Remove Background</button>
-              <button onclick="applyRecipe('trim_transparent')">Trim Transparent Border</button>
-              <button onclick="applyRecipe('normalize_alpha')">Normalize Transparent Asset</button>
-              <button onclick="resetImage()">Reset to Original</button>
-            </div>
-          </div>
-          <div class="panel-section">
-            <h3>Adjustments</h3>
-            <label>Padding (px)</label>
-            <input type="number" id="pad-input" value="0" min="0" max="500" onchange="applyRecipe('pad')">
-            <label>Resize Width</label>
-            <input type="number" id="resize-w" value="${sourceImage.naturalWidth}">
-            <label>Resize Height</label>
-            <input type="number" id="resize-h" value="${sourceImage.naturalHeight}">
-            <button onclick="applyResize()">Apply Resize</button>
-          </div>
-        `;
-      } else if (session.mode === 'annotate' || session.mode === 'image_annotate') {
-        document.getElementById('submit-btn').textContent = 'Save Annotated Image';
-        sidebar.innerHTML = `
-          <div class="panel-section">
-            <h3>Drawing Tools</h3>
-            <div class="tool-group">
-              <button class="active" onclick="setTool('brush', this)">Brush</button>
-              <button onclick="setTool('eraser', this)">Eraser</button>
-              <button onclick="setTool('arrow', this)">Arrow</button>
-              <button onclick="setTool('rectangle', this)">Rectangle</button>
-            </div>
-            <label>Color</label>
-            <input type="color" id="draw-color" value="#ef4444">
-            <label>Line Width</label>
-            <input type="range" id="draw-width" min="1" max="30" value="4">
-          </div>
-        `;
-        setupDrawingListeners();
-      }
+    // 舞台测量与布局
+    function measureStage() {
+      const rect = stageViewport.getBoundingClientRect();
+      stageSize.width = Math.max(10, Math.floor(rect.width));
+      stageSize.height = Math.max(10, Math.floor(rect.height));
+
+      const bottomSpace = appMode === 'region_edit' ? 140 : 40;
+      const safeW = Math.max(10, stageSize.width - 48);
+      const safeH = Math.max(10, stageSize.height - 48 - bottomSpace);
+
+      const fitted = fitContain(sourceWidth, sourceHeight, safeW, safeH);
+      imageFrame = {
+        left: Math.max(0, Math.round((stageSize.width - fitted.width) / 2)),
+        top: Math.max(20, Math.round((safeH - fitted.height) / 2) + 20),
+        width: fitted.width,
+        height: fitted.height,
+      };
+
+      imageFrameContainer.style.left = imageFrame.left + 'px';
+      imageFrameContainer.style.top = imageFrame.top + 'px';
+      imageFrameContainer.style.width = imageFrame.width + 'px';
+      imageFrameContainer.style.height = imageFrame.height + 'px';
+
+      const dpr = window.devicePixelRatio || 1;
+      stageCanvas.width = Math.round(stageSize.width * dpr);
+      stageCanvas.height = Math.round(stageSize.height * dpr);
+      sCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      updateTextDraftPosition();
+      render();
     }
 
-    function setTool(tool, btn) {
-      currentTool = tool;
-      document.querySelectorAll('.tool-group button').forEach(b => b.classList.remove('active'));
+    window.addEventListener('resize', measureStage);
+
+    // 模式切换
+    function setAppMode(mode) {
+      appMode = mode;
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById('tab-btn-' + (mode === 'region_edit' ? 'region' : mode));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      document.getElementById('session-title').textContent = 
+        mode === 'view' ? '查看图片' : (mode === 'tools' ? '图片处理' : '局部重绘');
+
+      if (mode === 'region_edit') {
+        regionComposer.style.display = 'flex';
+        toolsPanel.style.display = 'none';
+        stageCanvas.style.display = 'block';
+      } else if (mode === 'tools') {
+        regionComposer.style.display = 'none';
+        toolsPanel.style.display = 'flex';
+        stageCanvas.style.display = 'none';
+        closeTextDraft(false);
+      } else { // 'view'
+        regionComposer.style.display = 'none';
+        toolsPanel.style.display = 'none';
+        stageCanvas.style.display = 'none';
+        closeTextDraft(false);
+      }
+      measureStage();
+    }
+
+    let currentBrushRadius = 24;
+    function setBrushRadius(r, btn) {
+      currentBrushRadius = r;
+      document.querySelectorAll('#brush-size-controls .tool-btn').forEach(b => b.classList.remove('active'));
       if (btn) btn.classList.add('active');
     }
 
-    function setupDrawingListeners() {
-      drawCanvas.onpointerdown = (e) => {
-        isDrawing = true;
-        const rect = drawCanvas.getBoundingClientRect();
-        const scaleX = drawCanvas.width / rect.width;
-        const scaleY = drawCanvas.height / rect.height;
-        startPoint = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-        if (currentTool === 'lasso') {
-          currentLasso = [startPoint];
-        }
-      };
+    // 切换批注工具
+    function setTool(tool) {
+      currentTool = tool;
+      document.querySelectorAll('.composer-tools > .tool-btn').forEach(btn => btn.classList.remove('active'));
+      const activeBtn = document.getElementById('tool-' + tool);
+      if (activeBtn) activeBtn.classList.add('active');
 
-      drawCanvas.onpointermove = (e) => {
-        if (!isDrawing) return;
-        const rect = drawCanvas.getBoundingClientRect();
-        const scaleX = drawCanvas.width / rect.width;
-        const scaleY = drawCanvas.height / rect.height;
-        const currentPoint = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+      const brushControls = document.getElementById('brush-size-controls');
+      if (brushControls) {
+        brushControls.style.display = (tool === 'brush') ? 'inline-flex' : 'none';
+      }
 
-        redrawMarks();
-        if (currentTool === 'arrow') {
-          drawArrow(dCtx, startPoint, currentPoint, '#ef4444');
-        } else if (currentTool === 'rectangle') {
-          drawRect(dCtx, startPoint, currentPoint, '#ef4444');
-        } else if (currentTool === 'lasso') {
-          currentLasso.push(currentPoint);
-          drawLasso(dCtx, currentLasso, '#ef4444');
-        }
-      };
+      stageCanvas.className = 'tool-' + tool;
+      render();
+    }
 
-      drawCanvas.onpointerup = (e) => {
-        if (!isDrawing) return;
-        isDrawing = false;
-        const rect = drawCanvas.getBoundingClientRect();
-        const scaleX = drawCanvas.width / rect.width;
-        const scaleY = drawCanvas.height / rect.height;
-        const endPoint = { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-
-        const id = 'mark_' + Date.now();
-        if (currentTool === 'arrow') {
-          marks.push({ id, type: 'arrow', start: startPoint, end: endPoint, instruction: '' });
-        } else if (currentTool === 'rectangle') {
-          marks.push({ id, type: 'rectangle', start: startPoint, end: endPoint, instruction: '' });
-        } else if (currentTool === 'lasso' && currentLasso.length > 2) {
-          marks.push({ id, type: 'lasso', points: currentLasso, instruction: '' });
-        }
-        redrawMarks();
-        updateAnnotationsList();
+    // 坐标换算函数
+    function readStagePoint(e) {
+      const rect = stageCanvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
+      return {
+        x: clamp((e.clientX - rect.left) / rect.width, 0, 1),
+        y: clamp((e.clientY - rect.top) / rect.height, 0, 1),
       };
     }
 
-    function drawArrow(ctx, from, to, color) {
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(to.x, to.y);
-      ctx.stroke();
-
-      const angle = Math.atan2(to.y - from.y, to.x - from.x);
-      ctx.beginPath();
-      ctx.moveTo(to.x, to.y);
-      ctx.lineTo(to.x - 16 * Math.cos(angle - Math.PI / 6), to.y - 16 * Math.sin(angle - Math.PI / 6));
-      ctx.lineTo(to.x - 16 * Math.cos(angle + Math.PI / 6), to.y - 16 * Math.sin(angle + Math.PI / 6));
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+    function readImagePointFromStage(e) {
+      const rect = stageCanvas.getBoundingClientRect();
+      const stageX = e.clientX - rect.left;
+      const stageY = e.clientY - rect.top;
+      if (
+        stageX < imageFrame.left ||
+        stageX > imageFrame.left + imageFrame.width ||
+        stageY < imageFrame.top ||
+        stageY > imageFrame.top + imageFrame.height
+      ) {
+        return null;
+      }
+      return {
+        x: ((stageX - imageFrame.left) / imageFrame.width) * sourceWidth,
+        y: ((stageY - imageFrame.top) / imageFrame.height) * sourceHeight,
+      };
     }
 
-    function drawRect(ctx, from, to, color) {
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(from.x, from.y, to.x - from.x, to.y - from.y);
-      ctx.fillStyle = color + '22';
-      ctx.fillRect(from.x, from.y, to.x - from.x, to.y - from.y);
-      ctx.restore();
+    function readClampedImagePointFromStage(e) {
+      const rect = stageCanvas.getBoundingClientRect();
+      const stageX = clamp(e.clientX - rect.left, imageFrame.left, imageFrame.left + imageFrame.width);
+      const stageY = clamp(e.clientY - rect.top, imageFrame.top, imageFrame.top + imageFrame.height);
+      return {
+        x: ((stageX - imageFrame.left) / imageFrame.width) * sourceWidth,
+        y: ((stageY - imageFrame.top) / imageFrame.height) * sourceHeight,
+      };
     }
 
-    function drawLasso(ctx, points, color) {
-      if (points.length < 2) return;
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
-      ctx.stroke();
-      ctx.fillStyle = color + '22';
-      ctx.fill();
-      ctx.restore();
+    function imagePointToStagePoint(point) {
+      if (!sourceWidth || !sourceHeight || !stageSize.width || !stageSize.height) return { x: 0, y: 0 };
+      return {
+        x: clamp((imageFrame.left + point.x * (imageFrame.width / sourceWidth)) / stageSize.width, 0, 1),
+        y: clamp((imageFrame.top + point.y * (imageFrame.height / sourceHeight)) / stageSize.height, 0, 1),
+      };
     }
 
-    function redrawMarks() {
-      dCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
-      marks.forEach((m, i) => {
-        const color = '#3b82f6';
-        if (m.type === 'arrow') drawArrow(dCtx, m.start, m.end, color);
-        else if (m.type === 'rectangle') drawRect(dCtx, m.start, m.end, color);
-        else if (m.type === 'lasso') drawLasso(dCtx, m.points, color);
-
-        // draw tag
-        dCtx.fillStyle = '#18181b';
-        dCtx.fillRect((m.start || m.points[0]).x, (m.start || m.points[0]).y - 20, 24, 20);
-        dCtx.fillStyle = '#ffffff';
-        dCtx.font = 'bold 12px sans-serif';
-        dCtx.fillText('#' + (i + 1), (m.start || m.points[0]).x + 4, (m.start || m.points[0]).y - 6);
-      });
+    function stagePointToImagePoint(point) {
+      const stageX = point.x * stageSize.width;
+      const stageY = point.y * stageSize.height;
+      if (
+        stageX < imageFrame.left ||
+        stageX > imageFrame.left + imageFrame.width ||
+        stageY < imageFrame.top ||
+        stageY > imageFrame.top + imageFrame.height
+      ) {
+        return null;
+      }
+      return {
+        x: ((stageX - imageFrame.left) / imageFrame.width) * sourceWidth,
+        y: ((stageY - imageFrame.top) / imageFrame.height) * sourceHeight,
+      };
     }
 
-    function updateAnnotationsList() {
-      const container = document.getElementById('annotations-list');
-      if (!marks.length) {
-        container.innerHTML = '<p style="color: var(--text-muted); font-size: 12px;">No marks yet.</p>';
+    function pointToSegmentDist(point, start, end) {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      if (!dx && !dy) return distance(point, start);
+      const ratio = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy), 0, 1);
+      return distance(point, { x: start.x + ratio * dx, y: start.y + ratio * dy });
+    }
+
+    function pointInPolygon(point, polygon) {
+      let inside = false;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const p1 = polygon[i];
+        const p2 = polygon[j];
+        if (!p1 || !p2) continue;
+        const intersect = ((p1.y > point.y) !== (p2.y > point.y)) &&
+          (point.x < ((p2.x - p1.x) * (point.y - p1.y)) / (p2.y - p1.y || 1e-6) + p1.x);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function markAtStagePoint(point) {
+      const stageP = { x: point.x * stageSize.width, y: point.y * stageSize.height };
+      const imgP = stagePointToImagePoint(point);
+
+      for (let i = marks.length - 1; i >= 0; i--) {
+        const mark = marks[i];
+        // 1. 检查文字热区
+        const textX = mark.textX * stageSize.width;
+        const textY = mark.textY * stageSize.height;
+        const textW = Math.max(40, (mark.instruction || '').length * mark.fontSize * 0.7 + 10);
+        if (
+          stageP.x >= textX - 8 && stageP.x <= textX + textW + 8 &&
+          stageP.y >= textY - 8 && stageP.y <= textY + mark.fontSize * 1.8 + 8
+        ) {
+          return mark;
+        }
+
+        // 2. 检查几何图形热区
+        const shape = mark.shape;
+        if (shape.kind === 'arrow') {
+          const s = { x: shape.start.x * stageSize.width, y: shape.start.y * stageSize.height };
+          const e = { x: shape.end.x * stageSize.width, y: shape.end.y * stageSize.height };
+          if (pointToSegmentDist(stageP, s, e) <= 14) return mark;
+        } else if (imgP) {
+          if (shape.kind === 'rectangle') {
+            const minX = Math.min(shape.start.x, shape.end.x);
+            const maxX = Math.max(shape.start.x, shape.end.x);
+            const minY = Math.min(shape.start.y, shape.end.y);
+            const maxY = Math.max(shape.start.y, shape.end.y);
+            if (imgP.x >= minX && imgP.x <= maxX && imgP.y >= minY && imgP.y <= maxY) return mark;
+          } else if (shape.kind === 'lasso') {
+            if (pointInPolygon(imgP, shape.points)) return mark;
+          }
+        }
+      }
+      return null;
+    }
+
+    // 浮动输入框控制（核心重点）
+    function openTextDraft(mark, mode = 'create') {
+      textDraft = {
+        mark,
+        mode,
+        x: mark.textX,
+        y: mark.textY,
+        value: mark.instruction || '',
+      };
+      textDraftInput.value = textDraft.value;
+      updateTextDraftPosition();
+      textDraftForm.style.display = 'flex';
+      setTimeout(() => textDraftInput.focus(), 20);
+      render();
+    }
+
+    function updateTextDraftPosition() {
+      if (!textDraft || !stageSize.width || !stageSize.height) return;
+      const rawLeft = textDraft.x * stageSize.width + TEXT_DRAFT_OFFSET_X;
+      const rawTop = textDraft.y * stageSize.height + TEXT_DRAFT_OFFSET_Y;
+
+      const left = clamp(rawLeft, TEXT_DRAFT_EDGE_MARGIN, Math.max(TEXT_DRAFT_EDGE_MARGIN, stageSize.width - TEXT_DRAFT_WIDTH - TEXT_DRAFT_EDGE_MARGIN));
+      const top = clamp(rawTop, TEXT_DRAFT_EDGE_MARGIN, Math.max(TEXT_DRAFT_EDGE_MARGIN, stageSize.height - TEXT_DRAFT_HEIGHT - TEXT_DRAFT_EDGE_MARGIN));
+
+      textDraftForm.style.left = left + 'px';
+      textDraftForm.style.top = top + 'px';
+    }
+
+    function commitTextDraft() {
+      if (!textDraft) return;
+      const val = textDraftInput.value.trim();
+      if (textDraft.mode === 'create') {
+        textDraft.mark.instruction = val;
+        marks.push(textDraft.mark);
+      } else {
+        textDraft.mark.instruction = val;
+      }
+      closeTextDraft(false);
+      render();
+    }
+
+    function closeTextDraft(commitIfNonEmpty = true) {
+      if (!textDraft) return;
+      if (commitIfNonEmpty && textDraftInput.value.trim()) {
+        commitTextDraft();
         return;
       }
-      container.innerHTML = marks.map((m, i) => `
-        <div class="annotation-item">
-          <div class="annotation-item-header">
-            <strong>#${i + 1} (${m.type})</strong>
-            <button onclick="removeMark(${i})" style="padding: 2px 6px; font-size: 11px;">Remove</button>
-          </div>
-          <input type="text" placeholder="Instructions for this region..." value="${m.instruction || ''}" oninput="marks[${i}].instruction = this.value">
-        </div>
-      `).join('');
+      textDraft = null;
+      textDraftForm.style.display = 'none';
+      textDraftInput.value = '';
+      render();
     }
 
-    function removeMark(index) {
-      marks.splice(index, 1);
-      redrawMarks();
-      updateAnnotationsList();
-    }
+    textDraftForm.onsubmit = (e) => {
+      e.preventDefault();
+      commitTextDraft();
+    };
+
+    document.getElementById('text-draft-cancel-btn').onclick = (e) => {
+      e.stopPropagation();
+      closeTextDraft(false);
+    };
+
+    // 监听按键与点击外部
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && textDraft) {
+        closeTextDraft(false);
+      }
+    });
+
+    document.addEventListener('pointerdown', (e) => {
+      if (!textDraft) return;
+      if (!textDraftForm.contains(e.target) && e.target !== stageCanvas) {
+        commitTextDraft();
+      }
+    });
+
+    // 交互绘制事件
+    stageCanvas.onpointerdown = (e) => {
+      if (appMode !== 'region_edit') return;
+      if (textDraft) {
+        commitTextDraft();
+        return;
+      }
+
+      isPointerDown = true;
+      if (typeof stageCanvas.setPointerCapture === 'function') {
+        stageCanvas.setPointerCapture(e.pointerId);
+      }
+
+      if (currentTool === 'edit' || currentTool === 'delete') {
+        const p = readStagePoint(e);
+        if (!p) return;
+        const mark = markAtStagePoint(p);
+        if (mark) {
+          if (currentTool === 'delete') {
+            marks = marks.filter(m => m.id !== mark.id);
+            hoveredMarkId = null;
+            render();
+          } else {
+            openTextDraft(mark, 'edit');
+          }
+        }
+        isPointerDown = false;
+        return;
+      }
+
+      if (currentTool === 'brush') {
+        const imgP = readClampedImagePointFromStage(e);
+        if (!imgP) return;
+        draft = { kind: 'brush', points: [imgP], radius: currentBrushRadius };
+        render();
+        return;
+      }
+
+      if (currentTool === 'annotation') {
+        const p = readStagePoint(e);
+        if (!p) return;
+        draft = {
+          kind: 'arrow',
+          color: ANNOTATION_COLOR,
+          start: p,
+          end: p,
+        };
+        render();
+        return;
+      }
+
+      const imgP = readImagePointFromStage(e);
+      if (!imgP) return;
+
+      if (currentTool === 'rectangle') {
+        draft = { kind: 'rectangle', start: imgP, end: imgP };
+      } else if (currentTool === 'lasso') {
+        draft = { kind: 'lasso', points: [imgP] };
+      }
+      render();
+    };
+
+    stageCanvas.onpointermove = (e) => {
+      if (appMode !== 'region_edit') return;
+
+      if (!isPointerDown || !draft) {
+        if (currentTool === 'edit' || currentTool === 'delete') {
+          const p = readStagePoint(e);
+          const mark = p ? markAtStagePoint(p) : null;
+          const newHover = mark ? mark.id : null;
+          if (newHover !== hoveredMarkId) {
+            hoveredMarkId = newHover;
+            render();
+          }
+        }
+        return;
+      }
+
+      if (draft.kind === 'brush') {
+        const imgP = readClampedImagePointFromStage(e);
+        if (imgP) {
+          draft.points.push(imgP);
+          render();
+        }
+        return;
+      }
+
+      if (draft.kind === 'arrow') {
+        const p = readStagePoint(e);
+        if (p) {
+          draft.end = p;
+          render();
+        }
+        return;
+      }
+
+      if (draft.kind === 'rectangle') {
+        const imgP = readImagePointFromStage(e);
+        if (imgP) {
+          draft.end = imgP;
+          render();
+        }
+        return;
+      }
+
+      if (draft.kind === 'lasso') {
+        const imgP = readClampedImagePointFromStage(e);
+        if (imgP) {
+          const last = draft.points[draft.points.length - 1];
+          const scaleX = imageFrame.width / sourceWidth;
+          const scaleY = imageFrame.height / sourceHeight;
+          if (!last || Math.hypot((imgP.x - last.x) * scaleX, (imgP.y - last.y) * scaleY) >= LASSO_MIN_SCREEN_DISTANCE) {
+            draft.points.push(imgP);
+            render();
+          }
+        }
+      }
+    };
+
+    stageCanvas.onpointerup = (e) => {
+      if (!isPointerDown || !draft) return;
+      isPointerDown = false;
+      if (typeof stageCanvas.releasePointerCapture === 'function' && stageCanvas.hasPointerCapture(e.pointerId)) {
+        stageCanvas.releasePointerCapture(e.pointerId);
+      }
+
+      const finishedDraft = draft;
+      draft = null;
+
+      // 0. 涂鸦完成
+      if (finishedDraft.kind === 'brush') {
+        if (finishedDraft.points.length > 0) {
+          const id = createElementId();
+          const mark = {
+            id,
+            color: ANNOTATION_COLOR,
+            fontSize: ANNOTATION_FONT_SIZE,
+            instruction: '',
+            shape: { id, kind: 'brush', points: finishedDraft.points, radius: finishedDraft.radius || 24 },
+            textX: 0,
+            textY: 0,
+          };
+          marks.push(mark);
+        }
+      }
+      // 1. 指向完成
+      else if (finishedDraft.kind === 'arrow') {
+        const dist = distance(
+          { x: finishedDraft.start.x * stageSize.width, y: finishedDraft.start.y * stageSize.height },
+          { x: finishedDraft.end.x * stageSize.width, y: finishedDraft.end.y * stageSize.height }
+        );
+        if (dist >= ANNOTATION_MIN_LENGTH) {
+          const id = createElementId();
+          const mark = {
+            id,
+            color: ANNOTATION_COLOR,
+            fontSize: ANNOTATION_FONT_SIZE,
+            instruction: '',
+            shape: { id, kind: 'arrow', color: ANNOTATION_COLOR, start: finishedDraft.start, end: finishedDraft.end },
+            textX: finishedDraft.start.x,
+            textY: finishedDraft.start.y,
+          };
+          openTextDraft(mark, 'create');
+        }
+      }
+      // 2. 框选完成
+      else if (finishedDraft.kind === 'rectangle') {
+        if (distance(finishedDraft.start, finishedDraft.end) >= 4) {
+          const id = createElementId();
+          const anchor = imagePointToStagePoint(finishedDraft.start);
+          const mark = {
+            id,
+            color: ANNOTATION_COLOR,
+            fontSize: ANNOTATION_FONT_SIZE,
+            instruction: '',
+            shape: { id, kind: 'rectangle', start: finishedDraft.start, end: finishedDraft.end },
+            textX: anchor.x,
+            textY: anchor.y,
+          };
+          openTextDraft(mark, 'create');
+        }
+      }
+      // 3. 圈选完成
+      else if (finishedDraft.kind === 'lasso') {
+        if (finishedDraft.points.length >= LASSO_MIN_POINTS) {
+          const id = createElementId();
+          const anchorPt = finishedDraft.points[finishedDraft.points.length - 1] || finishedDraft.points[0];
+          const anchor = imagePointToStagePoint(anchorPt);
+          const mark = {
+            id,
+            color: ANNOTATION_COLOR,
+            fontSize: ANNOTATION_FONT_SIZE,
+            instruction: '',
+            shape: { id, kind: 'lasso', points: finishedDraft.points },
+            textX: anchor.x,
+            textY: anchor.y,
+          };
+          openTextDraft(mark, 'create');
+        }
+      }
+      render();
+    };
+
+    // 双击任意标记唤起编辑
+    stageCanvas.ondblclick = (e) => {
+      const p = readStagePoint(e);
+      if (!p) return;
+      const mark = markAtStagePoint(p);
+      if (mark) {
+        openTextDraft(mark, 'edit');
+      }
+    };
 
     function clearMarks() {
       marks = [];
-      redrawMarks();
-      updateAnnotationsList();
+      closeTextDraft(false);
+      render();
     }
 
+    // Canvas 渲染引擎
+    function getCurveControlPoint(start, end, scaleX, scaleY) {
+      const startX = start.x * scaleX;
+      const startY = start.y * scaleY;
+      const endX = end.x * scaleX;
+      const endY = end.y * scaleY;
+      const dx = endX - startX;
+      const dy = endY - startY;
+      const length = Math.hypot(dx, dy);
+      if (length === 0) return { x: startX, y: startY };
+      const bend = clamp(length * 0.12, 16, 48);
+      const direction = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? -1 : 1) : 1;
+      return {
+        x: (startX + endX) / 2 + (-dy / length) * bend * direction,
+        y: (startY + endY) / 2 + (dx / length) * bend * direction,
+      };
+    }
+
+    function drawCurvedArrow(ctx, start, end, scaleX, scaleY, options = {}) {
+      const startX = start.x * scaleX;
+      const startY = start.y * scaleY;
+      const endX = end.x * scaleX;
+      const endY = end.y * scaleY;
+      const control = getCurveControlPoint(start, end, scaleX, scaleY);
+      const angle = Math.atan2(endY - control.y, endX - control.x);
+      const headLength = 10;
+      const headAngle = Math.PI / 7;
+
+      ctx.save();
+      ctx.strokeStyle = options.color || ANNOTATION_COLOR;
+      ctx.lineWidth = options.width || ANNOTATION_LINE_WIDTH;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.quadraticCurveTo(control.x, control.y, endX, endY);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(endX - headLength * Math.cos(angle - headAngle), endY - headLength * Math.sin(angle - headAngle));
+      ctx.moveTo(endX, endY);
+      ctx.lineTo(endX - headLength * Math.cos(angle + headAngle), endY - headLength * Math.sin(angle + headAngle));
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawMaskShape(ctx, shape, fillAlpha, isHovered = false) {
+      const scaleX = imageFrame.width / sourceWidth;
+      const scaleY = imageFrame.height / sourceHeight;
+      const offX = imageFrame.left;
+      const offY = imageFrame.top;
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = isHovered ? MASK_STROKE_WIDTH + 1 : MASK_STROKE_WIDTH;
+      ctx.strokeStyle = ANNOTATION_COLOR;
+      ctx.fillStyle = ANNOTATION_COLOR;
+      ctx.globalAlpha = fillAlpha;
+      ctx.beginPath();
+
+      if (shape.kind === 'rectangle') {
+        const x = offX + Math.min(shape.start.x, shape.end.x) * scaleX;
+        const y = offY + Math.min(shape.start.y, shape.end.y) * scaleY;
+        const w = Math.abs(shape.end.x - shape.start.x) * scaleX;
+        const h = Math.abs(shape.end.y - shape.start.y) * scaleY;
+        ctx.rect(x, y, w, h);
+      } else if (shape.kind === 'lasso') {
+        const pts = shape.points;
+        if (pts.length > 0) {
+          ctx.moveTo(offX + pts[0].x * scaleX, offY + pts[0].y * scaleY);
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(offX + pts[i].x * scaleX, offY + pts[i].y * scaleY);
+          }
+          ctx.closePath();
+        }
+      } else if (shape.kind === 'brush') {
+        const pts = shape.points;
+        const radius = (shape.radius || 24) * scaleX;
+        if (pts.length > 0) {
+          ctx.lineWidth = radius * 2;
+          ctx.beginPath();
+          ctx.moveTo(offX + pts[0].x * scaleX, offY + pts[0].y * scaleY);
+          for (let i = 1; i < pts.length; i++) {
+            ctx.lineTo(offX + pts[i].x * scaleX, offY + pts[i].y * scaleY);
+          }
+          ctx.stroke();
+          if (pts.length === 1) {
+            ctx.beginPath();
+            ctx.arc(offX + pts[0].x * scaleX, offY + pts[0].y * scaleY, radius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+      ctx.fill();
+      ctx.globalAlpha = 0.92;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function drawMarkInstruction(ctx, mark) {
+      if (!mark.instruction) return;
+      const x = mark.textX * stageSize.width;
+      const y = mark.textY * stageSize.height;
+
+      ctx.save();
+      ctx.font = `600 ${mark.fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.lineWidth = 4;
+      ctx.strokeText(mark.instruction, x, y);
+      ctx.fillStyle = mark.color;
+      ctx.fillText(mark.instruction, x, y);
+      ctx.restore();
+    }
+
+    function render() {
+      if (!stageSize.width || !stageSize.height) return;
+      sCtx.clearRect(0, 0, stageSize.width, stageSize.height);
+
+      const allMarks = [...marks];
+      if (textDraft && textDraft.mode === 'create') {
+        allMarks.push(textDraft.mark);
+      }
+
+      // 1. 渲染选区遮罩
+      for (const mark of allMarks) {
+        if (mark.shape.kind === 'rectangle' || mark.shape.kind === 'lasso' || mark.shape.kind === 'brush') {
+          drawMaskShape(sCtx, mark.shape, mark.id === hoveredMarkId ? 0.38 : 0.28, mark.id === hoveredMarkId);
+        }
+      }
+
+      // 2. 渲染正在拖动的 Draft
+      if (draft) {
+        if (draft.kind === 'rectangle' || draft.kind === 'lasso' || draft.kind === 'brush') {
+          drawMaskShape(sCtx, draft, 0.32, false);
+        } else if (draft.kind === 'arrow') {
+          drawCurvedArrow(sCtx, draft.start, draft.end, stageSize.width, stageSize.height, {
+            color: draft.color,
+            width: ANNOTATION_LINE_WIDTH,
+          });
+        }
+      }
+
+      // 3. 渲染箭头和文字说明
+      for (const mark of allMarks) {
+        if (mark.shape.kind === 'arrow') {
+          drawCurvedArrow(sCtx, mark.shape.start, mark.shape.end, stageSize.width, stageSize.height, {
+            color: mark.color,
+            width: mark.id === hoveredMarkId ? ANNOTATION_LINE_WIDTH * 1.6 : ANNOTATION_LINE_WIDTH,
+          });
+        }
+        drawMarkInstruction(sCtx, mark);
+      }
+    }
+
+    // 导出 Mask 与 Preview (遵循 image-flow 规范：不透明黑色区域保留，透明区域重绘)
     function exportMaskDataUrl() {
       const mCanvas = document.createElement('canvas');
-      mCanvas.width = sourceCanvas.width;
-      mCanvas.height = sourceCanvas.height;
+      mCanvas.width = sourceWidth;
+      mCanvas.height = sourceHeight;
       const mCtx = mCanvas.getContext('2d');
-      mCtx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+
+      mCtx.clearRect(0, 0, sourceWidth, sourceHeight);
       mCtx.fillStyle = '#000000';
-      mCtx.fillRect(0, 0, mCanvas.width, mCanvas.height);
-      mCtx.fillStyle = '#ffffff';
-      marks.forEach(m => {
-        if (m.type === 'rectangle') {
-          mCtx.fillRect(m.start.x, m.start.y, m.end.x - m.start.x, m.end.y - m.start.y);
-        } else if (m.type === 'lasso') {
-          mCtx.beginPath();
-          mCtx.moveTo(m.points[0].x, m.points[0].y);
-          for (let pt of m.points) mCtx.lineTo(pt.x, pt.y);
-          mCtx.closePath();
-          mCtx.fill();
-        } else if (m.type === 'arrow') {
-          mCtx.beginPath();
-          mCtx.arc(m.end.x, m.end.y, 40, 0, Math.PI * 2);
-          mCtx.fill();
+      mCtx.fillRect(0, 0, sourceWidth, sourceHeight);
+
+      mCtx.save();
+      mCtx.globalCompositeOperation = 'destination-out';
+      mCtx.fillStyle = '#000000';
+
+      marks.forEach(mark => {
+        const shape = mark.shape;
+        if (shape.kind === 'rectangle') {
+          const x = Math.min(shape.start.x, shape.end.x);
+          const y = Math.min(shape.start.y, shape.end.y);
+          const w = Math.abs(shape.end.x - shape.start.x);
+          const h = Math.abs(shape.end.y - shape.start.y);
+          mCtx.fillRect(x, y, w, h);
+        } else if (shape.kind === 'lasso') {
+          const pts = shape.points;
+          if (pts.length > 0) {
+            mCtx.beginPath();
+            mCtx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) mCtx.lineTo(pts[i].x, pts[i].y);
+            mCtx.closePath();
+            mCtx.fill();
+          }
+        } else if (shape.kind === 'brush') {
+          const pts = shape.points;
+          const radius = shape.radius || 24;
+          if (pts.length > 0) {
+            mCtx.lineWidth = radius * 2;
+            mCtx.lineCap = 'round';
+            mCtx.lineJoin = 'round';
+            mCtx.beginPath();
+            mCtx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) mCtx.lineTo(pts[i].x, pts[i].y);
+            mCtx.stroke();
+            if (pts.length === 1) {
+              mCtx.beginPath();
+              mCtx.arc(pts[0].x, pts[0].y, radius, 0, Math.PI * 2);
+              mCtx.fill();
+            }
+          }
+        } else if (shape.kind === 'arrow') {
+          // 箭头指向位置生成对应目标 Mask
+          const target = stagePointToImagePoint(shape.end);
+          if (target) {
+            const size = Math.max(ARROW_TARGET_MASK_MIN_SIZE, Math.min(sourceWidth, sourceHeight) * ARROW_TARGET_MASK_RATIO);
+            const half = size / 2;
+            mCtx.fillRect(
+              clamp(target.x - half, 0, sourceWidth),
+              clamp(target.y - half, 0, sourceHeight),
+              size,
+              size
+            );
+          }
         }
       });
+      mCtx.restore();
       return mCanvas.toDataURL('image/png');
     }
 
     function exportPreviewDataUrl() {
-      const pCanvas = document.createElement('canvas');
-      pCanvas.width = sourceCanvas.width;
-      pCanvas.height = sourceCanvas.height;
-      const pCtx = pCanvas.getContext('2d');
-      pCtx.drawImage(sourceCanvas, 0, 0);
-      pCtx.drawImage(drawCanvas, 0, 0);
-      return pCanvas.toDataURL('image/png');
+      return exportCompositeSourceDataUrl();
     }
 
-    // Local tool recipes
+    function exportCompositeSourceDataUrl() {
+      const cCanvas = document.createElement('canvas');
+      cCanvas.width = sourceWidth;
+      cCanvas.height = sourceHeight;
+      const ctx = cCanvas.getContext('2d');
+
+      // 1. 绘制底层图片
+      ctx.drawImage(currentImageCanvas, 0, 0, sourceWidth, sourceHeight);
+
+      const fontScale = Math.max(1, sourceWidth / (stageSize.width || sourceWidth));
+
+      // 2. 绘制选区遮罩
+      for (const mark of marks) {
+        const shape = mark.shape;
+        if (shape.kind === 'rectangle') {
+          const x = Math.min(shape.start.x, shape.end.x);
+          const y = Math.min(shape.start.y, shape.end.y);
+          const w = Math.abs(shape.end.x - shape.start.x);
+          const h = Math.abs(shape.end.y - shape.start.y);
+          ctx.save();
+          ctx.fillStyle = ANNOTATION_COLOR;
+          ctx.globalAlpha = 0.22;
+          ctx.fillRect(x, y, w, h);
+          ctx.globalAlpha = 0.92;
+          ctx.strokeStyle = ANNOTATION_COLOR;
+          ctx.lineWidth = Math.max(2, 2 * fontScale);
+          ctx.strokeRect(x, y, w, h);
+          ctx.restore();
+        } else if (shape.kind === 'lasso') {
+          const pts = shape.points;
+          if (pts.length > 0) {
+            ctx.save();
+            ctx.fillStyle = ANNOTATION_COLOR;
+            ctx.strokeStyle = ANNOTATION_COLOR;
+            ctx.lineWidth = Math.max(2, 2 * fontScale);
+            ctx.beginPath();
+            ctx.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+            ctx.closePath();
+            ctx.globalAlpha = 0.22;
+            ctx.fill();
+            ctx.globalAlpha = 0.92;
+            ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+
+      // 3. 绘制弯曲箭头与文字说明
+      for (const mark of marks) {
+        if (mark.shape.kind === 'arrow') {
+          const s = stagePointToImagePoint(mark.shape.start) || { x: mark.shape.start.x * sourceWidth, y: mark.shape.start.y * sourceHeight };
+          const e = stagePointToImagePoint(mark.shape.end) || { x: mark.shape.end.x * sourceWidth, y: mark.shape.end.y * sourceHeight };
+          drawCurvedArrow(ctx, 
+            { x: s.x / sourceWidth, y: s.y / sourceHeight }, 
+            { x: e.x / sourceWidth, y: e.y / sourceHeight }, 
+            sourceWidth, sourceHeight, {
+              color: mark.color,
+              width: Math.max(2, ANNOTATION_LINE_WIDTH * fontScale),
+            }
+          );
+        }
+
+        if (mark.instruction) {
+          const textPos = stagePointToImagePoint({ x: mark.textX, y: mark.textY }) || { x: mark.textX * sourceWidth, y: mark.textY * sourceHeight };
+          const fontSize = Math.round(mark.fontSize * fontScale);
+          ctx.save();
+          ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+          ctx.textBaseline = 'top';
+          ctx.lineJoin = 'round';
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+          ctx.lineWidth = Math.max(3, 4 * fontScale);
+          ctx.strokeText(mark.instruction, textPos.x, textPos.y);
+          ctx.fillStyle = mark.color || ANNOTATION_COLOR;
+          ctx.fillText(mark.instruction, textPos.x, textPos.y);
+          ctx.restore();
+        }
+      }
+
+      return cCanvas.toDataURL('image/png');
+    }
+
+    // 提交局部重绘
+    async function handleSubmit() {
+      if (textDraft) commitTextDraft();
+      document.getElementById('loading-overlay').style.display = 'flex';
+      document.getElementById('loading-text').textContent = '正在提交...';
+
+      try {
+        const sourceDataUrl = currentImageCanvas.toDataURL('image/png');
+        const compositeDataUrl = exportCompositeSourceDataUrl();
+        const maskDataUrl = exportMaskDataUrl();
+
+        const payload = {
+          mode: appMode,
+          source_data: sourceDataUrl,
+          image_data: compositeDataUrl,
+          mask: maskDataUrl,
+          annotation_preview: compositeDataUrl,
+          annotations: marks.map(m => ({
+            id: m.id,
+            type: m.shape.kind,
+            instruction: m.instruction,
+          })),
+          prompt: document.getElementById('region-prompt').value.trim(),
+          model: document.getElementById('model-select').value,
+        };
+
+        const res = await fetch('/api/submit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Asx-Session-Token': token,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        const result = await res.json();
+        const taskRes = result.result || {};
+        if (!res.ok || !result.ok || taskRes.ok === false) {
+          const errMsg = result.error?.message || taskRes.error?.message || '提交失败';
+          throw new Error(errMsg);
+        }
+
+        const outFiles = taskRes.files || (taskRes.image && taskRes.image.path ? [taskRes.image.path] : []);
+        const outPath = outFiles[0] || '';
+        document.getElementById('loading-text').innerHTML = outPath
+          ? `✅ 修改完成！图片已保存至：<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${outPath}</code>`
+          : '✅ 修改完成！正在返回...';
+        if (outPath) {
+          clearMarks();
+          sourceImageView.src = '/api/result?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(outPath);
+          setAppMode('view');
+          setTimeout(() => {
+            document.getElementById('loading-overlay').style.display = 'none';
+          }, 1500);
+        } else {
+          setTimeout(() => window.close(), 1200);
+        }
+      } catch (err) {
+        document.getElementById('loading-overlay').style.display = 'none';
+        alert('提交失败: ' + err.message);
+      }
+    }
+
+    // 图片处理相关 (Tools 模式)
     function applyRecipe(recipe) {
+      const ctx = currentImageCanvas.getContext('2d');
       if (recipe === 'trim_transparent') {
-        const imgData = sCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-        let minX = sourceCanvas.width, minY = sourceCanvas.height, maxX = 0, maxY = 0;
-        for (let y = 0; y < sourceCanvas.height; y++) {
-          for (let x = 0; x < sourceCanvas.width; x++) {
-            const a = imgData.data[(y * sourceCanvas.width + x) * 4 + 3];
+        const imgData = ctx.getImageData(0, 0, sourceWidth, sourceHeight);
+        let minX = sourceWidth, minY = sourceHeight, maxX = 0, maxY = 0;
+        for (let y = 0; y < sourceHeight; y++) {
+          for (let x = 0; x < sourceWidth; x++) {
+            const a = imgData.data[(y * sourceWidth + x) * 4 + 3];
             if (a > 10) {
               minX = Math.min(minX, x); minY = Math.min(minY, y);
               maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
@@ -388,100 +1631,134 @@
         }
         if (maxX >= minX && maxY >= minY) {
           const w = maxX - minX + 1, h = maxY - minY + 1;
-          const trimmed = sCtx.getImageData(minX, minY, w, h);
-          sourceCanvas.width = w; sourceCanvas.height = h;
-          drawCanvas.width = w; drawCanvas.height = h;
-          sCtx.putImageData(trimmed, 0, 0);
+          const trimmed = ctx.getImageData(minX, minY, w, h);
+          currentImageCanvas.width = w; currentImageCanvas.height = h;
+          sourceWidth = w; sourceHeight = h;
+          currentImageCanvas.getContext('2d').putImageData(trimmed, 0, 0);
         }
       } else if (recipe === 'remove_background') {
-        const imgData = sCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+        const imgData = ctx.getImageData(0, 0, sourceWidth, sourceHeight);
         const bgR = imgData.data[0], bgG = imgData.data[1], bgB = imgData.data[2];
         for (let i = 0; i < imgData.data.length; i += 4) {
           const r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
-          const dist = Math.sqrt((r-bgR)**2 + (g-bgG)**2 + (b-bgB)**2);
-          if (dist < 40) imgData.data[i+3] = 0;
+          if (Math.hypot(r - bgR, g - bgG, b - bgB) < 40) imgData.data[i+3] = 0;
         }
-        sCtx.putImageData(imgData, 0, 0);
+        ctx.putImageData(imgData, 0, 0);
       } else if (recipe === 'inventory_icon') {
         applyRecipe('trim_transparent');
         applyResize(64, 64);
+        return;
       }
+      sourceImageView.src = currentImageCanvas.toDataURL('image/png');
+      document.getElementById('image-dimensions').textContent = `${sourceWidth} × ${sourceHeight}`;
+      measureStage();
     }
 
-    function applyResize(tw, th) {
-      const targetW = tw || parseInt(document.getElementById('resize-w')?.value || sourceCanvas.width);
-      const targetH = th || parseInt(document.getElementById('resize-h')?.value || sourceCanvas.height);
+    function applyResize(targetW, targetH) {
+      const tw = targetW || parseInt(document.getElementById('resize-w').value) || sourceWidth;
+      const th = targetH || parseInt(document.getElementById('resize-h').value) || sourceHeight;
       const temp = document.createElement('canvas');
-      temp.width = targetW; temp.height = targetH;
-      temp.getContext('2d').drawImage(sourceCanvas, 0, 0, targetW, targetH);
-      sourceCanvas.width = targetW; sourceCanvas.height = targetH;
-      drawCanvas.width = targetW; drawCanvas.height = targetH;
-      sCtx.drawImage(temp, 0, 0);
+      temp.width = tw; temp.height = th;
+      temp.getContext('2d').drawImage(currentImageCanvas, 0, 0, tw, th);
+
+      currentImageCanvas.width = tw;
+      currentImageCanvas.height = th;
+      sourceWidth = tw;
+      sourceHeight = th;
+      currentImageCanvas.getContext('2d').drawImage(temp, 0, 0);
+
+      sourceImageView.src = currentImageCanvas.toDataURL('image/png');
+      document.getElementById('image-dimensions').textContent = `${sourceWidth} × ${sourceHeight}`;
+      measureStage();
     }
 
-    function resetImage() {
-      sourceCanvas.width = sourceImage.naturalWidth;
-      sourceCanvas.height = sourceImage.naturalHeight;
-      drawCanvas.width = sourceImage.naturalWidth;
-      drawCanvas.height = sourceImage.naturalHeight;
-      sCtx.drawImage(sourceImage, 0, 0);
-      redrawMarks();
+    function resetToOriginal() {
+      sourceWidth = sourceImage.naturalWidth;
+      sourceHeight = sourceImage.naturalHeight;
+      currentImageCanvas.width = sourceWidth;
+      currentImageCanvas.height = sourceHeight;
+      currentImageCanvas.getContext('2d').drawImage(sourceImage, 0, 0);
+      sourceImageView.src = currentImageCanvas.toDataURL('image/png');
+      document.getElementById('image-dimensions').textContent = `${sourceWidth} × ${sourceHeight}`;
+      measureStage();
     }
 
-    document.getElementById('submit-btn').onclick = async () => {
+    async function submitToolImage() {
       document.getElementById('loading-overlay').style.display = 'flex';
+      document.getElementById('loading-text').textContent = '正在保存修改...';
       try {
-        let payload = {};
-        if (session.mode === 'region_edit') {
-          payload = {
-            mask: exportMaskDataUrl(),
-            annotation_preview: exportPreviewDataUrl(),
-            annotations: marks,
-            prompt: document.getElementById('overall-prompt')?.value || '',
-            model: document.getElementById('model-select')?.value,
-          };
-        } else if (session.mode === 'tools' || session.mode === 'image_tools') {
-          payload = {
-            image_data: sourceCanvas.toDataURL('image/png'),
-            recipe: 'custom',
-          };
-        } else if (session.mode === 'annotate' || session.mode === 'image_annotate') {
-          const combined = document.createElement('canvas');
-          combined.width = sourceCanvas.width; combined.height = sourceCanvas.height;
-          const cCtx = combined.getContext('2d');
-          cCtx.drawImage(sourceCanvas, 0, 0);
-          cCtx.drawImage(drawCanvas, 0, 0);
-          payload = { image_data: combined.toDataURL('image/png') };
-        }
-
+        const payload = {
+          mode: 'tools',
+          image_data: currentImageCanvas.toDataURL('image/png'),
+          recipe: 'custom',
+          keep_alive: true,
+        };
         const res = await fetch('/api/submit', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-Asx-Session-Token': token,
           },
-          body: json.stringify(payload),
+          body: JSON.stringify(payload),
         });
         const result = await res.json();
-        if (!res.ok || !result.ok) throw new Error(result.error?.message || 'Submission failed');
+        if (!res.ok || !result.ok) throw new Error(result.error?.message || '保存失败');
+        
+        const savedPath = result.result?.image?.path || (result.result?.files && result.result.files[0]) || '';
+        document.getElementById('loading-text').innerHTML = savedPath
+          ? `✅ 修改已成功保存！<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${savedPath}</code>`
+          : '✅ 修改已成功保存！';
 
-        document.getElementById('loading-text').textContent = 'Completed! Returning to agent...';
-        setTimeout(() => window.close(), 1000);
+        // 同步将底图更新为当前已编辑图像，方便后续继续微调或局部重绘
+        sourceImage.src = currentImageCanvas.toDataURL('image/png');
+        sourceImageView.src = sourceImage.src;
+
+        setTimeout(() => {
+          document.getElementById('loading-overlay').style.display = 'none';
+        }, 1200);
       } catch (err) {
         document.getElementById('loading-overlay').style.display = 'none';
-        alert('Submit failed: ' + err.message);
+        alert('保存失败: ' + err.message);
+      }
+    }
+
+    const finishBtn = document.getElementById('finish-btn');
+    if (finishBtn) {
+      finishBtn.onclick = async () => {
+        document.getElementById('loading-overlay').style.display = 'flex';
+        document.getElementById('loading-text').textContent = '正在完成并保存...';
+        try {
+          await fetch('/api/submit', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Asx-Session-Token': token,
+            },
+            body: JSON.stringify({
+              mode: 'tools',
+              image_data: currentImageCanvas.toDataURL('image/png'),
+              recipe: 'custom',
+              keep_alive: false,
+            }),
+          });
+        } catch (_) {}
+        setTimeout(() => window.close(), 600);
+      };
+    }
+
+    document.getElementById('cancel-btn').onclick = async () => {
+      try {
+        await fetch('/api/cancel', {
+          method: 'POST',
+          headers: { 'X-Asx-Session-Token': token },
+        });
+      } finally {
+        window.close();
       }
     };
 
-    document.getElementById('cancel-btn').onclick = async () => {
-      await fetch('/api/cancel', {
-        method: 'POST',
-        headers: { 'X-Asx-Session-Token': token },
-      });
-      window.close();
-    };
-
-    init();
+    // 启动
+    window.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
 </html>

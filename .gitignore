@@ -12,3 +12,5 @@ outputs/
 dist/
 *.lock
 .asx-runtime.lock
+generated-images/
+generated-images

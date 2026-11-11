@@ -35,7 +35,11 @@ def normalize_model_name(value: str) -> str:
 def resolve_model(
     models: list[dict[str, Any]], selector: str | None, task_type: str
 ) -> dict[str, Any]:
-    eligible = [model for model in models if task_type in model.get("task_types", [])]
+    eligible = [
+        model
+        for model in models
+        if isinstance(model, dict) and task_type in model.get("task_types", [])
+    ]
     available = [str(model.get("name")) for model in eligible if isinstance(model.get("name"), str)]
     if not eligible:
         raise AsxError(f"No image model supports {task_type}", code="no_compatible_model")

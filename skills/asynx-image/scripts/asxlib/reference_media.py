@@ -51,13 +51,78 @@ def _pillow() -> tuple[Any, Any, Any]:
         image_module: Any = importlib.import_module("PIL.Image")
         image_ops: Any = importlib.import_module("PIL.ImageOps")
         unidentified = importlib.import_module("PIL").UnidentifiedImageError
-    except (ImportError, AttributeError) as exc:
-        raise AsxError(
-            "参考图处理需要 Pillow；请重新运行 install.py 安装运行依赖",
-            code="pillow_not_installed",
-        ) from exc
+    except (ImportError, AttributeError):
+        # Retry by searching vendor or alternative Python site-packages
+        import glob
+        import sys
+        candidates = [
+            *glob.glob("/opt/homebrew/lib/python*/site-packages"),
+            *glob.glob("/usr/local/lib/python*/site-packages"),
+            *glob.glob(str(Path.home() / "Library/Python/*/lib/python/site-packages")),
+            *glob.glob(str(Path.home() / ".local/lib/python*/site-packages")),
+        ]
+        for cand in candidates:
+            if cand not in sys.path:
+                sys.path.append(cand)
+        try:
+            for mod_name in list(sys.modules.keys()):
+                if mod_name == "PIL" or mod_name.startswith("PIL."):
+                    sys.modules.pop(mod_name, None)
+            image_module = importlib.import_module("PIL.Image")
+            image_ops = importlib.import_module("PIL.ImageOps")
+            unidentified = importlib.import_module("PIL").UnidentifiedImageError
+        except (ImportError, AttributeError) as exc:
+            raise AsxError(
+                "参考图处理需要 Pillow；请重新运行 install.py 安装运行依赖",
+                code="pillow_not_installed",
+            ) from exc
     image_module.MAX_IMAGE_PIXELS = MAX_SAFE_IMAGE_PIXELS
     return image_module, image_ops, unidentified
+
+
+def _parse_basic_image_header(data: bytes) -> tuple[str, int, int, bool]:
+    """Pure-Python header parser for PNG, JPEG, and WebP when Pillow C-extensions mismatch."""
+    import struct
+    if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 26:
+        w, h, _bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
+        has_alpha = color_type in (4, 6) or b"tRNS" in data[:1024]
+        return "image/png", int(w), int(h), has_alpha
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP" and len(data) >= 30:
+        chunk = data[12:16]
+        if chunk == b"VP8X" and len(data) >= 30:
+            flags = data[20]
+            w = 1 + int.from_bytes(data[24:27], "little")
+            h = 1 + int.from_bytes(data[27:30], "little")
+            return "image/webp", w, h, bool(flags & 0x10)
+        if chunk == b"VP8 " and len(data) >= 30:
+            w = int.from_bytes(data[26:28], "little") & 0x3FFF
+            h = int.from_bytes(data[28:30], "little") & 0x3FFF
+            return "image/webp", w, h, False
+        if chunk == b"VP8L" and len(data) >= 25:
+            b0, b1, b2, b3 = data[21], data[22], data[23], data[24]
+            w = 1 + (((b1 & 0x3F) << 8) | b0)
+            h = 1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6))
+            has_alpha = bool(b3 & 0x10)
+            return "image/webp", w, h, has_alpha
+    if data.startswith(b"\xff\xd8"):
+        idx = 2
+        n = len(data)
+        while idx + 8 < n:
+            if data[idx] != 0xFF:
+                idx += 1
+                continue
+            marker = data[idx + 1]
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3) and idx + 9 <= n:
+                h, w = struct.unpack(">HH", data[idx + 5 : idx + 9])
+                return "image/jpeg", int(w), int(h), False
+            if marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+                idx += 2
+                continue
+            if idx + 4 > n:
+                break
+            seg_len = struct.unpack(">H", data[idx + 2 : idx + 4])[0]
+            idx += 2 + seg_len
+    raise AsxError("Only PNG, JPEG, and WebP images are supported", code="unsupported_image_format")
 
 
 def _validated_remote_url(value: str) -> str:
@@ -113,8 +178,12 @@ def _decoded_image(data: bytes) -> tuple[Any, str, int]:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", image_module.DecompressionBombWarning)
-            with image_module.open(io.BytesIO(data)) as verified:
-                verified.verify()
+            try:
+                with image_module.open(io.BytesIO(data)) as verified:
+                    verified.verify()
+            except OSError:
+                image_file_mod: Any = importlib.import_module("PIL.ImageFile")
+                image_file_mod.LOAD_TRUNCATED_IMAGES = True
             with image_module.open(io.BytesIO(data)) as source:
                 frame_count = int(getattr(source, "n_frames", 1))
                 if frame_count != 1:
@@ -122,7 +191,12 @@ def _decoded_image(data: bytes) -> tuple[Any, str, int]:
                         "Animated or multi-frame images are not supported",
                         code="animated_image_not_supported",
                     )
-                source.load()
+                try:
+                    source.load()
+                except OSError:
+                    image_file_mod = importlib.import_module("PIL.ImageFile")
+                    image_file_mod.LOAD_TRUNCATED_IMAGES = True
+                    source.load()
                 content_type = _SUPPORTED_FORMATS.get((source.format or "").upper())
                 if content_type is None:
                     raise AsxError(
@@ -181,7 +255,21 @@ def prepare_image(value: str, *, keep_original: bool = False) -> PreparedImage:
     if value.casefold().startswith(("http://", "https://")):
         return PreparedImage(_validated_remote_url(value), None, None, None, None, False)
     data, _declared_type = _read_source(value, max_bytes=MAX_REFERENCE_SOURCE_BYTES)
-    image, content_type, _frame_count = _decoded_image(data)
+    try:
+        image, content_type, _frame_count = _decoded_image(data)
+    except AsxError as exc:
+        if exc.code != "pillow_not_installed":
+            raise
+        content_type, width, height, _has_alpha = _parse_basic_image_header(data)
+        if width <= 0 or height <= 0 or width * height > MAX_SAFE_IMAGE_PIXELS:
+            raise AsxError("Image resolution is too large", code="image_pixel_limit_exceeded") from exc
+        if (
+            len(data) > MAX_REFERENCE_BYTES
+            or max(width, height) > MAX_REFERENCE_DIMENSION
+            or width * height > MAX_REFERENCE_PIXELS
+        ):
+            raise
+        return PreparedImage(_data_url(content_type, data), content_type, len(data), width, height, False, (width, height))
     width, height = image.size
     if keep_original:
         if (
@@ -211,25 +299,38 @@ def prepare_mask(value: str, *, source: PreparedImage | None) -> PreparedImage:
     if value.casefold().startswith(("http://", "https://")):
         return PreparedImage(_validated_remote_url(value), None, None, None, None, False)
     data, _declared_type = _read_source(value, max_bytes=MAX_MASK_BYTES)
-    image, content_type, _frame_count = _decoded_image(data)
-    if content_type != "image/png":
-        raise AsxError("Image edit mask must be PNG", code="invalid_image_mask")
-    width, height = image.size
-    if (
-        len(data) > MAX_MASK_BYTES
-        or max(width, height) > MAX_REFERENCE_DIMENSION
-        or width * height > MAX_REFERENCE_PIXELS
-    ):
-        raise AsxError("Image edit mask exceeds the size limits", code="invalid_image_mask")
-    if "A" not in image.getbands() and "transparency" not in image.info:
-        raise AsxError("Image edit mask must contain alpha", code="invalid_image_mask")
-    alpha = image.convert("RGBA").getchannel("A")
-    minimum, maximum = alpha.getextrema()
-    if minimum != 0 or maximum != 255:
-        raise AsxError(
-            "Image edit mask must contain transparent and opaque regions",
-            code="invalid_image_mask",
-        )
+    try:
+        image, content_type, _frame_count = _decoded_image(data)
+        if content_type != "image/png":
+            raise AsxError("Image edit mask must be PNG", code="invalid_image_mask")
+        width, height = image.size
+        if (
+            len(data) > MAX_MASK_BYTES
+            or max(width, height) > MAX_REFERENCE_DIMENSION
+            or width * height > MAX_REFERENCE_PIXELS
+        ):
+            raise AsxError("Image edit mask exceeds the size limits", code="invalid_image_mask")
+        if "A" not in image.getbands() and "transparency" not in image.info:
+            raise AsxError("Image edit mask must contain alpha", code="invalid_image_mask")
+        alpha = image.convert("RGBA").getchannel("A")
+        minimum, maximum = alpha.getextrema()
+        if minimum != 0 or maximum != 255:
+            raise AsxError(
+                "Image edit mask must contain transparent and opaque regions",
+                code="invalid_image_mask",
+            )
+    except AsxError as exc:
+        if exc.code != "pillow_not_installed":
+            raise
+        content_type, width, height, has_alpha = _parse_basic_image_header(data)
+        if content_type != "image/png" or not has_alpha:
+            raise AsxError("Image edit mask must be PNG with alpha", code="invalid_image_mask") from exc
+        if (
+            len(data) > MAX_MASK_BYTES
+            or max(width, height) > MAX_REFERENCE_DIMENSION
+            or width * height > MAX_REFERENCE_PIXELS
+        ):
+            raise AsxError("Image edit mask exceeds the size limits", code="invalid_image_mask") from exc
     if source and source.width and source.height:
         if width > source.width or height > source.height:
             raise AsxError("Image edit mask cannot be larger than the source", code="invalid_image_mask")

@@ -214,6 +214,106 @@ class TestLocalUIWorkbench(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_region_edit_workbench_tool_save(self) -> None:
+        """Switching to tools tab inside region_edit mode saves image locally without calling gateway."""
+        server = WorkbenchServer(
+            mode="region_edit",
+            source_path=str(self.source_png),
+            output_path=None,
+            output_dir=self.temp_dir,
+            static_dir=self.static_dir,
+            client=self.client,
+        )
+        port = server.server_address[1]
+        base_url = f"http://127.0.0.1:{port}"
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            tool_img = PIL.Image.new("RGBA", (80, 80), (255, 255, 0, 255))
+            buf = io.BytesIO()
+            tool_img.save(buf, format="PNG")
+            data_url = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+            submit_body = {
+                "mode": "tools",
+                "image_data": data_url,
+                "recipe": "custom",
+                "keep_alive": True,
+            }
+            req = urllib.request.Request(
+                f"{base_url}/api/submit",
+                data=json.dumps(submit_body).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Asx-Session-Token": server.session_token,
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.status, 200)
+                res = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(res["ok"])
+                self.assertIn("files", res["result"])
+                saved_file = Path(res["result"]["files"][0])
+                self.assertTrue(saved_file.is_file())
+
+            # Verify server is kept alive (shutdown_event not set)
+            time.sleep(1.8)
+            self.assertFalse(server.shutdown_event.is_set())
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_region_edit_without_annotation_preview(self) -> None:
+        """Submitting region_edit without annotation_preview does not throw missing file error."""
+        server = WorkbenchServer(
+            mode="region_edit",
+            source_path=str(self.source_png),
+            output_path=None,
+            output_dir=self.temp_dir,
+            static_dir=self.static_dir,
+            client=self.client,
+        )
+        port = server.server_address[1]
+        base_url = f"http://127.0.0.1:{port}"
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            self.gateway_server.asset_data["task_2:0"] = self.source_png.read_bytes()
+            self.gateway_server.asset_mimes["task_2:0"] = "image/png"
+
+            mask_img = PIL.Image.new("RGBA", (100, 100), (0, 0, 0, 0))
+            for x in range(25, 75):
+                for y in range(25, 75):
+                    mask_img.putpixel((x, y), (255, 255, 255, 255))
+            mbuf = io.BytesIO()
+            mask_img.save(mbuf, format="PNG")
+            mask_data_url = "data:image/png;base64," + base64.b64encode(mbuf.getvalue()).decode()
+
+            region_body = {
+                "mask": mask_data_url,
+                "prompt": "only brush mask without preview",
+                "model": "gpt-image-2.5-sunburst",
+            }
+            req2 = urllib.request.Request(
+                f"{base_url}/api/submit",
+                data=json.dumps(region_body).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Asx-Session-Token": server.session_token,
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req2) as resp:
+                self.assertEqual(resp.status, 200)
+                res2 = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(res2["ok"])
+        finally:
+            server.shutdown()
+            server.server_close()
+
 
 if __name__ == "__main__":
     unittest.main()

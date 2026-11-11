@@ -35,16 +35,46 @@
 
 ## 安装说明 (Installation)
 
-### 方式一：安装至 Agent 宿主环境（推荐）
+运行环境要求 Python 3.10+。生成多模态资产须配置 [LLMAPI API Key](https://llmapi.site/api-keys)；仅使用本地处理功能时无需配置密钥。
 
-通过软链接或复制，将技能接入当前使用的 AI Agent 运行时：
+### 方式一：自动化安装（推荐：Codex / Claude Code）
+
+可使用仓库自带的安装器一键完成检测、依赖安装与密钥配置：
+
+```bash
+git clone https://github.com/dawnx/asset-skills.git
+cd asset-skills
+python3 install.py
+```
+
+Windows 环境下将最后一行改为 `py install.py`。
+
+安装器会自动检测 Codex 与 Claude Code，并引导用户输入 API Key。密钥应在终端中输入，不得发送至对话。
+
+常用参数选项：
+- `--target`：安装目标 Agent，可选 `auto`（默认自动检测）、`codex`、`claude` 或 `both`。
+- `--skill`：指定安装的技能，默认全部安装 (`all`)。可选：`image`、`audio`、`video`、`3d`，或逗号分隔多选如 `--skill image,audio`。
+- `--skip-config`：安装但不询问 API Key。
+- `--no-verify`：跳过密钥和模型目录连通性检查。
+- `--uninstall`：卸载已安装的 Skill，保留密钥、任务记录和已生成文件（配合 `--yes` 跳过确认）。
+
+默认安装位置：
+
+| Agent | 用户主目录下的路径 |
+| --- | --- |
+| Codex / Pi | `~/.agents/skills/asynx-{image,audio,video,3d}` |
+| Claude Code | `~/.claude/skills/asynx-{image,audio,video,3d}` |
+
+### 方式二：软链接接入（开发者本地联动）
+
+通过软链接将技能接入当前使用的 AI Agent 运行时，修改代码实时生效：
 
 #### 1. Claude Code
 ```bash
 # 创建 Claude 技能目录
 mkdir -p ~/.claude/skills
 
-# 软链接所有技能（实时同步本地开发修改）
+# 软链接所有技能
 for skill in asynx-image asynx-audio asynx-video asynx-3d; do
   ln -s "$(pwd)/skills/$skill" ~/.claude/skills/$skill
 done
@@ -61,9 +91,9 @@ for skill in asynx-image asynx-audio asynx-video asynx-3d; do
 done
 ```
 
-*(Windows 环境可在对应用户的 `%USERPROFILE%\.claude\skills` 或 `%USERPROFILE%\.agents\skills` 目录下创建目录符号链接或直接解压 Zip 包)*
+*(Windows 环境可在对应用户的 `%USERPROFILE%\.claude\skills` 或 `%USERPROFILE%\.agents\skills` 目录下创建目录符号链接或解压压缩包)*
 
-### 方式二：使用独立构建产物 (Dist Packages)
+### 方式三：使用独立构建产物 (Dist Packages)
 
 可以直接下载或解压 `dist/` 目录中打包好的独立归档：
 - `dist/asynx-image.zip`
@@ -73,9 +103,9 @@ done
 
 解压至任意 Agent 的 `skills/` 目录即可，内部已包含所有必要运行时文件。
 
-### 方式三：源码编译与重新打包 (开发者模式)
+### 方式四：源码编译与重新打包 (开发者构建)
 
-若修改了 `shared/` 或 `src/` 中的代码，可运行构建脚本重新生成各个 Skill：
+若修改了 `shared/` 或 `src/` 中的核心逻辑，可运行构建脚本重新生成各个 Skill：
 
 ```bash
 # 重新构建所有技能到 skills/ 目录
@@ -84,6 +114,18 @@ python3 src/build_skills.py --skill all
 # 构建并打包到 dist/ 目录 (生成 zip 压缩包与 sha256 清单 json)
 python3 src/build_skills.py --skill all --package
 ```
+
+### 更新与卸载
+
+升级时可直接要求 Agent“检查 Asynx Skill 更新”或“升级 Asynx Skill”。
+
+使用本仓库安装器安装的副本，卸载时在克隆的仓库根目录运行：
+
+```bash
+python3 install.py --uninstall
+```
+
+Windows 环境使用 `py install.py --uninstall`。卸载将保留配置密钥、任务记录和已生成文件。其他方式安装的副本，可通过对应 Agent 的 Skill 管理功能移除安装目录。
 
 ---
 

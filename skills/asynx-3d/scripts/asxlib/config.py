@@ -52,7 +52,28 @@ def state_path() -> Path:
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
         return Path(os.environ["LOCALAPPDATA"]) / "Asynx" / "state.db"
     state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    return state_home / "asx" / "state.db"
+    candidate = state_home / "asx" / "state.db"
+    try:
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        if candidate.exists():
+            with candidate.open("a"):
+                pass
+        else:
+            test_file = candidate.parent / f".write_test_{os.getpid()}"
+            test_file.touch()
+            test_file.unlink()
+        return candidate
+    except OSError:
+        fallback_dir = Path(tempfile.gettempdir()) / "asx"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        fallback_db = fallback_dir / "state.db"
+        if candidate.exists() and not fallback_db.exists():
+            try:
+                import shutil
+                shutil.copy2(candidate, fallback_db)
+            except OSError:
+                pass
+        return fallback_db
 
 
 def cache_path() -> Path:
@@ -62,7 +83,14 @@ def cache_path() -> Path:
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
         return Path(os.environ["LOCALAPPDATA"]) / "Asynx" / "cache" / "models.json"
     cache_home = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-    return cache_home / "asx" / "models.json"
+    candidate = cache_home / "asx" / "models.json"
+    try:
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        return candidate
+    except OSError:
+        fallback_dir = Path(tempfile.gettempdir()) / "asx" / "cache"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_dir / "models.json"
 
 
 def _read_config_file(path: Path) -> dict[str, Any]:
@@ -495,6 +523,26 @@ def doctor(*, verify: bool = False, modality: str | None = None) -> dict[str, An
                     "name": "api_verification",
                     "ok": False,
                     "message": f"Asynx API verification failed: {exc.message}",
+                }
+            )
+        except Exception as exc:
+            result["ok"] = False
+            result["verification"] = {
+                "ok": False,
+                "error": {"code": "verification_failed", "message": f"API 验证失败：{exc}"},
+            }
+            issues.append(
+                {
+                    "level": "error",
+                    "code": "api_verification_failed",
+                    "message": str(exc),
+                }
+            )
+            checks.append(
+                {
+                    "name": "api_verification",
+                    "ok": False,
+                    "message": f"Asynx API verification failed: {exc}",
                 }
             )
 

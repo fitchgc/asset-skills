@@ -1006,6 +1006,8 @@ def models_payload(
     task_type = None if operation == "all" else f"{target_modality}.{operation}"
     items = []
     for model in models:
+        if not isinstance(model, dict):
+            continue
         if task_type and task_type not in model.get("task_types", []):
             continue
         items.append(

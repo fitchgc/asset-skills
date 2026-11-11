@@ -1,6 +1,6 @@
 # 操作参考
 
-按当前需求阅读对应章节：[批次](#批次)、[任务恢复与取消](#任务恢复与取消)、[本地图片工具](#本地图片工具)、[输入图片](#输入图片)、[生成参数](#生成参数)。
+按当前需求阅读对应章节：[批次](#批次)、[交互工作台](#交互工作台)、[任务恢复与取消](#任务恢复与取消)、[本地图片工具](#本地图片工具)、[输入图片](#输入图片)、[生成参数](#生成参数)。
 
 命令中的 `<skill-dir>` 替换为当前已安装 Skill 的绝对路径，Windows 可用 `py` 替代 `python3`。文件路径使用绝对路径并完整引用。
 
@@ -61,6 +61,25 @@ python3 "<skill-dir>/scripts/asynx.py" task cancel "<task-id>"
 - 等待中断、暂停或发出取消请求都不等于远端已停止。保留原任务记录，不为同一中断请求重新生成幂等键。
 
 高级查询仍保留：`task status` 不加 `--refresh` 读取本地快照；`task poll <id>` 刷新本地记录并下载，省略 ID 会处理多条记录；顶层 `status <remote-id>` 仅查询远端，不更新本地记录。用户明确查远端历史且本地记录不足时可执行 `history --limit 20`。
+
+## 交互工作台
+
+用于在浏览器中进行可视化交互操作，适合框选局部、涂鸦遮罩或可视化调整参数：
+
+```bash
+# 1. 局部重绘 (Region Edit)：在界面上框选/套索感兴趣区域，输入提示词直接调用远程编辑
+python3 "<skill-dir>/scripts/asynx.py" ui region-edit --image "/absolute/path/input.png"
+python3 "<skill-dir>/scripts/asynx.py" edit --ui --from-task "<task-id>" --prompt "<初步修改意图>"
+
+# 2. 手绘涂鸦与批注 (Annotate)：在原图上手绘标注、涂鸦，导出带标注图片或 Mask
+python3 "<skill-dir>/scripts/asynx.py" ui annotate --image "/absolute/path/input.png"
+
+# 3. 基础图像处理工具 (Tools)：可视化的裁切、缩放、格式转换
+python3 "<skill-dir>/scripts/asynx.py" ui tools --image "/absolute/path/input.png"
+```
+
+- 参数 `--no-open`：启动服务但不自动调用系统浏览器打开，适用于仅打印 URL 由用户手动点击的场景。
+- 界面提交后会自动执行对应操作，并在控制台输出包含结果文件路径的 JSON，然后自动退出服务。
 
 ## 本地图片工具
 

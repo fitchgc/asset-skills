@@ -1,6 +1,6 @@
 ---
 name: asynx-image
-description: 通过 Asynx 生成、参考图创作和编辑图片，管理批量任务、进度与中断恢复；也支持本地缩放、裁剪、切图和格式转换。用户要求时可接入自定义工作流，不用于视频。
+description: 通过 Asynx 生成、参考图创作和编辑图片，管理批量任务、进度与中断恢复；支持浏览器交互式局部重绘、涂鸦批注与图像处理工作台；也支持本地缩放、裁剪、切图和格式转换。用户要求时可接入自定义工作流，不用于视频。
 ---
 
 # Asynx 图片
@@ -24,6 +24,26 @@ python3 "<skill-dir>/scripts/asynx.py" edit --prompt "<修改要求>" --from-tas
 - 单任务默认等待、下载并展示结果。用户要求后台运行或稍后查询时才加 `--detach`；它只表示已受理。若先分离提交但用户仍要求本轮完成，继续等待原任务，不重新生成。
 - 终端首次调用优先等待 30 秒（支持时设置 `yield_time_ms: 30000`）；返回运行中的会话后，继续等待同一进程，每次 30–60 秒，以宿主限制为准。脚本负责轮询和下载，不另起命令重复监控。
 - 批量或追加使用批次命令，按下面的按需入口读取批次说明；不要套用单任务的等待规则。
+
+## 交互工作台 (Local UI Workbench)
+
+当用户要求“编辑刚才的图片”、“修改特定区域”、“画一下 Mask”、“调起涂鸦批注/编辑界面”或进行可视化选区与指向修改时，**直接启动本地交互式编辑工作台**：
+
+```bash
+# 局部重绘与视觉批注工作台（支持涂鸦画 Mask、圈选、框选、红箭头指向与多点文字说明）
+python3 "<skill-dir>/scripts/asynx.py" edit --ui --from-task "<task-id>" --prompt "<初步修改意图>"
+python3 "<skill-dir>/scripts/asynx.py" ui region-edit --image "/absolute/path/input.png"
+
+# 手绘涂鸦与视觉批注工作台
+python3 "<skill-dir>/scripts/asynx.py" ui annotate --image "/absolute/path/input.png"
+
+# 交互式本地图片工具（裁切、缩放、格式等）
+python3 "<skill-dir>/scripts/asynx.py" ui tools --image "/absolute/path/input.png"
+```
+
+- **稳定端口与会话**：默认优先使用稳定的默认端口 `51888`，页面刷新或断线重连保持可用。
+- **操作闭环**：工作台内置涂鸦画笔（Brush）、指向箭头（Arrow）、框选、圈选工具。用户在网页点击“生成”后，本地服务会自动执行重绘并下载结果交付给 Agent。
+- Agent 调用时若宿主终端不支持自动弹出浏览器，向用户展示生成的本地 URL，让用户点击进入。
 
 ## 选择图片与查询任务
 
@@ -52,6 +72,7 @@ python3 "<skill-dir>/scripts/asynx.py" wait "<task-id>"
 | 请求 | 参考 |
 | --- | --- |
 | 批量生成、追加、暂停或继续批次 | [批次操作](references/operations.md#批次) |
+| 交互式编辑、局部重绘、涂鸦批注或网页工作台 | [交互工作台](references/operations.md#交互工作台) |
 | 缩放、裁剪、切图、格式转换或应用已有 Mask | [本地图片工具](references/operations.md#本地图片工具)，不需要 API Key |
 | 输入图片限制、Mask 编辑或特殊参数 | [输入与参数](references/operations.md#输入图片) |
 | 恢复中断、取消任务、找回下载文件 | [任务恢复](references/operations.md#任务恢复与取消) |

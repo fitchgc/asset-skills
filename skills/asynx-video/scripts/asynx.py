@@ -3,6 +3,8 @@
 
 import io
 import json
+import os
+import shutil
 import sys
 from contextlib import nullcontext
 from pathlib import Path
@@ -12,6 +14,33 @@ from asx_runtime import LockBusyError, file_lock, runtime_lock_path
 _VENDOR = Path(__file__).resolve().parent / "vendor"
 if _VENDOR.is_dir():
     sys.path.insert(0, str(_VENDOR))
+
+
+def _ensure_compatible_python() -> None:
+    if os.environ.get("_ASX_REEXEC"):
+        return
+    try:
+        import PIL.Image  # noqa: F401
+        return
+    except Exception:
+        pass
+    for ver in ("3.12", "3.13", "3.11", "3.10"):
+        candidate = shutil.which(f"python{ver}")
+        if candidate and Path(candidate).resolve() != Path(sys.executable).resolve():
+            try:
+                import subprocess
+                chk = subprocess.run(
+                    [candidate, "-c", f"import sys; sys.path.insert(0, {str(_VENDOR)!r}); import PIL.Image"],
+                    capture_output=True,
+                )
+                if chk.returncode == 0:
+                    os.environ["_ASX_REEXEC"] = "1"
+                    os.execv(candidate, [candidate, *sys.argv])
+            except Exception:
+                continue
+
+
+_ensure_compatible_python()
 
 if __name__ == "__main__":
     for stream in (sys.stdout, sys.stderr):

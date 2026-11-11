@@ -119,10 +119,40 @@ def _validate_api_redirect(value: str, *, base_url: str) -> str:
     return value
 
 
+def _normalize_models_list(raw_models: Any) -> list[dict[str, Any]]:
+    if isinstance(raw_models, list):
+        return [m for m in raw_models if isinstance(m, dict)]
+    if isinstance(raw_models, dict):
+        for key in ("items", "models", "data"):
+            val = raw_models.get(key)
+            if isinstance(val, list):
+                return [m for m in val if isinstance(m, dict)]
+            if isinstance(val, dict):
+                sub = _normalize_models_list(val)
+                if sub:
+                    return sub
+    return []
+
+
+def _unwrap_payload(payload: Any) -> Any:
+    if isinstance(payload, dict) and "data" in payload and payload.get("code") in {"ok", 0, None}:
+        data = payload["data"]
+        if isinstance(data, (dict, list)):
+            return data
+    return payload
+
+
 def _matches_modality(model: dict[str, Any], modality: str | None) -> bool:
+    if not isinstance(model, dict):
+        return False
     if not modality:
         return True
-    task_types = model.get("task_types", [])
+    raw_task_types = model.get("task_types")
+    task_types = (
+        [t for t in raw_task_types if isinstance(t, str)]
+        if isinstance(raw_task_types, list)
+        else []
+    )
     model_modality = model.get("modality", "")
     if modality == "image":
         return any(t.startswith("image.") for t in task_types) or model_modality == "image"
@@ -206,15 +236,21 @@ class AsynxClient:
         if cache_file.is_file():
             try:
                 cached = json.loads(cache_file.read_text(encoding="utf-8"))
-                if now - cached.get("cached_at", 0) < MODEL_CACHE_TTL_SECONDS:
-                    models = cached.get("models", [])
-                    filtered = [m for m in models if _matches_modality(m, modality)]
-                    return filtered, cached.get("request_id")
+                if isinstance(cached, dict) and now - cached.get("cached_at", 0) < MODEL_CACHE_TTL_SECONDS:
+                    models = _normalize_models_list(cached.get("models")) or _normalize_models_list(cached.get("items"))
+                    if models:
+                        filtered = [m for m in models if _matches_modality(m, modality)]
+                        return filtered, cached.get("request_id")
             except Exception:
                 pass
 
         data, req_id = self.request_json("GET", "/v1/tasks/models")
-        models = data.get("models") if isinstance(data.get("models"), list) else data.get("data", [])
+        models = (
+            _normalize_models_list(data.get("models"))
+            or _normalize_models_list(data.get("items"))
+            or _normalize_models_list(data.get("data"))
+            or _normalize_models_list(data)
+        )
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(
@@ -233,13 +269,16 @@ class AsynxClient:
         idempotency_key: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         body = {"task_type": task_type, **payload}
-        return self.request_json("POST", "/v1/tasks", body=body, idempotency_key=idempotency_key)
+        data, req_id = self.request_json("POST", "/v1/tasks", body=body, idempotency_key=idempotency_key)
+        return _unwrap_payload(data), req_id
 
     def task(self, task_id: str) -> tuple[dict[str, Any], str | None]:
-        return self.request_json("GET", f"/v1/tasks/{quote(task_id, safe='')}")
+        data, req_id = self.request_json("GET", f"/v1/tasks/{quote(task_id, safe='')}")
+        return _unwrap_payload(data), req_id
 
     def cancel(self, task_id: str) -> tuple[dict[str, Any], str | None]:
-        return self.request_json("POST", f"/v1/tasks/{quote(task_id, safe='')}/cancel")
+        data, req_id = self.request_json("POST", f"/v1/tasks/{quote(task_id, safe='')}/cancel")
+        return _unwrap_payload(data), req_id
 
     def list_tasks(
         self,
@@ -250,7 +289,8 @@ class AsynxClient:
         if status:
             params.append(f"status={quote(status, safe='')}")
         query_string = "?" + "&".join(params)
-        return self.request_json("GET", f"/v1/tasks{query_string}")
+        data, req_id = self.request_json("GET", f"/v1/tasks{query_string}")
+        return _unwrap_payload(data), req_id
 
     def download_asset_to_file(
         self,
