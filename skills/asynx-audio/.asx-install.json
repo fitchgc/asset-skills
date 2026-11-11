@@ -13,7 +13,7 @@
     "scripts/asxlib/audio_tasks.py": "3b415a2ca8b62a63a1f549469beb6bf43a34633e0d39e52fe52b35551b4dc141",
     "scripts/asxlib/batches.py": "8d3de50932d57d6cd141daa27224c994f696d7ae1912745a547ea5f16bb7dbfe",
     "scripts/asxlib/cli.py": "3696a2c333a7c04881362fe2b783356f775c234b866680eacb58b11643773714",
-    "scripts/asxlib/client.py": "4842fee9c72da1c8595b5ff5b7de6ae123d549d36fdc0e05f88782b2f66f6062",
+    "scripts/asxlib/client.py": "d4d3361317aa0374d23dd5c7817598ada0ef245bdf0d325889408f816813ca27",
     "scripts/asxlib/config.py": "436a2cc0d0fb4fce821706343e0726b5dbb1571443be7dc0ec0c981820e1bd5b",
     "scripts/asxlib/constants.py": "d796d89dca357418c819dcc0a3c21281904c809af240ef0ece719db4ef548b7a",
     "scripts/asxlib/errors.py": "bbfe461f4229449f4600384e68f566c335c6d66874df3cb86f13ad86f264b82f",

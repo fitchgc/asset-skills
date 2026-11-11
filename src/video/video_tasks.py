@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -15,8 +16,23 @@ def _encode_media_file(path_str: str) -> str:
     path = Path(path_str).expanduser().resolve()
     if not path.is_file():
         raise AsxError(f"媒体文件不存在：{path}", code="media_not_found")
-    data = path.read_bytes()
+
     suffix = path.suffix.removeprefix(".").lower()
+    if suffix in ("png", "jpg", "jpeg", "webp"):
+        try:
+            import PIL.Image
+            import PIL.ImageFile
+
+            PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
+            with PIL.Image.open(path) as img:
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                clean_data = buf.getvalue()
+                return "data:image/png;base64," + base64.b64encode(clean_data).decode("utf-8")
+        except Exception:
+            pass
+
+    data = path.read_bytes()
     mime = "image/png" if suffix == "png" else "image/jpeg" if suffix in ("jpg", "jpeg") else "video/mp4"
     return f"data:{mime};base64," + base64.b64encode(data).decode("utf-8")
 

@@ -362,6 +362,15 @@ class AsynxClient:
                                     temp_file.write(chunk)
                                 temp_file.flush()
                                 os.fsync(temp_file.fileno())
+
+                                cl_header = response.headers.get("Content-Length")
+                                if cl_header and cl_header.isdigit():
+                                    expected_bytes = int(cl_header)
+                                    if total_bytes < expected_bytes:
+                                        raise AsxError(
+                                            f"下载未完整接收：已接收 {total_bytes}/{expected_bytes} 字节",
+                                            code="download_truncated",
+                                        )
                             except Exception:
                                 if temp_path.exists():
                                     try:
