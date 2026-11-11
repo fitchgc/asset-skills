@@ -12,10 +12,10 @@
 
 ## 核心特性
 
-- **跨模态引用（Cross-Modal Pipelines）**：所有技能共用本地 SQLite 状态账本，通过 `--from-task <task-id>` 即可无缝串联不同模态（例如：概念原画 -> 图生 3D 模型 -> 自动骨骼绑定 -> 行走动画 -> 导出 2D 游戏精灵图集）。
-- **自包含与开箱即用（Self-Contained Bundling）**：每个 Skill 均可作为独立目录发布分发，内置 CLI 脚本、依赖与 Agent 引导规则，零全局依赖。
-- **本地免 Key 确定性后处理（Keyless Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等无需 API Key，离线秒级执行。
-- **按需本地交互工作台（Local UI Workbench）**：由 CLI 临时按需拉起轻量 Web 服务，在浏览器中完成需要视觉交互的操作（局部重绘圈选标注、视频时间轴去背、WebGL 3D 预览与多方向序列帧图集渲染）。
+- **跨模态引用（Cross-Modal Pipelines）**：所有技能共用本地 SQLite 状态账本，Agent 可通过上下文任务 ID 无缝串联不同模态（例如：概念原画 -> 图生 3D 模型 -> 自动骨骼绑定 -> 行走动画 -> 导出 2D 游戏精灵图集）。
+- **自包含与开箱即用（Self-Contained Bundling）**：每个 Skill 均包含独立的配置与规则定义，零全局环境污染。
+- **本地免 Key 确定性后处理（Keyless Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需消耗 API Key，本地离线秒级执行。
+- **按需本地交互工作台（Local UI Workbench）**：Agent 可按需自动拉起轻量 Web 服务，在浏览器中完成视觉交互操作（局部重绘圈选标注、视频时间轴去背、WebGL 3D 预览与多方向序列帧图集渲染）。
 
 ---
 
@@ -37,9 +37,9 @@
 
 运行环境要求 Python 3.10+。生成多模态资产须配置 [LLMAPI API Key](https://llmapi.site/api-keys)；仅使用本地处理功能时无需配置密钥。
 
-### 方式一：自动化安装（推荐：Codex / Claude Code）
+### 自动化安装（推荐）
 
-可使用仓库自带的安装器一键完成检测、依赖安装与密钥配置：
+使用仓库自带的安装器一键完成环境检测、依赖安装与密钥配置：
 
 ```bash
 git clone https://github.com/dawnx/asset-skills.git
@@ -49,14 +49,14 @@ python3 install.py
 
 Windows 环境下将最后一行改为 `py install.py`。
 
-安装器会自动检测 Codex 与 Claude Code，并引导用户输入 API Key。密钥应在终端中输入，不得发送至对话。
+安装器会自动检测当前环境中的 Codex、Claude Code 或 Pi，并引导在终端中安全输入 API Key（无需且严禁将密钥发送给 Agent 对话）：
 
 常用参数选项：
-- `--target`：安装目标 Agent，可选 `auto`（默认自动检测）、`codex`、`claude` 或 `both`。
-- `--skill`：指定安装的技能，默认全部安装 (`all`)。可选：`image`、`audio`、`video`、`3d`，或逗号分隔多选如 `--skill image,audio`。
-- `--skip-config`：安装但不询问 API Key。
-- `--no-verify`：跳过密钥和模型目录连通性检查。
-- `--uninstall`：卸载已安装的 Skill，保留密钥、任务记录和已生成文件（配合 `--yes` 跳过确认）。
+- `--target`：指定安装目标 Agent，可选 `auto`（默认自动检测）、`codex`、`claude` 或 `both`。
+- `--skill`：指定安装的技能，默认全部安装 (`all`)。可选：`image`、`audio`、`video`、`3d`，或多选如 `--skill image,audio`。
+- `--skip-config`：仅安装技能，不提示输入 API Key。
+- `--no-verify`：跳过密钥连通性校验。
+- `--uninstall`：卸载已安装的 Skill，保留密钥、任务记录和已生成文件（可配合 `--yes` 跳过确认）。
 
 默认安装位置：
 
@@ -65,371 +65,121 @@ Windows 环境下将最后一行改为 `py install.py`。
 | Codex / Pi | `~/.agents/skills/asynx-{image,audio,video,3d}` |
 | Claude Code | `~/.claude/skills/asynx-{image,audio,video,3d}` |
 
-### 方式二：软链接接入（开发者本地联动）
-
-通过软链接将技能接入当前使用的 AI Agent 运行时，修改代码实时生效：
-
-#### 1. Claude Code
-```bash
-# 创建 Claude 技能目录
-mkdir -p ~/.claude/skills
-
-# 软链接所有技能
-for skill in asynx-image-pro asynx-audio asynx-video asynx-3d; do
-  ln -s "$(pwd)/skills/$skill" ~/.claude/skills/$skill
-done
-```
-
-#### 2. Codex / Pi
-```bash
-# 创建 Agent 技能目录
-mkdir -p ~/.agents/skills
-
-# 软链接所有技能
-for skill in asynx-image-pro asynx-audio asynx-video asynx-3d; do
-  ln -s "$(pwd)/skills/$skill" ~/.agents/skills/$skill
-done
-```
-
-*(Windows 环境可在对应用户的 `%USERPROFILE%\.claude\skills` 或 `%USERPROFILE%\.agents\skills` 目录下创建目录符号链接或解压压缩包)*
-
-### 方式三：使用独立构建产物 (Dist Packages)
-
-可以直接下载或解压 `dist/` 目录中打包好的独立归档：
-- `dist/asynx-image-pro.zip`
-- `dist/asynx-audio.zip`
-- `dist/asynx-video.zip`
-- `dist/asynx-3d.zip`
-
-解压至任意 Agent 的 `skills/` 目录即可，内部已包含所有必要运行时文件。
-
-### 方式四：源码编译与重新打包 (开发者构建)
-
-若修改了 `shared/` 或 `src/` 中的核心逻辑，可运行构建脚本重新生成各个 Skill：
-
-```bash
-# 重新构建所有技能到 skills/ 目录
-python3 src/build_skills.py --skill all
-
-# 构建并打包到 dist/ 目录 (生成 zip 压缩包与 sha256 清单 json)
-python3 src/build_skills.py --skill all --package
-```
-
 ### 更新与卸载
 
-升级时可直接要求 Agent“检查 Asynx Skill 更新”或“升级 Asynx Skill”。
+- **升级**：可直接在对话中要求 Agent“检查 Asynx Skill 更新”或重新运行 `python3 install.py`。
+- **卸载**：在仓库根目录执行 `python3 install.py --uninstall` 即可完成干净卸载。
 
-使用本仓库安装器安装的副本，卸载时在克隆的仓库根目录运行：
-
-```bash
-python3 install.py --uninstall
-```
-
-Windows 环境使用 `py install.py --uninstall`。卸载将保留配置密钥、任务记录和已生成文件。其他方式安装的副本，可通过对应 Agent 的 Skill 管理功能移除安装目录。
+> 如需使用软链接接入（开发者联动）、解压预打包 zip 归档或从源码重新构建，请参阅 [其他安装方式与 CLI 脚本直接调用指南](CLI_USAGE.md)。
 
 ---
 
 ## 配置说明 (Configuration)
 
-各 Skill 共用同一套本机全局配置与本地状态账本，只需配置一次即可在全部 4 个技能中生效。
+各 Skill 共用同一套本机配置与本地状态账本，只需配置一次即可全局生效：
 
-### 1. 安全配置 API Key（推荐）
-
-在交互式终端中执行任一技能的 `configure` 命令，根据提示输入 API Key：
-
-```bash
-python3 skills/asynx-image-pro/scripts/asynx.py configure
-```
-
-- 输入格式以 `asx-` 开头的有效 API Key。
-- 若使用私有网关或自托管地址，可传入 `--base-url`：
-  ```bash
-  python3 skills/asynx-image-pro/scripts/asynx.py configure --base-url "https://your-domain.com/api"
-  ```
-
-### 2. 环境变量配置（适用于 CI/CD 或临时会话）
-
-也可以通过环境变量指定密钥与网关地址：
-
-```bash
-# 必填：Asynx 统一 API Key
-export ASYNX_API_KEY="asx-xxxxxxxxxxxx"
-
-# 可选：远端网关地址（默认为官方网关 https://asynx.llmapi.site/api）
-export ASYNX_BASE_URL="https://asynx.llmapi.site/api"
-
-# 可选：自定义配置文件存储路径
-export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
-```
-
-### 3. 配置存储路径与优先级
-
-- **默认配置文件存储位置**：
-  - macOS / Linux：`~/.config/asynx/config.json`
-  - Windows：`%APPDATA%\Asynx\config.json`
-- **本地状态数据库存储位置**：
-  - macOS / Linux：`~/.local/state/asx/state.db`
-  - Windows：`%LOCALAPPDATA%\Asynx\state.db`
-- **配置优先级**：环境变量（`ASYNX_API_KEY`） > 配置文件（`config.json`）。
-
-### 4. 环境自检与连通性诊断 (Doctor)
-
-配置完成后，使用 `doctor` 命令诊断当前系统环境与依赖是否完备：
-
-```bash
-# 离线检查配置文件、权限、Pillow 与 ffmpeg 工具链
-python3 skills/asynx-image-pro/scripts/asynx.py doctor
-
-# 联网验证密钥与网关连通性
-python3 skills/asynx-image-pro/scripts/asynx.py doctor --verify
-
-# 查看当前配置状态及密钥脱敏信息
-python3 skills/asynx-image-pro/scripts/asynx.py config status
-```
+1. **自动引导**：运行 `python3 install.py` 时会主动引导配置并加密存储。
+2. **环境变量**：适用于 CI/CD 或临时环境，直接导出 `export ASYNX_API_KEY="asx-xxxxxxxxxxxx"`。
+3. **终端配置**：如需后续更新密钥，可让用户在终端中运行配置命令（详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)）。
 
 ---
 
-## 使用指南 (Usage)
+## 使用指南：在 Agent 中调用技能
 
-所有技能通过统一脚本 `scripts/asynx.py` 驱动。命令支持单次生成、批量批次、本地免 Key 处理及浏览器交互工作台。
-
----
-
-### 1. 图像创作 (`asynx-image-pro`)
-
-#### 远程生成与编辑
-```bash
-# 文生图 (Text-to-Image)
-python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "赛博朋克风格发光霓虹猫咪，8k高清" --aspect-ratio "16:9"
-
-# 垫图参考生成 (Reference Image)
-python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "保持相同构图，切换为金色秋季枫叶背景" --reference "/path/to/cat.png"
-
-# 图生图编辑 (Image-to-Image Edit)
-python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "将角色的衣服颜色改为暗红色铠甲" --image "/path/to/character.png"
-
-# 使用任务 ID 延续编辑 (From Task)
-python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
-```
-
-#### 本地确定性图片处理 (免 API Key)
-```bash
-# 查看图片基础元数据 (尺寸、格式、色彩模式)
-python3 skills/asynx-image-pro/scripts/asynx.py image info "input.png"
-
-# 调整尺寸并保持比例
-python3 skills/asynx-image-pro/scripts/asynx.py image resize "input.png" --output "thumb.png" --width 512
-
-# 裁剪指定区域 (x1, y1, x2, y2)
-python3 skills/asynx-image-pro/scripts/asynx.py image crop "input.png" --output "cropped.png" --box 0,0,256,256
-
-# 九宫格/网格切图 (用于游戏瓦片地图或图集切分)
-python3 skills/asynx-image-pro/scripts/asynx.py image slice "tileset.png" --output-dir "tiles/" --rows 4 --columns 4
-
-# 格式转换
-python3 skills/asynx-image-pro/scripts/asynx.py image convert "photo.jpg" --output "photo.webp" --format webp
-
-# 应用 Alpha 遮罩
-python3 skills/asynx-image-pro/scripts/asynx.py image apply-mask "photo.png" --mask "mask.png" --output "cutout.png"
-```
-
-#### 本地交互工作台 (Local UI)
-```bash
-# 启动浏览器局部重绘圈选与标注工作台（自动提取 Mask 遮罩与修改指令）
-python3 skills/asynx-image-pro/scripts/asynx.py ui annotate --image "character.png"
-```
+技能安装完成后，Agent 在启动时会自动加载技能上下文。你无需手动记忆或拼写复杂的命令行参数，**只需在对话框中用自然语言向 Agent 发出创作指令**，Agent 会自动决定调用对应 Skill 进行云端生成、本地后处理或拉起本地可视化工作台。
 
 ---
 
-### 2. 音频创作 (`asynx-audio`)
+### 1. 图像创作与编辑 (`asynx-image-pro`)
 
-#### 声音合成与生成
-```bash
-# 游戏音效合成 (SFX)
-python3 skills/asynx-audio/scripts/asynx.py sfx --prompt "宝箱开启金币散落清脆声效" --duration 2.5
+在与 Agent 对话时直接描述图片创作意图：
 
-# 背景音乐配乐生成 (Music)
-python3 skills/asynx-audio/scripts/asynx.py music --prompt "8-bit 像素地牢战斗芯片音乐，高燃快节奏" --duration 30 --instrumental
-
-# 角色台词语音合成 (Speech / TTS)
-python3 skills/asynx-audio/scripts/asynx.py speech --text "勇敢的冒险者，愿圣光庇佑你的道路！" --voice "warrior" --speed 1.0
-
-# 声音克隆/音色延续合成
-python3 skills/asynx-audio/scripts/asynx.py speech --text "前进，决不后退！" --from-task "<previous-audio-task-id>"
-```
-
-#### 本地确定性音频处理 (免 API Key)
-```bash
-# 查看音频元数据 (编码格式、采样率、声道数、比特率、时长)
-python3 skills/asynx-audio/scripts/asynx.py audio info "sound.wav"
-
-# 格式转换 (wav, mp3, ogg, m4a, flac)
-python3 skills/asynx-audio/scripts/asynx.py audio convert "sound.wav" --output "sound.ogg"
-
-# 音频剪辑修剪 (精确截取起止点)
-python3 skills/asynx-audio/scripts/asynx.py audio trim "track.mp3" --output "clip.mp3" --start 5.0 --duration 10.0
-
-# 淡入淡出包络处理
-python3 skills/asynx-audio/scripts/asynx.py audio fade "bgm.mp3" --output "bgm_fade.mp3" --fade-in 1.0 --fade-out 2.0
-
-# 广播级响度标准化 (EBU R128 标准)
-python3 skills/asynx-audio/scripts/asynx.py audio normalize "dialogue.mp3" --output "dialogue_norm.mp3" --target-lufs -14.0
-
-# 多个音频文件拼接合并
-python3 skills/asynx-audio/scripts/asynx.py audio concat "intro.mp3" "main_loop.mp3" "outro.mp3" --output "full_ost.mp3"
-```
+- **文生图与角色设计**：
+  > “帮我生成一张赛博朋克风格的发光霓虹猫咪，16:9 画幅。”
+- **垫图参考创作（保持一致性）**：
+  > “参考角色原画 `character.png`，保持主角构图与发型，生成一套在金色秋季枫叶背景下的立绘。”
+- **图生图编辑与局部修改**：
+  > “把刚才生成的图片中主角的衣服颜色修改为暗红色金属铠甲。”
+- **启动交互式标注与重绘工作台**：
+  > “打开刚才图片的局部重绘工作台，我要圈选并涂鸦修改面部细节。”  
+  *(Agent 会拉起本地 Web 服务并提供访问链接，在浏览器中圈选涂鸦后点击生成即可自动回传并替换结果)*
+- **本地图片免 Key 后处理**：
+  > “把 `input.png` 等比缩放到 512 宽，裁剪中心 256x256 区域，并转换为 WebP 格式。”
 
 ---
 
-### 3. 视频创作 (`asynx-video`)
+### 2. 音频创作与剪辑 (`asynx-audio`)
 
-#### 视频生成与编辑
-```bash
-# 文生视频 (Text-to-Video)
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "太空飞船穿梭于流星群，电影级景深" --duration 5.0 --aspect-ratio "16:9"
+在对话中向 Agent 请求游戏音效、配乐或台词朗读：
 
-# 本地图生视频 (Image-to-Video)
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "角色转身向镜头微笑打招呼" --image "/path/to/character.png"
-
-# 跨模态图生视频 (直接使用 asynx-image-pro 产出的任务 ID)
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "镜头 360 度环绕人物旋转" --from-task "<image-task-id>"
-
-# 首末双关键帧控制生成
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "城堡从白昼平滑演变为夜晚灯火辉煌" --image "day.png" --end-image "night.png"
-
-# 视频语义扩展与编辑
-python3 skills/asynx-video/scripts/asynx.py edit --prompt "将环境变换为大雪纷飞的冬日场景" --video "street.mp4"
-```
-
-#### 本地确定性视频处理 (免 API Key)
-```bash
-# 查看视频参数 (分辨率、帧率、时长、视频编码、音频编码)
-python3 skills/asynx-video/scripts/asynx.py video info "clip.mp4"
-
-# 视频精准片段修剪
-python3 skills/asynx-video/scripts/asynx.py video trim "clip.mp4" --output "short.mp4" --start 1.0 --duration 4.0
-
-# 视频离线抽帧为图片序列
-python3 skills/asynx-video/scripts/asynx.py video extract-frames "action.mp4" --output-dir "frames/" --fps 12
-
-# 抽帧并打包为 2D 游戏动画序列帧图集 (生成 atlas.png 精灵图大图与 manifest.json 元数据清单)
-python3 skills/asynx-video/scripts/asynx.py video spritesheet "action.mp4" --output-dir "spritesheet/" --fps 10 --width 128 --height 128
-
-# 视频转 GIF 动图
-python3 skills/asynx-video/scripts/asynx.py video convert "clip.mp4" --output "preview.gif"
-
-# 音视频轨道合成 (Mux)
-python3 skills/asynx-video/scripts/asynx.py video mux --video "silent_clip.mp4" --audio "bgm.mp3" --output "final_video.mp4"
-```
-
-#### 本地交互工作台 (Local UI)
-```bash
-# 启动视频时间轴抽帧、去背与精灵图集导出工作台
-python3 skills/asynx-video/scripts/asynx.py ui frame-sequence --video "character_run.mp4"
-
-# 启动 2D 序列帧精灵图集动画回放预览器
-python3 skills/asynx-video/scripts/asynx.py ui preview-sequence --atlas "atlas.png" --manifest "manifest.json"
-```
+- **游戏音效（SFX）**：
+  > “生成一个复古像素游戏里拾取金币的清脆音效，时长 2.5 秒。”
+- **背景配乐（Music）**：
+  > “生成一段 30 秒的 8-bit 地牢快节奏战斗纯音乐。”
+- **角色台词语音（Speech / TTS）**：
+  > “用英勇战士的音色朗读这句台词：‘勇敢的冒险者，愿圣光庇佑你的道路！’”
+- **音色延续克隆**：
+  > “沿用上一句语音的战士音色，继续朗读：‘前进，决不后退！’”
+- **本地音频确定性处理**：
+  > “将 `bgm.mp3` 转为 OGG 格式，截取前 15 秒，添加 1 秒淡入与 2 秒淡出，并进行 EBU R128 标准化。”
 
 ---
 
-### 4. 3D 模型与动画 (`asynx-3d`)
+### 3. 视频创作与精灵图集 (`asynx-video`)
 
-#### 3D 生成与骨骼动画管线
-```bash
-# 文生 3D 模型 (Text-to-3D)
-python3 skills/asynx-3d/scripts/asynx.py generate --prompt "中世纪双刃巨斧，暗黑浮雕花纹，PBR贴图" --output-format glb
+通过自然语言驱动视频生成、动态转写与 2D 游戏动画帧提取：
 
-# 本地图生 3D 模型 (Image-to-3D，支持限制面数)
-python3 skills/asynx-3d/scripts/asynx.py generate --image "/path/to/monster.png" --face-limit 15000
-
-# 跨模态图生 3D (使用 asynx-image-pro 生成的概念图任务 ID)
-python3 skills/asynx-3d/scripts/asynx.py generate --from-task "<image-task-id>"
-
-# 骨骼绑定前置合规检查
-python3 skills/asynx-3d/scripts/asynx.py rig-check --model-file "character.glb"
-
-# 云端自动骨骼绑定与权重蒙皮 (Rig)
-python3 skills/asynx-3d/scripts/asynx.py rig --from-task "<gen-task-id>" --rig-type biped
-
-# 动作重定向 (Animate：让角色执行标准动画动作)
-python3 skills/asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --animation "walk" --animate-in-place
-
-# 材质重新贴图 (Texture)
-python3 skills/asynx-3d/scripts/asynx.py texture --model-file "mesh.glb" --prompt "赛博朋克风格，磨砂金属与青色发光电路"
-```
-
-#### 本地纯 Python 3D 模型处理 (免 API Key，无需 Blender)
-```bash
-# 查看 3D 模型结构 (顶点数、三角面数、材质槽、内嵌贴图、骨骼关节数、动画片段)
-python3 skills/asynx-3d/scripts/asynx.py model3d info "character.glb"
-
-# 游戏规范合规性校验 (校验多边形面数上限、必须包含 PBR 贴图、骨骼/动画要求)
-python3 skills/asynx-3d/scripts/asynx.py model3d validate "character.glb" --max-faces 20000 --require-pbr --require-animations
-
-# 直接从 GLB 中离线解包提取所有内嵌 PBR 贴图到本地目录
-python3 skills/asynx-3d/scripts/asynx.py model3d extract-textures "character.glb" --output-dir "textures/"
-```
-
-#### 本地交互工作台 (Local UI)
-```bash
-# 启动浏览器 WebGL 3D 检查器 (支持模型 360 度旋转、骨骼动画播放、PBR 贴图通道检查)
-python3 skills/asynx-3d/scripts/asynx.py ui viewer --model-file "character.glb"
-
-# 启动多视角 2D 序列帧图集渲染工作台 (支持 1向/4向/8向正交与等轴测视角自动渲染并打包图集)
-python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "character.glb"
-```
+- **文生视频**：
+  > “生成一段太空飞船穿梭于流星群的电影质感 5 秒视频，16:9 画幅。”
+- **图生视频**：
+  > “基于刚才生成的角色立绘，生成一段人物转身向镜头微笑打招呼的 5 秒视频。”
+- **首末关键帧过渡**：
+  > “以 `day.png` 为开头、`night.png` 为结尾，生成城堡从白昼平滑过渡到夜晚灯火辉煌的动态视频。”
+- **2D 游戏动画序列帧图集导出**：
+  > “把角色跑步动作视频按 10 fps 抽帧，打包导出为 128x128 规格的 2D 游戏精灵图集（atlas.png 与 manifest.json 清单）。”
+- **启动视频交互工作台**：
+  > “启动视频时间轴抽帧去背工作台，我想为这个动作视频去背景并导出动画序列。”
 
 ---
 
-## 跨模态自动化管线实战示例
+### 4. 3D 模型与骨骼动画 (`asynx-3d`)
 
-通过共享的 SQLite 状态账本，可以将多种资产模态串联成一条完整的端到端游戏资产生产管线：
+在对话中直接构建 3D 资产、检查规范并绑定动画：
 
-```bash
-# 步骤 1：生成游戏主角概念图 (asynx-image-pro) -> 输出任务 ID: task_img_001
-python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "Q版魔法师角色，站立姿态，清晰白底"
-
-# 步骤 2：由概念图生成 3D 角色模型 (asynx-3d) -> 输出任务 ID: task_3d_002
-python3 skills/asynx-3d/scripts/asynx.py generate --from-task "task_img_001" --face-limit 15000
-
-# 步骤 3：为 3D 角色自动绑定人形骨骼 (asynx-3d) -> 输出任务 ID: task_rig_003
-python3 skills/asynx-3d/scripts/asynx.py rig --from-task "task_3d_002" --rig-type biped
-
-# 步骤 4：为绑定好的角色重定向跑步动作 (asynx-3d) -> 产出带动画的 GLB 模型
-python3 skills/asynx-3d/scripts/asynx.py animate --from-task "task_rig_003" --animation "run" --animate-in-place
-
-# 步骤 5：启动多角度渲染工作台，导出 2D 俯视角 RPG 游戏 8 方向奔跑序列帧图集
-python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "generated-model3d/task_rig_003/animated.glb"
-
-# 步骤 6：生成角色施法音效与背景音乐 (asynx-audio)
-python3 skills/asynx-audio/scripts/asynx.py sfx --prompt "火球术吟唱与发射爆破音效"
-python3 skills/asynx-audio/scripts/asynx.py music --prompt "神秘森林探索背景配乐，循环节奏" --duration 60 --instrumental
-```
+- **文生/图生 3D 模型**：
+  > “把这张角色概念图转成 3D 模型，限制在 15000 三角面以内，输出 GLB 格式。”
+- **自动骨骼绑定与权重蒙皮**：
+  > “为刚才生成的 3D 模型进行自动人形骨骼绑定。”
+- **动作重定向（Animate）**：
+  > “让这个绑定好的 3D 角色应用跑步（run）动画，导出就地循环动画的 GLB 文件。”
+- **本地纯 Python 规范校验（免 Blender）**：
+  > “检查 `character.glb` 是否符合规范：要求面数不超过 20000、必须包含 PBR 贴图和骨骼动画，并提取其中的贴图文件。”
+- **启动浏览器 3D 查看与渲染工作台**：
+  > “启动 3D 模型查看器预览刚才的模型” 或 “打开序列帧渲染工作台，导出等轴测 8 方向奔跑精灵图集。”
 
 ---
 
-## 任务与批次管理命令 (Task & Batch Management)
+### 5. 跨模态自动化管线（Agent 协同创作）
 
-所有 Skill 均支持统一的异步任务轮询、本地最近产物索引与批次管理：
+得益于共享的状态账本，你可以让 Agent 一句话串联多模态生产链路：
 
-```bash
-# 1. 任务进度查询与等待
-python3 <skill-dir>/scripts/asynx.py task list                   # 列出本地任务记录
-python3 <skill-dir>/scripts/asynx.py task status "<task-id>" --refresh  # 刷新状态并自动下载完成产物
-python3 <skill-dir>/scripts/asynx.py wait "<task-id>"           # 阻塞等待任务完成并下载
+> **用户需求提示示例**：  
+> “帮我设计一个 Q 版魔法师游戏角色：  
+> 1. 先生成概念设计图；  
+> 2. 转成 15000 面以内的 3D 模型；  
+> 3. 自动绑定人形骨骼并应用奔跑动画；  
+> 4. 导出 8 方向 2D 游戏序列帧图集；  
+> 5. 最后为他配一段火球术施法音效和森林探索背景音乐。”
 
-# 2. 本地快速索引已生成产物
-python3 <skill-dir>/scripts/asynx.py recent --latest            # 查看本机最近一次成功产物
-python3 <skill-dir>/scripts/asynx.py recent --query "赛博朋克"    # 按关键词检索已产出资源
+Agent 会在后台依次调用 `asynx-image-pro` -> `asynx-3d` -> `asynx-audio`，并通过上下文传递生成的任务 ID 实现各资产的自动衔接。
 
-# 3. 批量生成 (Batch)
-python3 <skill-dir>/scripts/asynx.py batch create --prompt "不同风格的像素武器" --total 10
-python3 <skill-dir>/scripts/asynx.py batch status "<batch-id>" --refresh
-python3 <skill-dir>/scripts/asynx.py batch wait "<batch-id>"    # 推进并等待批次全部完成
-python3 <skill-dir>/scripts/asynx.py batch pause "<batch-id>"   # 暂停批次
-python3 <skill-dir>/scripts/asynx.py batch resume "<batch-id>"  # 恢复批次
-```
+---
+
+## 进阶：直接使用 Python 命令行
+
+如果你需要在自动化脚本、CI/CD 流程或独立终端中**直接运行 Python CLI 命令**（包括详细的参数选项、免 Key 图像/音视频/3D 批处理、批次管理等），请参阅完整指南：
+
+👉 **[其他安装方式与 CLI 脚本直接调用指南 (CLI_USAGE.md)](CLI_USAGE.md)**
 
 ---
 
@@ -437,24 +187,17 @@ python3 <skill-dir>/scripts/asynx.py batch resume "<batch-id>"  # 恢复批次
 
 ```text
 .
+├── install.py                   # 统一自动化安装与卸载脚本
 ├── skills/                      # 独立打包分发的 4 个 Asset Skill 目录
 │   ├── asynx-image-pro/         # 图像创作技能 (SKILL.md, scripts/, references/)
 │   ├── asynx-audio/             # 音频创作技能 (SKILL.md, scripts/, references/)
 │   ├── asynx-video/             # 视频创作技能 (SKILL.md, scripts/, references/)
 │   └── asynx-3d/                # 3D 创作技能 (SKILL.md, scripts/, references/)
-├── shared/                      # 共享基础库
-│   ├── asxlib/                  # 网关客户端、任务轮询、SQLite 状态账本、配置与 UI 服务器
-│   ├── scripts/                 # CLI 统一入口 (asynx.py) 与运行时锁 (asx_runtime.py)
-│   └── vendor/                  # 内置离线依赖 (Pillow 等)
-├── src/                         # 模态特定核心源码
-│   ├── image/                   # 图像任务调度与本地图片处理模块
-│   ├── audio/                   # 音频任务调度与本地音频剪辑模块
-│   ├── video/                   # 视频任务调度与本地抽帧图集模块
-│   ├── model3d/                 # 3D 模型分析与离线 PBR/GLB 校验模块
-│   ├── ui/                      # 本地 HTML5 / WebGL 轻量工作台静态资源
-│   └── build_skills.py          # 构建打包器：分发并组装独立的 Skill 目录
-├── dist/                        # 预打包发布的独立 Skill 压缩包 (.zip) 及清单
-├── docs/                        # 架构设计记录 (ADR) 与领域模型
+├── shared/                      # 共享基础库 (网关、状态账本、配置与 UI 服务器)
+├── src/                         # 模态特定核心源码 (图像、音频、视频、3D与构建器)
+├── dist/                        # 预打包发布的独立 Skill 压缩包 (.zip)
+├── docs/                        # 架构设计记录 (ADR) 与领域文档
+├── CLI_USAGE.md                 # 进阶安装方式与 CLI 脚本直接调用指南
 └── tests/                       # 单元测试与端到端跨模态集成测试
 ```
 
