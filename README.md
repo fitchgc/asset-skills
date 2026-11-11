@@ -3,7 +3,7 @@
 面向 AI Agent（Claude Code、Codex、Pi 等）的多模态与游戏创作资产（图像、音频、视频、3D）生成、编辑、后处理与自动化管线管理的同构技能集合。
 
 包含了 4 个核心资产技能（Asset Skills）：
-- **`asynx-image`**：图像生成、垫图参考创作、局部重绘批注、图生图编辑与离线图像处理。
+- **`asynx-image-pro`**：图像生成、垫图参考创作、局部重绘批注、图生图编辑与离线图像处理。
 - **`asynx-audio`**：音效素材（SFX）、背景配乐（Music）、角色台词（TTS/Speech）生成与音频剪辑标准化。
 - **`asynx-video`**：文生视频、图生视频、视频扩展编辑、抽帧生成 2D 精灵图集与音视频合成。
 - **`asynx-3d`**：文生/图生 3D 模型、骨骼绑定检查、自动骨骼绑定与蒙皮、动画重定向与序列帧渲染。
@@ -75,7 +75,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 mkdir -p ~/.claude/skills
 
 # 软链接所有技能
-for skill in asynx-image asynx-audio asynx-video asynx-3d; do
+for skill in asynx-image-pro asynx-audio asynx-video asynx-3d; do
   ln -s "$(pwd)/skills/$skill" ~/.claude/skills/$skill
 done
 ```
@@ -86,7 +86,7 @@ done
 mkdir -p ~/.agents/skills
 
 # 软链接所有技能
-for skill in asynx-image asynx-audio asynx-video asynx-3d; do
+for skill in asynx-image-pro asynx-audio asynx-video asynx-3d; do
   ln -s "$(pwd)/skills/$skill" ~/.agents/skills/$skill
 done
 ```
@@ -96,7 +96,7 @@ done
 ### 方式三：使用独立构建产物 (Dist Packages)
 
 可以直接下载或解压 `dist/` 目录中打包好的独立归档：
-- `dist/asynx-image.zip`
+- `dist/asynx-image-pro.zip`
 - `dist/asynx-audio.zip`
 - `dist/asynx-video.zip`
 - `dist/asynx-3d.zip`
@@ -138,13 +138,13 @@ Windows 环境使用 `py install.py --uninstall`。卸载将保留配置密钥�
 在交互式终端中执行任一技能的 `configure` 命令，根据提示输入 API Key：
 
 ```bash
-python3 skills/asynx-image/scripts/asynx.py configure
+python3 skills/asynx-image-pro/scripts/asynx.py configure
 ```
 
 - 输入格式以 `asx-` 开头的有效 API Key。
 - 若使用私有网关或自托管地址，可传入 `--base-url`：
   ```bash
-  python3 skills/asynx-image/scripts/asynx.py configure --base-url "https://your-domain.com/api"
+  python3 skills/asynx-image-pro/scripts/asynx.py configure --base-url "https://your-domain.com/api"
   ```
 
 ### 2. 环境变量配置（适用于 CI/CD 或临时会话）
@@ -178,13 +178,13 @@ export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
 
 ```bash
 # 离线检查配置文件、权限、Pillow 与 ffmpeg 工具链
-python3 skills/asynx-image/scripts/asynx.py doctor
+python3 skills/asynx-image-pro/scripts/asynx.py doctor
 
 # 联网验证密钥与网关连通性
-python3 skills/asynx-image/scripts/asynx.py doctor --verify
+python3 skills/asynx-image-pro/scripts/asynx.py doctor --verify
 
 # 查看当前配置状态及密钥脱敏信息
-python3 skills/asynx-image/scripts/asynx.py config status
+python3 skills/asynx-image-pro/scripts/asynx.py config status
 ```
 
 ---
@@ -195,48 +195,48 @@ python3 skills/asynx-image/scripts/asynx.py config status
 
 ---
 
-### 1. 图像创作 (`asynx-image`)
+### 1. 图像创作 (`asynx-image-pro`)
 
 #### 远程生成与编辑
 ```bash
 # 文生图 (Text-to-Image)
-python3 skills/asynx-image/scripts/asynx.py generate --prompt "赛博朋克风格发光霓虹猫咪，8k高清" --aspect-ratio "16:9"
+python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "赛博朋克风格发光霓虹猫咪，8k高清" --aspect-ratio "16:9"
 
 # 垫图参考生成 (Reference Image)
-python3 skills/asynx-image/scripts/asynx.py generate --prompt "保持相同构图，切换为金色秋季枫叶背景" --reference "/path/to/cat.png"
+python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "保持相同构图，切换为金色秋季枫叶背景" --reference "/path/to/cat.png"
 
 # 图生图编辑 (Image-to-Image Edit)
-python3 skills/asynx-image/scripts/asynx.py edit --prompt "将角色的衣服颜色改为暗红色铠甲" --image "/path/to/character.png"
+python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "将角色的衣服颜色改为暗红色铠甲" --image "/path/to/character.png"
 
 # 使用任务 ID 延续编辑 (From Task)
-python3 skills/asynx-image/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
+python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
 ```
 
 #### 本地确定性图片处理 (免 API Key)
 ```bash
 # 查看图片基础元数据 (尺寸、格式、色彩模式)
-python3 skills/asynx-image/scripts/asynx.py image info "input.png"
+python3 skills/asynx-image-pro/scripts/asynx.py image info "input.png"
 
 # 调整尺寸并保持比例
-python3 skills/asynx-image/scripts/asynx.py image resize "input.png" --output "thumb.png" --width 512
+python3 skills/asynx-image-pro/scripts/asynx.py image resize "input.png" --output "thumb.png" --width 512
 
 # 裁剪指定区域 (x1, y1, x2, y2)
-python3 skills/asynx-image/scripts/asynx.py image crop "input.png" --output "cropped.png" --box 0,0,256,256
+python3 skills/asynx-image-pro/scripts/asynx.py image crop "input.png" --output "cropped.png" --box 0,0,256,256
 
 # 九宫格/网格切图 (用于游戏瓦片地图或图集切分)
-python3 skills/asynx-image/scripts/asynx.py image slice "tileset.png" --output-dir "tiles/" --rows 4 --columns 4
+python3 skills/asynx-image-pro/scripts/asynx.py image slice "tileset.png" --output-dir "tiles/" --rows 4 --columns 4
 
 # 格式转换
-python3 skills/asynx-image/scripts/asynx.py image convert "photo.jpg" --output "photo.webp" --format webp
+python3 skills/asynx-image-pro/scripts/asynx.py image convert "photo.jpg" --output "photo.webp" --format webp
 
 # 应用 Alpha 遮罩
-python3 skills/asynx-image/scripts/asynx.py image apply-mask "photo.png" --mask "mask.png" --output "cutout.png"
+python3 skills/asynx-image-pro/scripts/asynx.py image apply-mask "photo.png" --mask "mask.png" --output "cutout.png"
 ```
 
 #### 本地交互工作台 (Local UI)
 ```bash
 # 启动浏览器局部重绘圈选与标注工作台（自动提取 Mask 遮罩与修改指令）
-python3 skills/asynx-image/scripts/asynx.py ui annotate --image "character.png"
+python3 skills/asynx-image-pro/scripts/asynx.py ui annotate --image "character.png"
 ```
 
 ---
@@ -291,7 +291,7 @@ python3 skills/asynx-video/scripts/asynx.py generate --prompt "太空飞船穿�
 # 本地图生视频 (Image-to-Video)
 python3 skills/asynx-video/scripts/asynx.py generate --prompt "角色转身向镜头微笑打招呼" --image "/path/to/character.png"
 
-# 跨模态图生视频 (直接使用 asynx-image 产出的任务 ID)
+# 跨模态图生视频 (直接使用 asynx-image-pro 产出的任务 ID)
 python3 skills/asynx-video/scripts/asynx.py generate --prompt "镜头 360 度环绕人物旋转" --from-task "<image-task-id>"
 
 # 首末双关键帧控制生成
@@ -343,7 +343,7 @@ python3 skills/asynx-3d/scripts/asynx.py generate --prompt "中世纪双刃巨�
 # 本地图生 3D 模型 (Image-to-3D，支持限制面数)
 python3 skills/asynx-3d/scripts/asynx.py generate --image "/path/to/monster.png" --face-limit 15000
 
-# 跨模态图生 3D (使用 asynx-image 生成的概念图任务 ID)
+# 跨模态图生 3D (使用 asynx-image-pro 生成的概念图任务 ID)
 python3 skills/asynx-3d/scripts/asynx.py generate --from-task "<image-task-id>"
 
 # 骨骼绑定前置合规检查
@@ -387,8 +387,8 @@ python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "charac
 通过共享的 SQLite 状态账本，可以将多种资产模态串联成一条完整的端到端游戏资产生产管线：
 
 ```bash
-# 步骤 1：生成游戏主角概念图 (asynx-image) -> 输出任务 ID: task_img_001
-python3 skills/asynx-image/scripts/asynx.py generate --prompt "Q版魔法师角色，站立姿态，清晰白底"
+# 步骤 1：生成游戏主角概念图 (asynx-image-pro) -> 输出任务 ID: task_img_001
+python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "Q版魔法师角色，站立姿态，清晰白底"
 
 # 步骤 2：由概念图生成 3D 角色模型 (asynx-3d) -> 输出任务 ID: task_3d_002
 python3 skills/asynx-3d/scripts/asynx.py generate --from-task "task_img_001" --face-limit 15000
@@ -438,7 +438,7 @@ python3 <skill-dir>/scripts/asynx.py batch resume "<batch-id>"  # 恢复批次
 ```text
 .
 ├── skills/                      # 独立打包分发的 4 个 Asset Skill 目录
-│   ├── asynx-image/             # 图像创作技能 (SKILL.md, scripts/, references/)
+│   ├── asynx-image-pro/         # 图像创作技能 (SKILL.md, scripts/, references/)
 │   ├── asynx-audio/             # 音频创作技能 (SKILL.md, scripts/, references/)
 │   ├── asynx-video/             # 视频创作技能 (SKILL.md, scripts/, references/)
 │   └── asynx-3d/                # 3D 创作技能 (SKILL.md, scripts/, references/)

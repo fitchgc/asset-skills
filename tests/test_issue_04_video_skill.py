@@ -122,7 +122,7 @@ class TestAsynxVideoSkill(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["modality"], "video")
 
-        # 2. Create an image task in the ledger to simulate asynx-image output
+        # 2. Create an image task in the ledger to simulate asynx-image-pro output
         img_file = Path(self.temp_dir) / "concept.png"
         import PIL.Image
         PIL.Image.new("RGBA", (100, 100), (255, 100, 0, 255)).save(img_file)

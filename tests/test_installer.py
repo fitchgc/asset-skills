@@ -34,11 +34,11 @@ class TestInstaller(unittest.TestCase):
         all_skills = install._resolve_skill_names("all")
         self.assertEqual(
             all_skills,
-            ["asynx-image", "asynx-audio", "asynx-video", "asynx-3d"],
+            ["asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d"],
         )
 
         subset = install._resolve_skill_names("image, 3d")
-        self.assertEqual(subset, ["asynx-image", "asynx-3d"])
+        self.assertEqual(subset, ["asynx-image-pro", "asynx-3d"])
 
         audio_subset = install._resolve_skill_names("snd,video")
         self.assertEqual(audio_subset, ["asynx-audio", "asynx-video"])
@@ -87,7 +87,7 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(ret, 0)
 
         claude_skills = self.temp_home / ".claude" / "skills"
-        image_dir = claude_skills / "asynx-image"
+        image_dir = claude_skills / "asynx-image-pro"
         audio_dir = claude_skills / "asynx-audio"
         video_dir = claude_skills / "asynx-video"
 

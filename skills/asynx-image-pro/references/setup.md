@@ -34,7 +34,7 @@ python3 install.py --target both
 python3 install.py --uninstall
 ```
 
-支持 `--target codex|claude|both`；默认自动检测。Codex 安装到 `~/.agents/skills/asynx-image`，Claude Code 安装到 `~/.claude/skills/asynx-image`。Windows 使用用户主目录下相同相对路径。
+支持 `--target codex|claude|both`；默认自动检测。Codex 安装到 `~/.agents/skills/asynx-image-pro`，Claude Code 安装到 `~/.claude/skills/asynx-image-pro`。Windows 使用用户主目录下相同相对路径。
 
 `--skip-config` 跳过配置和验证；`--no-verify` 只跳过连接验证，不能据此宣称已可用。依赖安装在 Skill 的隔离目录中。非交互卸载需要 `--yes`，卸载保留密钥、任务记录和图片。
 
@@ -60,7 +60,7 @@ python3 "<skill-dir>/scripts/asynx.py" update rollback
 
 ## 旧版 asx 迁移
 
-名称与安装目录从 0.6.1 起改为 `asynx-image`。旧版 `asx` 的更新命令不能完成更名，必须重新安装；不要仅改目录名。
+名称与安装目录改为 `asynx-image-pro`。旧版的更新命令不能完成更名，必须重新安装；不要仅改目录名。
 
 收到 `legacy_installation_notice` 时，先交付任务结果，再简短提醒。只有用户要求安装、升级或清理旧入口时，才处理以下路径：
 

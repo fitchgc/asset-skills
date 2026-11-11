@@ -1,6 +1,6 @@
 # Agent Asset Skills
 
-面向 AI Agent 的多模态与游戏创作资产（图像、音频、视频、3D）生成、编辑、后处理与管线管理的同构技能集合（`asynx-image`、`asynx-audio`、`asynx-video`、`asynx-3d`）。
+面向 AI Agent 的多模态与游戏创作资产（图像、音频、视频、3D）生成、编辑、后处理与管线管理的同构技能集合（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`）。
 
 ## Language
 
@@ -13,7 +13,7 @@ _Avoid_: 资源文件、附件、通用数字资产
 _Avoid_: 资产类型、文件格式、频道
 
 **Asset Skill（资产技能）**:
-面向 AI Agent 的特定资产模态创作与处理能力单元（`asynx-image`、`asynx-audio`、`asynx-video`、`asynx-3d`），包含声明式工作流引导、自包含 CLI 脚本与按需启动的本地交互工作台。
+面向 AI Agent 的特定资产模态创作与处理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`），包含声明式工作流引导、自包含 CLI 脚本与按需启动的本地交互工作台。
 _Avoid_: 插件、子代理、微服务
 
 **Asset Gateway（资产网关）**:

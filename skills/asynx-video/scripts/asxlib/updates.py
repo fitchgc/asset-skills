@@ -55,7 +55,7 @@ def skill_name() -> str:
     name = skill_root().name
     if name.startswith("asynx-"):
         return name
-    return "asynx-image"
+    return "asynx-image-pro"
 
 
 def update_cache_path() -> Path:

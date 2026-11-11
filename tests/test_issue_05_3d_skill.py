@@ -249,7 +249,7 @@ class TestAsynx3DSkill(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["modality"], "3d")
 
-        # 2. Simulate an asynx-image task in ledger
+        # 2. Simulate an asynx-image-pro task in ledger
         img_file = Path(self.temp_dir) / "character.png"
         PIL.Image.new("RGBA", (100, 100), (0, 200, 255, 255)).save(img_file)
         create_task_intent(

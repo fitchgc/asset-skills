@@ -148,6 +148,7 @@ def extract_package(archive: Path, destination: Path, manifest: dict[str, Any]) 
         raise AsxError(
             "更新包校验失败，现有安装未修改", code="update_checksum_mismatch"
         )
+    expected_skill = manifest.get("skill") or "asynx-image-pro"
     try:
         with zipfile.ZipFile(archive) as package:
             entries = package.infolist()
@@ -162,7 +163,7 @@ def extract_package(archive: Path, destination: Path, manifest: dict[str, Any]) 
                 mode = item.external_attr >> 16
                 if (
                     not parts
-                    or parts[0] != "asynx-image"
+                    or parts[0] != expected_skill
                     or len(parts) < 2
                     or any(
                         part in {".", "..", ".git", "vendor", RECEIPT} for part in parts
@@ -202,7 +203,7 @@ def extract_package(archive: Path, destination: Path, manifest: dict[str, Any]) 
         raise AsxError(
             "更新包内容无效，现有安装未修改", code="invalid_update_package"
         ) from exc
-    root = destination / "asynx-image"
+    root = destination / expected_skill
     if read_version(root) != manifest["version"]:
         raise AsxError("更新包版本与发布信息不一致", code="invalid_update_package")
     required = (
@@ -217,11 +218,13 @@ def extract_package(archive: Path, destination: Path, manifest: dict[str, Any]) 
 
 def validate_manifest(value: Any, version: str) -> dict[str, Any]:
     version_tuple(version)
+    expected_skill = value.get("skill") if isinstance(value, dict) and isinstance(value.get("skill"), str) else "asynx-image-pro"
+    expected_archive = f"{expected_skill}-{version}.zip"
     if (
         not isinstance(value, dict)
         or value.get("schema") != 1
         or value.get("version") != version
-        or value.get("archive") != f"asynx-image-{version}.zip"
+        or value.get("archive") not in {expected_archive, f"{expected_skill}.zip"}
         or not isinstance(value.get("sha256"), str)
         or not _HASH.fullmatch(value["sha256"])
         or not isinstance(value.get("python_min"), str)

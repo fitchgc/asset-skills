@@ -4,7 +4,7 @@
 - `--prompt`: 镜头运镜、光影与动态描述。
 - `--image`: 首帧输入（图生视频核心）。
 - `--end-image`: 末帧关键帧控制。
-- `--from-task`: 跨模态引用任务结果（例如 `asynx-image` 任务 ID）。
+- `--from-task`: 跨模态引用任务结果（例如 `asynx-image-pro` 任务 ID）。
 - `--duration`: 生成秒数（如 5s, 10s）。
 - `--resolution`: `720p`, `1080p`, `4k`。
 - `--aspect-ratio`: `16:9`, `9:16`, `1:1` 等。

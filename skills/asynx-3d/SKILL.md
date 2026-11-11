@@ -16,7 +16,7 @@ python3 "<skill-dir>/scripts/asynx.py" generate --prompt "中世纪骑士双手�
 # 图生 3D (Image-to-3D)
 python3 "<skill-dir>/scripts/asynx.py" generate --image "/path/to/character.png" --face-limit 15000
 
-# 跨模态图生 3D (使用 asynx-image 产出的概念图任务 ID)
+# 跨模态图生 3D (使用 asynx-image-pro 产出的概念图任务 ID)
 python3 "<skill-dir>/scripts/asynx.py" generate --from-task "<image-task-id>"
 
 # 骨骼绑定前置检查

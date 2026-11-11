@@ -18,9 +18,11 @@ SKILLS_DIR = ROOT / "skills"
 PILLOW_REQUIREMENT = "Pillow>=10.2,<13"
 
 SKILL_NAME_ALIASES: dict[str, str] = {
-    "image": "asynx-image",
-    "img": "asynx-image",
-    "asynx-image": "asynx-image",
+    "image": "asynx-image-pro",
+    "img": "asynx-image-pro",
+    "asynx-image": "asynx-image-pro",
+    "asynx-image-pro": "asynx-image-pro",
+    "image-pro": "asynx-image-pro",
     "audio": "asynx-audio",
     "snd": "asynx-audio",
     "asynx-audio": "asynx-audio",
@@ -33,13 +35,13 @@ SKILL_NAME_ALIASES: dict[str, str] = {
 }
 
 ALL_SKILL_NAMES: list[str] = [
-    "asynx-image",
+    "asynx-image-pro",
     "asynx-audio",
     "asynx-video",
     "asynx-3d",
 ]
 
-SKILLS_NEEDING_PILLOW = {"asynx-image", "asynx-video", "asynx-3d"}
+SKILLS_NEEDING_PILLOW = {"asynx-image-pro", "asynx-video", "asynx-3d"}
 
 
 def _resolve_skill_names(selection: str) -> list[str]:
@@ -64,6 +66,7 @@ def _ensure_skill_built(skill_name: str) -> Path:
         build_script = ROOT / "src" / "build_skills.py"
         if build_script.exists():
             modality_map = {
+                "asynx-image-pro": "image",
                 "asynx-image": "image",
                 "asynx-audio": "audio",
                 "asynx-video": "video",
@@ -145,7 +148,7 @@ def _resolve_targets(selection: str, home: Path) -> list[str]:
     return detected or _prompt_target()
 
 
-def _target_path(target: str, home: Path, skill_name: str = "asynx-image") -> Path:
+def _target_path(target: str, home: Path, skill_name: str = "asynx-image-pro") -> Path:
     if target == "codex":
         return home / ".agents" / "skills" / skill_name
     if target == "claude":
@@ -452,7 +455,8 @@ def run(
         print("Codex 中可输入：")
         for skill in target_skills:
             example = {
-                "asynx-image": "$asynx-image 生成一张卡通猫的图片",
+                "asynx-image-pro": "$asynx-image-pro 生成一张卡通猫的图片",
+                "asynx-image": "$asynx-image-pro 生成一张卡通猫的图片",
                 "asynx-audio": "$asynx-audio 生成一段雨声音效",
                 "asynx-video": "$asynx-video 生成一段猫咪玩耍的视频",
                 "asynx-3d": "$asynx-3d 生成一个宝箱 3D 模型",
@@ -462,7 +466,8 @@ def run(
         print("Claude Code 中可输入：")
         for skill in target_skills:
             example = {
-                "asynx-image": "/asynx-image 生成一张卡通猫的图片",
+                "asynx-image-pro": "/asynx-image-pro 生成一张卡通猫的图片",
+                "asynx-image": "/asynx-image-pro 生成一张卡通猫的图片",
                 "asynx-audio": "/asynx-audio 生成一段雨声音效",
                 "asynx-video": "/asynx-video 生成一段猫咪玩耍的视频",
                 "asynx-3d": "/asynx-3d 生成一个宝箱 3D 模型",

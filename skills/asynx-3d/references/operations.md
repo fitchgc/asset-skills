@@ -4,7 +4,7 @@
 - `--prompt`: 模型外形、结构、材质与细节描述。
 - `--image`: 单张正面或概念参考图。
 - `--reference`: 多视角参考图（可重复传入）。
-- `--from-task`: 跨模态引用任务（例如引用 `asynx-image` 的概念图产物）。
+- `--from-task`: 跨模态引用任务（例如引用 `asynx-image-pro` 的概念图产物）。
 - `--face-limit`: 控制输出模型三角面数（如 10000, 25000），适合移动端或实时游戏优化。
 - `--pbr`: 是否生成标准 PBR 材质（Base Color, Metallic, Roughness, Normal）。
 - `--output-format`: `glb` (推荐), `fbx`, `obj`, `usdz`。

@@ -1,7 +1,7 @@
 # Asynx Audio 环境与配置
 
 ## 凭证
-与 `asynx-image` 共享相同的 API 凭证与用户配置（`~/.config/asynx/config.json` 或 `ASYNX_API_KEY` 环境变量）。配置一次即可多模态通用：
+与 `asynx-image-pro` 共享相同的 API 凭证与用户配置（`~/.config/asynx/config.json` 或 `ASYNX_API_KEY` 环境变量）。配置一次即可多模态通用：
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" configure
 ```

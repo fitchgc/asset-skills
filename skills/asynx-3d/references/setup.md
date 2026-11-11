@@ -1,7 +1,7 @@
 # Asynx 3D 环境配置
 
 ## 凭证
-与 `asynx-image` 等同族 Skill 共享相同的用户配置：
+与 `asynx-image-pro` 等同族 Skill 共享相同的用户配置：
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" configure
 ```

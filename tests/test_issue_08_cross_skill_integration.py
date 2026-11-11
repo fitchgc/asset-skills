@@ -41,7 +41,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
 
         # Unpack all 4 zip packages into isolated agent skills directory
         dist_dir = REPO_ROOT / "dist"
-        for skill_name in ("asynx-image", "asynx-audio", "asynx-video", "asynx-3d"):
+        for skill_name in ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d"):
             zip_path = dist_dir / f"{skill_name}.zip"
             with zipfile.ZipFile(zip_path, "r") as zf:
                 zf.extractall(self.agent_skills_dir)
@@ -100,7 +100,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
     def test_release_packages_and_manifest_integrity(self) -> None:
         """Lockstep release packaging produces 4 zip archives with verified SHA-256 manifests."""
         dist_dir = REPO_ROOT / "dist"
-        skills = ("asynx-image", "asynx-audio", "asynx-video", "asynx-3d")
+        skills = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d")
 
         for skill in skills:
             zip_file = dist_dir / f"{skill}.zip"
@@ -125,9 +125,9 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
         """Exercise full cross-skill pipeline across Image, Video, 3D, and Audio."""
         out_root = Path(self.temp_dir) / "output"
 
-        # Step 1: asynx-image generates concept art
+        # Step 1: asynx-image-pro generates concept art
         img_res = self.run_skill_cli(
-            "asynx-image", "generate", "--prompt", "cyberpunk warrior hero", "--output-dir", str(out_root / "image")
+            "asynx-image-pro", "generate", "--prompt", "cyberpunk warrior hero", "--output-dir", str(out_root / "image")
         )
         self.assertTrue(img_res["ok"])
         img_task_id = img_res["task_id"]

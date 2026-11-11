@@ -16,7 +16,7 @@ python3 "<skill-dir>/scripts/asynx.py" generate --prompt "赛博朋克雨夜街�
 # 图生视频 (Image-to-Video，使用本地图片作为首帧)
 python3 "<skill-dir>/scripts/asynx.py" generate --prompt "让人物微笑着眨眼并转身" --image "/path/to/character.png"
 
-# 跨模态图生视频 (直接使用 asynx-image 产出的任务 ID)
+# 跨模态图生视频 (直接使用 asynx-image-pro 产出的任务 ID)
 python3 "<skill-dir>/scripts/asynx.py" generate --prompt "镜头环绕角色旋转" --from-task "<image-task-id>"
 
 # 首末帧控制生成

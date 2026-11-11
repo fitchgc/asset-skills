@@ -22,7 +22,7 @@ DIST_DIR = REPO_ROOT / "dist"
 
 MODALITIES = {
     "image": {
-        "skill_name": "asynx-image",
+        "skill_name": "asynx-image-pro",
         "src_module": "image",
     },
     "audio": {
