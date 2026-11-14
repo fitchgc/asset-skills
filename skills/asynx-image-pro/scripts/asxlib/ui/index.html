@@ -634,7 +634,11 @@
     const TEXT_DRAFT_EDGE_MARGIN = 16;
 
     // 状态管理
-    const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token') || window.location.hash.replace('#token=', '');
+    const isEmbedded = urlParams.get('embedded') === '1';
+    const paramSourcePath = urlParams.get('source_path') || '';
+    const paramMode = urlParams.get('mode') || '';
     let session = null;
     let appMode = 'region_edit'; // 'view' | 'tools' | 'region_edit'
     let currentTool = 'annotation'; // 'annotation' | 'rectangle' | 'lasso' | 'edit' | 'delete'
@@ -684,11 +688,19 @@
 
     // 初始化
     async function init() {
-      if (window.AsxAccountBar) {
+      if (!isEmbedded && window.AsxAccountBar) {
         window.AsxAccountBar.mount('#account-bar-slot', { token, theme: 'light' });
       }
+      if (isEmbedded) {
+        const slot = document.getElementById('account-bar-slot');
+        if (slot) slot.style.display = 'none';
+      }
       try {
-        const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
+        const sessionQs = new URLSearchParams();
+        if (paramSourcePath) sessionQs.set('source_path', paramSourcePath);
+        if (paramMode) sessionQs.set('mode', paramMode);
+        const sessionUrl = '/api/session' + (sessionQs.toString() ? '?' + sessionQs.toString() : '');
+        const res = await fetch(sessionUrl, { headers: { 'X-Asx-Session-Token': token } });
         if (!res.ok) throw new Error('Unauthorized or session expired');
         session = await res.json();
 
@@ -712,8 +724,11 @@
         }
 
         // 根据后端初始模式设置
-        if (session.mode === 'tools' || session.mode === 'image_tools') {
+        const initMode = paramMode || session.mode;
+        if (initMode === 'tools' || initMode === 'image_tools') {
           setAppMode('tools');
+        } else if (initMode === 'annotate' || initMode === 'image_annotate') {
+          setAppMode('annotate');
         } else {
           setAppMode('region_edit');
         }
@@ -735,7 +750,9 @@
           measureStage();
           render();
         };
-        sourceImage.src = '/api/source?token=' + encodeURIComponent(token);
+        sourceImage.src = session.source_url
+          ? (session.source_url.includes('?') ? session.source_url : session.source_url + '?token=' + encodeURIComponent(token))
+          : ('/api/source?token=' + encodeURIComponent(token));
       } catch (err) {
         alert('加载工作台失败: ' + err.message);
       }
@@ -783,9 +800,9 @@
       if (activeBtn) activeBtn.classList.add('active');
 
       document.getElementById('session-title').textContent = 
-        mode === 'view' ? '查看图片' : (mode === 'tools' ? '图片处理' : '局部重绘');
+        mode === 'view' ? '查看图片' : (mode === 'tools' ? '图片处理' : (mode === 'annotate' ? '自由批注' : '局部重绘'));
 
-      if (mode === 'region_edit') {
+      if (mode === 'region_edit' || mode === 'annotate') {
         regionComposer.style.display = 'flex';
         toolsPanel.style.display = 'none';
         stageCanvas.style.display = 'block';
@@ -1569,6 +1586,8 @@
 
         const payload = {
           mode: appMode,
+          ...(paramSourcePath ? { source_path: paramSourcePath } : {}),
+          ...(isEmbedded ? { keep_alive: true } : {}),
           source_data: sourceDataUrl,
           image_data: compositeDataUrl,
           mask: maskDataUrl,
@@ -1603,6 +1622,10 @@
         document.getElementById('loading-text').innerHTML = outPath
           ? `✅ 修改完成！图片已保存至：<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${outPath}</code>`
           : '✅ 修改完成！正在返回...';
+        if (isEmbedded && window.parent !== window) {
+          window.parent.postMessage({ type: 'asx-workbench-complete', result: taskRes }, '*');
+          return;
+        }
         if (outPath) {
           clearMarks();
           sourceImageView.src = '/api/result?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(outPath);
@@ -1694,6 +1717,7 @@
       try {
         const payload = {
           mode: 'tools',
+          ...(paramSourcePath ? { source_path: paramSourcePath } : {}),
           image_data: currentImageCanvas.toDataURL('image/png'),
           recipe: 'custom',
           keep_alive: true,
@@ -1710,6 +1734,10 @@
         if (!res.ok || !result.ok) throw new Error(result.error?.message || '保存失败');
         
         const savedPath = result.result?.image?.path || (result.result?.files && result.result.files[0]) || '';
+        if (isEmbedded && window.parent !== window) {
+          window.parent.postMessage({ type: 'asx-workbench-complete', result: result.result }, '*');
+          return;
+        }
         document.getElementById('loading-text').innerHTML = savedPath
           ? `✅ 修改已成功保存！<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${savedPath}</code>`
           : '✅ 修改已成功保存！';
@@ -1752,6 +1780,10 @@
     }
 
     document.getElementById('cancel-btn').onclick = async () => {
+      if (isEmbedded && window.parent !== window) {
+        window.parent.postMessage({ type: 'asx-workbench-cancel' }, '*');
+        return;
+      }
       try {
         await fetch('/api/cancel', {
           method: 'POST',

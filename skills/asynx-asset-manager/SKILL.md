@@ -40,7 +40,15 @@ python3 "<skill-dir>/scripts/asynx.py" lineage "artifact_0123456789abcdef"
 python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project"
 ```
 
-- 启动本地交互工作台展示项目资产与血缘关系；若宿主不支持自动打开浏览器，可加 `--no-open` 并向用户展示控制台输出的本地 URL。
+- 启动统一 Asset Manager Local UI Workbench，可在离线状态下浏览全部五类资产（`All` / `Image` / `Audio` / `Frame Sequence` / `Video` / `3D Model`）、按来源筛选（`All` / `Asynx Skill` / `External`）与搜索，并查看元数据、可点击上下游血缘卡片与交互式 DAG 血缘图谱。
+- 在详情检查器中可直接调用跨模态工作流：
+  - **Image**：局部重绘 (`region_edit`)、图片工具 (`image_tools`)、自由批注 (`image_annotate`)、Prompt AI 编辑 (`image.edit`)、AI 精灵图生成 / 确定性网格切分为 `frame_sequence`、图生视频 (`video.generate`)、图生 3D (`3d.generate`)；
+  - **Frame Sequence**：交互式序列帧动画播放器（FPS、方向、帧进度条、洋葱皮、网格）、解包单帧与重新切分打包；
+  - **Video**：内嵌视频抽帧去背工作台 (`video_frame_sequence`)、`video.edit`、本地 `trim` / `convert` / `mux` / `spritesheet`；
+  - **3D Model**：内嵌 WebGL 3D 检查与多视角序列帧渲染工作台 (`model3d_viewer` / `render-sequence`)、云端 `rig-check` / `rig` / `animate` / `texture` / `convert` 与本地 `info` / `validate` / `extract-textures`；
+  - **Audio**：波形播放器、参考音色语音合成 (`audio.speech`) 与本地 `trim` / `fade` / `normalize` / `convert`。
+- 所有在工作台内创建或修改的资产均自动保存至项目工作区并记录父子 `asset_lineage`，无需重启服务即可实时刷新显示；若云端操作需要登录，顶部账号栏支持按需登录、注册、切换账号与查看额度/并发。
+- 若宿主不支持自动打开浏览器，可加 `--no-open` 并向用户展示控制台输出的本地 URL。
 
 ## 按需读取
 

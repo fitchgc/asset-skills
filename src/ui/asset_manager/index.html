@@ -5,53 +5,1690 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Asynx Asset Manager Workbench</title>
   <style>
-    body {
+    :root {
+      --bg: #09090b;
+      --surface: #111114;
+      --card: #18181b;
+      --card-hover: #202025;
+      --border: #27272a;
+      --border-strong: #3f3f46;
+      --text: #f4f4f5;
+      --text-muted: #a1a1aa;
+      --text-dim: #71717a;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --ai-bg: rgba(59, 130, 246, 0.16);
+      --ai-fg: #60a5fa;
+      --skill-bg: rgba(16, 185, 129, 0.16);
+      --skill-fg: #34d399;
+      --ext-bg: rgba(113, 113, 122, 0.2);
+      --ext-fg: #a1a1aa;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+    }
+    * {
+      box-sizing: border-box;
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: #09090b;
-      color: #f4f4f5;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
       display: flex;
-      min-height: 100vh;
+      flex-direction: column;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    header {
+      height: 54px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .brand h1 {
+      font-size: 15px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .ws-pill {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      border-radius: 6px;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .toolbar-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      max-width: 680px;
+    }
+    .search-box {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    .search-box:focus { border-color: var(--primary); }
+    select.ctrl-select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    button {
+      background: var(--card);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    button:hover { background: var(--card-hover); border-color: var(--border-strong); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    button.primary:hover { background: var(--primary-hover); }
+    button.sm { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
+    button.active-pill { background: var(--primary); border-color: var(--primary); color: #fff; }
+
+    .tabs-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .category-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .cat-tab {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 5px 11px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .cat-tab:hover { color: var(--text); background: var(--card); }
+    .cat-tab.active {
+      background: var(--card);
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+    .cat-count {
+      font-size: 11px;
+      color: var(--text-dim);
+      background: var(--bg);
+      padding: 1px 6px;
+      border-radius: 999px;
+    }
+    .cat-tab.active .cat-count { color: var(--ai-fg); }
+
+    .workspace-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .grid-pane {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .asset-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 12px;
+    }
+    .asset-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.1s, border-color 0.12s;
+    }
+    .asset-card:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+    .asset-card.selected { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+    .card-thumb {
+      height: 132px;
+      background: #0c0c0f;
+      display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
+      overflow: hidden;
+      border-bottom: 1px solid var(--border);
     }
-    .card {
-      background: #18181b;
-      border: 1px solid #27272a;
+    .card-thumb.checker {
+      background-image:
+        linear-gradient(45deg, #18181b 25%, transparent 25%),
+        linear-gradient(-45deg, #18181b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #18181b 75%),
+        linear-gradient(-45deg, transparent 75%, #18181b 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    }
+    .card-thumb img, .card-thumb video {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .thumb-glyph {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+    .thumb-glyph svg { width: 32px; height: 32px; opacity: 0.8; }
+    .badge-overlay {
+      position: absolute;
+      top: 7px;
+      left: 7px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 600;
+      backdrop-filter: blur(6px);
+    }
+    .badge-ai { background: var(--ai-bg); color: var(--ai-fg); border: 1px solid rgba(96, 165, 250, 0.35); }
+    .badge-skill { background: var(--skill-bg); color: var(--skill-fg); border: 1px solid rgba(52, 211, 153, 0.35); }
+    .badge-ext { background: var(--ext-bg); color: var(--ext-fg); border: 1px solid rgba(161, 161, 170, 0.25); }
+    .cat-pill-overlay {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      background: rgba(9, 9, 11, 0.78);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 5px;
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .card-body {
+      padding: 9px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .card-name {
+      font-weight: 600;
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .card-meta-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .tag-chip {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 10px;
+      color: var(--text-muted);
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .inspector-pane {
+      width: 470px;
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+    }
+    .inspector-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      padding: 32px;
+      text-align: center;
+      gap: 8px;
+    }
+    .insp-section {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .insp-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .preview-stage {
+      background: #050507;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      min-height: 220px;
+      max-height: 280px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+      padding: 8px;
+    }
+    .preview-stage img, .preview-stage video {
+      max-width: 100%;
+      max-height: 240px;
+      object-fit: contain;
+    }
+    .sprite-controls {
+      width: 100%;
+      margin-top: 8px;
+      padding: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .sprite-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      font-size: 11px;
+    }
+    .meta-table {
+      display: grid;
+      grid-template-columns: 105px 1fr;
+      gap: 6px 10px;
+      font-size: 12px;
+    }
+    .meta-k { color: var(--text-dim); }
+    .meta-v { color: var(--text); word-break: break-word; }
+
+    .lineage-cards {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .lineage-node-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .lineage-node-card:hover { border-color: var(--primary); background: var(--card-hover); }
+    .dag-box {
+      background: #070709;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: auto;
+      max-height: 260px;
+      padding: 8px;
+    }
+    .action-group {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+    .action-group h4 {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .field-full { margin-bottom: 8px; }
+    label.fl {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    input.fi, select.fi, textarea.fi {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      outline: none;
+    }
+    textarea.fi { min-height: 54px; resize: vertical; }
+    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .sub-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 8px;
+      background: var(--bg);
+      padding: 3px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+    }
+    .sub-tab {
+      flex: 1;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      padding: 4px 8px;
+      border-radius: 5px;
+      font-size: 11px;
+      justify-content: center;
+    }
+    .sub-tab.active { background: var(--card-hover); color: var(--text); }
+
+    .toast-bar {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      max-width: 420px;
+      background: var(--card);
+      border: 1px solid var(--border-strong);
+      border-radius: 10px;
+      padding: 10px 14px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      z-index: 300;
+      display: none;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .toast-bar.error { border-color: var(--danger); color: #fecaca; }
+    .toast-bar.success { border-color: var(--skill-fg); color: #d1fae5; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.78);
+      z-index: 500;
+      display: none;
+      flex-direction: column;
+      padding: 18px;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-shell {
+      flex: 1;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
       border-radius: 12px;
-      padding: 24px 28px;
-      max-width: 520px;
-      width: 90%;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
-    h1 {
-      margin: 0 0 8px;
-      font-size: 20px;
+    .modal-hdr {
+      height: 44px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--card);
     }
-    p {
-      margin: 0;
-      color: #a1a1aa;
-      font-size: 14px;
-      line-height: 1.5;
+    .modal-shell iframe {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: #09090b;
+    }
+    .action-result-box {
+      margin-top: 8px;
+      padding: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      max-height: 140px;
+      overflow: auto;
+      white-space: pre-wrap;
     }
   </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-  <main class="card">
-    <h1>Asynx Asset Manager Workbench</h1>
-    <p id="status">Workbench shell initialized. Use CLI <code>scan</code>, <code>list</code>, or <code>lineage</code> to inspect workspace assets.</p>
-  </main>
+  <header>
+    <div class="brand">
+      <h1>Asynx Asset Manager Workbench</h1>
+      <span class="ws-pill" id="workspace-root-label" title="">Workspace: --</span>
+    </div>
+    <div class="toolbar-controls">
+      <input type="search" class="search-box" id="search-input" placeholder="搜索文件名、路径、Prompt、模型、操作或 Task ID..." />
+      <select class="ctrl-select" id="source-filter">
+        <option value="all">全部来源</option>
+        <option value="managed">Asynx Skill 产出</option>
+        <option value="external">外部项目资产</option>
+      </select>
+      <button id="rescan-btn" title="强制刷新扫描">↻ 刷新扫描</button>
+    </div>
+    <div id="account-bar-slot"></div>
+  </header>
+
+  <div class="tabs-bar">
+    <div class="category-tabs" id="category-tabs">
+      <button class="cat-tab active" data-cat="all">全部 <span class="cat-count" id="cnt-all">0</span></button>
+      <button class="cat-tab" data-cat="image">Image 图片 <span class="cat-count" id="cnt-image">0</span></button>
+      <button class="cat-tab" data-cat="audio">Audio 音频 <span class="cat-count" id="cnt-audio">0</span></button>
+      <button class="cat-tab" data-cat="frame_sequence">Frame Sequence 序列帧 <span class="cat-count" id="cnt-frame_sequence">0</span></button>
+      <button class="cat-tab" data-cat="video">Video 视频 <span class="cat-count" id="cnt-video">0</span></button>
+      <button class="cat-tab" data-cat="3d">3D Model 模型 <span class="cat-count" id="cnt-3d">0</span></button>
+    </div>
+    <div style="font-size: 11px; color: var(--text-dim);" id="scan-summary">就绪</div>
+  </div>
+
+  <div class="workspace-body">
+    <section class="grid-pane">
+      <div class="asset-grid" id="asset-grid"></div>
+    </section>
+
+    <aside class="inspector-pane" id="inspector-pane">
+      <div class="inspector-empty" id="inspector-empty">
+        <div style="font-size: 14px; font-weight: 600; color: var(--text);">未选择资产</div>
+        <div>点击左侧任意资产卡片查看预览、元数据、上下游血缘关系，以及跨 Skill 编辑与派生工具。</div>
+      </div>
+      <div id="inspector-content" style="display: none;"></div>
+    </aside>
+  </div>
+
+  <div class="toast-bar" id="toast-bar"></div>
+
+  <div class="modal-backdrop" id="embedded-modal">
+    <div class="modal-shell">
+      <div class="modal-hdr">
+        <span id="embedded-title" style="font-weight: 600; font-size: 13px;">Embedded Workbench</span>
+        <button id="embedded-close-btn" class="sm">✕ 关闭</button>
+      </div>
+      <iframe id="embedded-frame" src="about:blank"></iframe>
+    </div>
+  </div>
+
+  <script src="/account-bar.js"></script>
   <script>
-    const token = new URLSearchParams(window.location.search).get("token") || window.location.hash.replace("#token=", "");
-    if (token) {
-      fetch("/api/session", { headers: { "X-Asx-Session-Token": token } })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data && data.metadata && data.metadata.workspace_root) {
-            document.getElementById("status").textContent = "Workspace: " + data.metadata.workspace_root;
-          }
-        })
-        .catch(() => {});
+    const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
+    const state = {
+      session: null,
+      assets: [],
+      counts: {},
+      category: 'all',
+      source: 'all',
+      query: '',
+      selectedPath: null,
+      lineage: null,
+      lineageView: 'cards', // 'cards' | 'graph'
+      spritePlayer: { timer: null, playing: true, idx: 0, fps: 10, direction: 'all', onionSkin: false, showGrid: false, keys: [], manifest: null, img: null },
+      threeCleanup: null,
+      busyAction: false,
+    };
+
+    function escapeHtml(str) {
+      return String(str == null ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
+
+    function formatBytes(b) {
+      if (b == null) return '--';
+      if (b < 1024) return b + ' B';
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+      return (b / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function fileUrl(path) {
+      return '/api/workspace-file?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(path);
+    }
+
+    function showToast(msg, kind) {
+      const el = document.getElementById('toast-bar');
+      el.className = 'toast-bar ' + (kind || '');
+      el.textContent = msg;
+      el.style.display = 'block';
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => { el.style.display = 'none'; }, 4500);
+    }
+
+    async function apiGet(url) {
+      const res = await fetch(url, { headers: { 'X-Asx-Session-Token': token } });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        const err = new Error((data.error && data.error.message) || 'Request failed');
+        err.code = data.error && data.error.code;
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    async function apiAction(payload) {
+      const res = await fetch('/api/manager/action', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Asx-Session-Token': token,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        const err = new Error((data.error && data.error.message) || 'Action failed');
+        err.code = data.error && data.error.code;
+        err.status = res.status;
+        throw err;
+      }
+      return data;
+    }
+
+    function badgeInfo(asset) {
+      if (!asset.managed) return { cls: 'badge-ext', label: 'External' };
+      if (asset.source_kind === 'cloud_task') return { cls: 'badge-ai', label: 'Asynx AI' };
+      return { cls: 'badge-skill', label: 'Skill Processed' };
+    }
+
+    function stopPreviewTimers() {
+      if (state.spritePlayer.timer) {
+        clearInterval(state.spritePlayer.timer);
+        state.spritePlayer.timer = null;
+      }
+      if (typeof state.threeCleanup === 'function') {
+        state.threeCleanup();
+        state.threeCleanup = null;
+      }
+    }
+
+    async function loadAssets(opts) {
+      const qs = new URLSearchParams();
+      if (state.category !== 'all') qs.set('category', state.category);
+      if (state.source !== 'all') qs.set('source', state.source);
+      if (state.query.trim()) qs.set('query', state.query.trim());
+      if (opts && opts.noCache) qs.set('no_cache', '1');
+
+      try {
+        const data = await apiGet('/api/assets?' + qs.toString());
+        state.assets = data.assets || [];
+        state.counts = data.counts || {};
+        updateCounts();
+        renderGrid();
+        if (state.selectedPath) {
+          const stillThere = state.assets.find(a => a.path === state.selectedPath);
+          if (stillThere) {
+            await selectAsset(stillThere.path, { skipGridRender: true });
+          }
+        }
+      } catch (err) {
+        showToast('扫描工作区失败: ' + err.message, 'error');
+      }
+    }
+
+    function updateCounts() {
+      const c = state.counts || {};
+      const byCat = c.by_category || {};
+      document.getElementById('cnt-all').textContent = c.total ?? 0;
+      for (const cat of ['image', 'audio', 'frame_sequence', 'video', '3d']) {
+        const el = document.getElementById('cnt-' + cat);
+        if (el) el.textContent = byCat[cat] ?? 0;
+      }
+      const relinked = c.relinked ? ` · 重连 ${c.relinked}` : '';
+      document.getElementById('scan-summary').textContent =
+        `共 ${c.total ?? 0} 项 (Skill 受管 ${c.managed ?? 0} · 外部 ${c.external ?? 0}${relinked})`;
+    }
+
+    function glyphSvg(cat) {
+      if (cat === 'audio') {
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+      }
+      if (cat === '3d') {
+        return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8.5 5v10L12 22l-8.5-5V7L12 2z"/><path d="M12 22V12M20.5 7L12 12 3.5 7"/></svg>`;
+      }
+      return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15 10 9"/></svg>`;
+    }
+
+    function renderGrid() {
+      const grid = document.getElementById('asset-grid');
+      if (!state.assets.length) {
+        grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--text-dim);">当前筛选条件下没有匹配的创作资产</div>`;
+        return;
+      }
+      grid.innerHTML = state.assets.map(asset => {
+        const badge = badgeInfo(asset);
+        const isSel = asset.path === state.selectedPath;
+        const checker = asset.category === 'image' || asset.category === 'frame_sequence';
+        let thumbHtml = '';
+        if (asset.category === 'image' || asset.category === 'frame_sequence') {
+          thumbHtml = `<img src="${fileUrl(asset.path)}" loading="lazy" alt="${escapeHtml(asset.name)}" />`;
+        } else if (asset.category === 'video') {
+          thumbHtml = `<video src="${fileUrl(asset.path)}" muted preload="metadata"></video>`;
+        } else {
+          thumbHtml = `<div class="thumb-glyph">${glyphSvg(asset.category)}<span>${escapeHtml(asset.ext || asset.category)}</span></div>`;
+        }
+        const tag = asset.model || asset.operation || asset.category;
+        const frameTag = asset.category === 'frame_sequence' && asset.metadata && asset.metadata.frame_count
+          ? `${asset.metadata.frame_count} 帧`
+          : formatBytes(asset.bytes);
+        const pCount = (asset.parents || []).length;
+        const cCount = (asset.children || []).length;
+        const linText = (pCount || cCount) ? `↑${pCount} ↓${cCount}` : '';
+        return `
+          <div class="asset-card ${isSel ? 'selected' : ''}" data-path="${escapeHtml(asset.path)}">
+            <div class="card-thumb ${checker ? 'checker' : ''}">
+              ${thumbHtml}
+              <span class="badge-overlay ${badge.cls}">${escapeHtml(badge.label)}</span>
+              <span class="cat-pill-overlay">${escapeHtml(asset.category)}</span>
+            </div>
+            <div class="card-body">
+              <div class="card-name" title="${escapeHtml(asset.relative_path)}">${escapeHtml(asset.name)}</div>
+              <div class="card-meta-row">
+                <span class="tag-chip" title="${escapeHtml(tag)}">${escapeHtml(tag)}</span>
+                <span>${escapeHtml(linText || frameTag)}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      grid.querySelectorAll('.asset-card').forEach(card => {
+        card.onclick = () => selectAsset(card.dataset.path);
+      });
+    }
+
+    async function selectAsset(pathOrTarget, opts) {
+      let asset = state.assets.find(a => a.path === pathOrTarget || a.artifact_id === pathOrTarget);
+      if (!asset && pathOrTarget) {
+        // Fallback: clear filters if navigating via lineage to a hidden category
+        try {
+          const lin = await apiGet('/api/lineage?target=' + encodeURIComponent(pathOrTarget));
+          if (lin && lin.path) {
+            state.category = 'all';
+            state.source = 'all';
+            state.query = '';
+            document.getElementById('search-input').value = '';
+            document.getElementById('source-filter').value = 'all';
+            document.querySelectorAll('.cat-tab').forEach(b => b.classList.toggle('active', b.dataset.cat === 'all'));
+            state.selectedPath = lin.path;
+            await loadAssets();
+            return;
+          }
+        } catch (err) {
+          showToast('无法定位目标资产: ' + err.message, 'error');
+          return;
+        }
+      }
+      if (!asset) return;
+
+      state.selectedPath = asset.path;
+      if (!opts || !opts.skipGridRender) {
+        document.querySelectorAll('.asset-card').forEach(el => {
+          el.classList.toggle('selected', el.dataset.path === asset.path);
+        });
+      }
+
+      try {
+        state.lineage = await apiGet('/api/lineage?target=' + encodeURIComponent(asset.artifact_id || asset.path));
+      } catch (_) {
+        state.lineage = { asset: null, parents: asset.parents || [], children: asset.children || [], ancestors: [], descendants: [] };
+      }
+      renderInspector(asset);
+    }
+
+    function renderInspector(asset) {
+      stopPreviewTimers();
+      document.getElementById('inspector-empty').style.display = 'none';
+      const panel = document.getElementById('inspector-content');
+      panel.style.display = 'block';
+
+      const badge = badgeInfo(asset);
+      const lin = state.lineage || { parents: [], children: [], ancestors: [], descendants: [] };
+      const meta = asset.metadata || {};
+
+      panel.innerHTML = `
+        <div class="insp-section">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;">
+            <div style="min-width:0;">
+              <div style="font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(asset.name)}</div>
+              <div style="font-size:11px; color:var(--text-dim); word-break:break-all;">${escapeHtml(asset.relative_path)}</div>
+            </div>
+            <span class="badge-overlay ${badge.cls}" style="position:static; flex-shrink:0;">${escapeHtml(badge.label)}</span>
+          </div>
+          <div class="preview-stage" id="insp-preview-stage"></div>
+        </div>
+
+        <div class="insp-section">
+          <div class="insp-title"><span>元数据</span><span>${escapeHtml(asset.category)}</span></div>
+          <div class="meta-table">
+            <div class="meta-k">来源</div><div class="meta-v">${escapeHtml(asset.source_kind)}</div>
+            <div class="meta-k">大小 / 格式</div><div class="meta-v">${escapeHtml(formatBytes(asset.bytes))} · ${escapeHtml(asset.mime || asset.ext || '--')}</div>
+            ${meta.frame_count ? `<div class="meta-k">序列帧</div><div class="meta-v">${escapeHtml(meta.frame_count)} 帧 · ${escapeHtml(meta.columns || '?')}×${escapeHtml(meta.rows || '?')} · ${escapeHtml(meta.fps || 10)} FPS</div>` : ''}
+            ${meta.width && meta.height ? `<div class="meta-k">尺寸</div><div class="meta-v">${meta.width} × ${meta.height}</div>` : ''}
+            ${meta.duration_seconds != null ? `<div class="meta-k">时长</div><div class="meta-v">${meta.duration_seconds}s</div>` : ''}
+            ${asset.model ? `<div class="meta-k">模型</div><div class="meta-v">${escapeHtml(asset.model)}</div>` : ''}
+            ${asset.operation ? `<div class="meta-k">操作</div><div class="meta-v">${escapeHtml(asset.operation)}</div>` : ''}
+            ${asset.prompt ? `<div class="meta-k">Prompt</div><div class="meta-v">${escapeHtml(asset.prompt)}</div>` : ''}
+            ${asset.task_id ? `<div class="meta-k">Task ID</div><div class="meta-v">${escapeHtml(asset.task_id)}</div>` : ''}
+            ${asset.artifact_id ? `<div class="meta-k">Artifact ID</div><div class="meta-v">${escapeHtml(asset.artifact_id)}</div>` : ''}
+            <div class="meta-k">SHA-256</div><div class="meta-v" style="font-family:monospace; font-size:11px;">${escapeHtml((asset.sha256 || '--').slice(0, 24))}...</div>
+          </div>
+        </div>
+
+        <div class="insp-section">
+          <div class="insp-title">
+            <span>Asset Lineage 血缘关系</span>
+            <div class="btn-row">
+              <button class="sm ${state.lineageView === 'cards' ? 'active-pill' : ''}" id="lin-view-cards">卡片链</button>
+              <button class="sm ${state.lineageView === 'graph' ? 'active-pill' : ''}" id="lin-view-graph">DAG 图谱</button>
+            </div>
+          </div>
+          <div id="lineage-body"></div>
+        </div>
+
+        <div class="insp-section">
+          <div class="insp-title"><span>跨 Skill 编辑与派生工作流</span></div>
+          <div id="actions-body"></div>
+          <div id="action-result-slot"></div>
+        </div>
+      `;
+
+      panel.querySelector('#lin-view-cards').onclick = () => { state.lineageView = 'cards'; renderLineageSection(asset, lin); };
+      panel.querySelector('#lin-view-graph').onclick = () => { state.lineageView = 'graph'; renderLineageSection(asset, lin); };
+
+      initPreviewStage(asset);
+      renderLineageSection(asset, lin);
+      renderActionsPanel(asset);
+    }
+
+    function initPreviewStage(asset) {
+      const stage = document.getElementById('insp-preview-stage');
+      const url = fileUrl(asset.path);
+
+      if (asset.category === 'image') {
+        stage.innerHTML = `<img src="${url}" alt="${escapeHtml(asset.name)}" />`;
+        return;
+      }
+
+      if (asset.category === 'video') {
+        stage.innerHTML = `<video src="${url}" controls loop style="width:100%; max-height:240px;"></video>`;
+        return;
+      }
+
+      if (asset.category === 'audio') {
+        stage.innerHTML = `
+          <canvas id="audio-wave-canvas" width="400" height="90" style="width:100%; height:90px; background:#09090b; border-radius:6px; margin-bottom:8px;"></canvas>
+          <audio id="audio-player" src="${url}" controls style="width:100%;"></audio>
+        `;
+        renderAudioWaveform(url);
+        return;
+      }
+
+      if (asset.category === 'frame_sequence') {
+        stage.style.maxHeight = 'none';
+        stage.innerHTML = `
+          <canvas id="sprite-canvas" width="192" height="192" style="max-width:100%; max-height:190px; background:#09090b; border:1px solid var(--border); border-radius:6px;"></canvas>
+          <div class="sprite-controls">
+            <div class="sprite-row">
+              <button class="sm primary" id="sp-play">暂停</button>
+              <label style="font-size:11px;">FPS <input type="number" id="sp-fps" value="10" min="1" max="60" style="width:52px; padding:2px 4px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;"></label>
+              <label style="font-size:11px;">方向 <select id="sp-dir" style="padding:2px 4px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:4px;"><option value="all">全部帧</option></select></label>
+              <span id="sp-counter" style="margin-left:auto; color:var(--text-muted);">0 / 0</span>
+            </div>
+            <div class="sprite-row">
+              <input type="range" id="sp-scrub" min="0" max="0" value="0" style="flex:1;">
+              <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="sp-onion"> 洋葱皮</label>
+              <label style="display:flex; align-items:center; gap:4px;"><input type="checkbox" id="sp-grid"> 网格</label>
+            </div>
+          </div>
+        `;
+        initFrameSequencePlayer(asset);
+        return;
+      }
+
+      if (asset.category === '3d') {
+        stage.innerHTML = `<canvas id="three-preview-canvas" width="420" height="220" style="width:100%; height:220px; border-radius:6px;"></canvas>`;
+        initThreePreview(asset);
+      }
+    }
+
+    async function renderAudioWaveform(url) {
+      const canvas = document.getElementById('audio-wave-canvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#09090b';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      try {
+        const resp = await fetch(url);
+        const buf = await resp.arrayBuffer();
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) throw new Error('no audio ctx');
+        const audioCtx = new AudioCtx();
+        const decoded = await audioCtx.decodeAudioData(buf);
+        const data = decoded.getChannelData(0);
+        const step = Math.max(1, Math.floor(data.length / canvas.width));
+        const mid = canvas.height / 2;
+        ctx.fillStyle = '#3b82f6';
+        for (let x = 0; x < canvas.width; x++) {
+          let min = 1, max = -1;
+          for (let j = 0; j < step; j++) {
+            const v = data[x * step + j] || 0;
+            if (v < min) min = v;
+            if (v > max) max = v;
+          }
+          const h = Math.max(2, (max - min) * mid * 0.9);
+          ctx.fillRect(x, mid - h / 2, 1, h);
+        }
+        audioCtx.close().catch(() => {});
+      } catch (_) {
+        ctx.fillStyle = '#3f3f46';
+        for (let x = 8; x < canvas.width - 8; x += 6) {
+          const h = 14 + Math.round(Math.abs(Math.sin(x * 0.15)) * 44);
+          ctx.fillRect(x, (canvas.height - h) / 2, 3, h);
+        }
+      }
+    }
+
+    async function initFrameSequencePlayer(asset) {
+      const canvas = document.getElementById('sprite-canvas');
+      const ctx = canvas.getContext('2d');
+      const mPath = asset.metadata && asset.metadata.manifest_path;
+      if (!mPath) {
+        ctx.fillStyle = '#a1a1aa';
+        ctx.fillText('No manifest.json found', 20, 40);
+        return;
+      }
+      let manifest;
+      try {
+        const res = await fetch('/api/manifest?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(mPath));
+        manifest = await res.json();
+      } catch (_) {
+        return;
+      }
+
+      const sp = state.spritePlayer;
+      sp.manifest = manifest;
+      sp.fps = Number(manifest.meta && manifest.meta.fps) || 10;
+      document.getElementById('sp-fps').value = sp.fps;
+
+      const framesObj = manifest.frames || {};
+      const allEntries = Array.isArray(framesObj)
+        ? framesObj.map((f, i) => ({ key: String(i), rect: f.frame || f, dir: f.direction || null }))
+        : Object.keys(framesObj).map(k => ({ key: k, rect: framesObj[k].frame || framesObj[k], dir: framesObj[k].direction || null }));
+
+      const dirs = Array.from(new Set(allEntries.map(e => e.dir).filter(Boolean)));
+      const dirSelect = document.getElementById('sp-dir');
+      dirSelect.innerHTML = `<option value="all">全部帧 (${allEntries.length})</option>` +
+        dirs.map(d => `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join('');
+
+      const atlasImg = new Image();
+      atlasImg.onload = () => {
+        sp.img = atlasImg;
+        function filteredEntries() {
+          if (sp.direction === 'all') return allEntries;
+          return allEntries.filter(e => e.dir === sp.direction);
+        }
+        function drawFrame(idx) {
+          const list = filteredEntries();
+          if (!list.length) return;
+          sp.idx = ((idx % list.length) + list.length) % list.length;
+          const entry = list[sp.idx];
+          const r = entry.rect;
+          canvas.width = r.w || 128;
+          canvas.height = r.h || 128;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          if (sp.onionSkin && list.length > 1) {
+            const prev = list[(sp.idx - 1 + list.length) % list.length].rect;
+            ctx.save();
+            ctx.globalAlpha = 0.28;
+            ctx.drawImage(atlasImg, prev.x, prev.y, prev.w, prev.h, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+          }
+          ctx.drawImage(atlasImg, r.x, r.y, r.w, r.h, 0, 0, canvas.width, canvas.height);
+          if (sp.showGrid) {
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(0.5, 0.5, canvas.width - 1, canvas.height - 1);
+          }
+          document.getElementById('sp-counter').textContent = `${sp.idx + 1} / ${list.length}`;
+          const scrub = document.getElementById('sp-scrub');
+          scrub.max = Math.max(0, list.length - 1);
+          scrub.value = sp.idx;
+        }
+        function restartTimer() {
+          if (sp.timer) clearInterval(sp.timer);
+          if (!sp.playing) return;
+          sp.timer = setInterval(() => drawFrame(sp.idx + 1), Math.max(16, 1000 / sp.fps));
+        }
+        document.getElementById('sp-play').onclick = () => {
+          sp.playing = !sp.playing;
+          document.getElementById('sp-play').textContent = sp.playing ? '暂停' : '播放';
+          restartTimer();
+        };
+        document.getElementById('sp-fps').onchange = (e) => {
+          sp.fps = Math.max(1, Math.min(60, Number(e.target.value) || 10));
+          restartTimer();
+        };
+        dirSelect.onchange = (e) => {
+          sp.direction = e.target.value;
+          sp.idx = 0;
+          drawFrame(0);
+        };
+        document.getElementById('sp-scrub').oninput = (e) => {
+          sp.playing = false;
+          document.getElementById('sp-play').textContent = '播放';
+          if (sp.timer) clearInterval(sp.timer);
+          drawFrame(Number(e.target.value));
+        };
+        document.getElementById('sp-onion').onchange = (e) => { sp.onionSkin = e.target.checked; drawFrame(sp.idx); };
+        document.getElementById('sp-grid').onchange = (e) => { sp.showGrid = e.target.checked; drawFrame(sp.idx); };
+        drawFrame(0);
+        restartTimer();
+      };
+      atlasImg.src = fileUrl(asset.path);
+    }
+
+    function initThreePreview(asset) {
+      const canvas = document.getElementById('three-preview-canvas');
+      if (!canvas) return;
+      if (!window.THREE) {
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#09090b';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#a1a1aa';
+        ctx.font = '13px sans-serif';
+        ctx.fillText(`3D Asset: ${asset.name} (${asset.ext})`, 20, 105);
+        return;
+      }
+      try {
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x09090b);
+        const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 100);
+        camera.position.set(0, 1.4, 3.2);
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+        renderer.setSize(canvas.width, canvas.height, false);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+        const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+        dir.position.set(2, 4, 3);
+        scene.add(dir);
+        const mesh = new THREE.Mesh(
+          new THREE.BoxGeometry(1.1, 1.4, 0.8),
+          new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.35, metalness: 0.6 })
+        );
+        scene.add(mesh);
+        let rafId = 0;
+        let dragging = false, prevX = 0;
+        canvas.onpointerdown = (e) => { dragging = true; prevX = e.clientX; };
+        window.addEventListener('pointerup', () => { dragging = false; });
+        canvas.onpointermove = (e) => {
+          if (!dragging) return;
+          mesh.rotation.y += (e.clientX - prevX) * 0.012;
+          prevX = e.clientX;
+        };
+        function loop() {
+          rafId = requestAnimationFrame(loop);
+          if (!dragging) mesh.rotation.y += 0.006;
+          renderer.render(scene, camera);
+        }
+        loop();
+        state.threeCleanup = () => {
+          cancelAnimationFrame(rafId);
+          renderer.dispose();
+        };
+      } catch (_) {}
+    }
+
+    function renderLineageSection(asset, lin) {
+      const container = document.getElementById('lineage-body');
+      document.getElementById('lin-view-cards').classList.toggle('active-pill', state.lineageView === 'cards');
+      document.getElementById('lin-view-graph').classList.toggle('active-pill', state.lineageView === 'graph');
+
+      if (state.lineageView === 'graph') {
+        renderLineageDag(container, asset, lin);
+        return;
+      }
+
+      const parents = lin.parents || [];
+      const children = lin.children || [];
+      const pHtml = parents.length
+        ? parents.map(edge => `
+            <div class="lineage-node-card" data-target="${escapeHtml(edge.parent_artifact_id || edge.parent_path)}">
+              <div style="min-width:0;">
+                <div style="font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis;">↑ ${escapeHtml(edge.parent_path.split('/').pop())}</div>
+                <div style="font-size:10px; color:var(--text-dim);">${escapeHtml(edge.operation)} · ${escapeHtml(edge.modality)}</div>
+              </div>
+              <span style="font-size:11px; color:var(--ai-fg);">跳转 →</span>
+            </div>
+          `).join('')
+        : `<div style="font-size:11px; color:var(--text-dim);">无上游父资产</div>`;
+
+      const cHtml = children.length
+        ? children.map(edge => `
+            <div class="lineage-node-card" data-target="${escapeHtml(edge.child_artifact_id || edge.child_path)}">
+              <div style="min-width:0;">
+                <div style="font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis;">↓ ${escapeHtml(edge.child_path.split('/').pop())}</div>
+                <div style="font-size:10px; color:var(--text-dim);">${escapeHtml(edge.operation)} · ${escapeHtml(edge.modality)}</div>
+              </div>
+              <span style="font-size:11px; color:var(--skill-fg);">跳转 →</span>
+            </div>
+          `).join('')
+        : `<div style="font-size:11px; color:var(--text-dim);">无下游派生资产</div>`;
+
+      container.innerHTML = `
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">上游父资产 (${parents.length})</div>
+        <div class="lineage-cards" style="margin-bottom:10px;">${pHtml}</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">下游子资产 (${children.length})</div>
+        <div class="lineage-cards">${cHtml}</div>
+      `;
+      container.querySelectorAll('.lineage-node-card').forEach(el => {
+        el.onclick = () => selectAsset(el.dataset.target);
+      });
+    }
+
+    function renderLineageDag(container, asset, lin) {
+      const edges = [...(lin.ancestors || []), ...(lin.descendants || [])];
+      if (!edges.length) {
+        container.innerHTML = `<div style="font-size:11px; color:var(--text-dim);">当前资产暂无血缘连线</div>`;
+        return;
+      }
+      const nodesMap = new Map();
+      const addNode = (id, path) => {
+        const key = path || id;
+        if (!nodesMap.has(key)) {
+          nodesMap.set(key, { key, id, path, label: (path || id || '').split('/').pop(), depth: 0 });
+        }
+        return nodesMap.get(key);
+      };
+      const curKey = asset.path;
+      addNode(asset.artifact_id, asset.path);
+
+      const dedupEdges = [];
+      const seenEdge = new Set();
+      for (const e of edges) {
+        const eid = `${e.parent_path}->${e.child_path}:${e.operation}`;
+        if (seenEdge.has(eid)) continue;
+        seenEdge.add(eid);
+        dedupEdges.push(e);
+        addNode(e.parent_artifact_id, e.parent_path);
+        addNode(e.child_artifact_id, e.child_path);
+      }
+
+      // Compute topological layer depths relative to root ancestors
+      for (let pass = 0; pass < nodesMap.size; pass++) {
+        for (const e of dedupEdges) {
+          const p = nodesMap.get(e.parent_path);
+          const c = nodesMap.get(e.child_path);
+          if (p && c && c.depth <= p.depth) c.depth = p.depth + 1;
+        }
+      }
+      const byDepth = new Map();
+      for (const node of nodesMap.values()) {
+        if (!byDepth.has(node.depth)) byDepth.set(node.depth, []);
+        byDepth.get(node.depth).push(node);
+      }
+      const depths = Array.from(byDepth.keys()).sort((a, b) => a - b);
+      const colW = 156, rowH = 56;
+      let maxRows = 1;
+      for (const d of depths) {
+        const arr = byDepth.get(d);
+        maxRows = Math.max(maxRows, arr.length);
+        arr.forEach((n, idx) => {
+          n.x = 14 + d * colW;
+          n.y = 14 + idx * rowH;
+        });
+      }
+      const svgW = Math.max(360, depths.length * colW + 24);
+      const svgH = Math.max(120, maxRows * rowH + 20);
+
+      const linesSvg = dedupEdges.map(e => {
+        const p = nodesMap.get(e.parent_path);
+        const c = nodesMap.get(e.child_path);
+        if (!p || !c) return '';
+        const x1 = p.x + 122, y1 = p.y + 18;
+        const x2 = c.x, y2 = c.y + 18;
+        const cx = (x1 + x2) / 2;
+        return `
+          <path d="M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}" stroke="#52525b" stroke-width="1.5" fill="none" />
+          <text x="${cx}" y="${(y1 + y2) / 2 - 4}" fill="#71717a" font-size="9" text-anchor="middle">${escapeHtml(e.operation)}</text>
+        `;
+      }).join('');
+
+      const nodesSvg = Array.from(nodesMap.values()).map(n => {
+        const isCurrent = n.key === curKey;
+        return `
+          <g class="dag-node" data-target="${escapeHtml(n.id || n.path)}" style="cursor:pointer;">
+            <rect x="${n.x}" y="${n.y}" width="122" height="36" rx="7" fill="${isCurrent ? '#1e3a8a' : '#18181b'}" stroke="${isCurrent ? '#60a5fa' : '#3f3f46'}" stroke-width="1.5" />
+            <text x="${n.x + 8}" y="${n.y + 22}" fill="#f4f4f5" font-size="11">${escapeHtml(n.label.slice(0, 15))}</text>
+          </g>
+        `;
+      }).join('');
+
+      container.innerHTML = `<div class="dag-box"><svg width="${svgW}" height="${svgH}">${linesSvg}${nodesSvg}</svg></div>`;
+      container.querySelectorAll('.dag-node').forEach(g => {
+        g.onclick = () => selectAsset(g.dataset.target);
+      });
+    }
+
+    function openEmbeddedWorkbench(title, pathUrl) {
+      document.getElementById('embedded-title').textContent = title;
+      document.getElementById('embedded-frame').src = pathUrl;
+      document.getElementById('embedded-modal').classList.add('open');
+    }
+
+    function closeEmbeddedWorkbench() {
+      document.getElementById('embedded-modal').classList.remove('open');
+      document.getElementById('embedded-frame').src = 'about:blank';
+    }
+
+    async function runAction(payload, opts) {
+      if (state.busyAction) return;
+      state.busyAction = true;
+      const resultSlot = document.getElementById('action-result-slot');
+      if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box">正在执行 ${escapeHtml(payload.action)}...</div>`;
+      try {
+        const res = await apiAction(payload);
+        showToast(`操作 ${payload.action} 完成`, 'success');
+        if (resultSlot) {
+          resultSlot.innerHTML = `<div class="action-result-box">${escapeHtml(JSON.stringify(res.result || res, null, 2))}</div>`;
+        }
+        const created = res.created_files || [];
+        if (created.length && (!opts || opts.selectCreated !== false)) {
+          state.selectedPath = created[0];
+        }
+        await loadAssets({ noCache: true });
+      } catch (err) {
+        if (err.code === 'need_login' || err.status === 401) {
+          showToast('云端操作需要先登录 Asynx 账号，请在弹窗中登录', 'error');
+          if (window.AsxAccountBar && typeof window.AsxAccountBar.openLogin === 'function') {
+            window.AsxAccountBar.openLogin();
+          }
+        } else {
+          showToast(err.message, 'error');
+        }
+        if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box" style="color:#fca5a5;">${escapeHtml(err.message)}</div>`;
+      } finally {
+        state.busyAction = false;
+      }
+    }
+
+    function renderActionsPanel(asset) {
+      const container = document.getElementById('actions-body');
+      const src = asset.path;
+      const encSrc = encodeURIComponent(src);
+      const encTok = encodeURIComponent(token);
+
+      if (asset.category === 'image') {
+        container.innerHTML = `
+          <div class="action-group">
+            <h4>1. Edit Image 图像编辑</h4>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <button class="sm" id="btn-emb-region">局部重绘 Workbench</button>
+              <button class="sm" id="btn-emb-tools">本地图片工具 Workbench</button>
+              <button class="sm" id="btn-emb-annotate">自由批注 Workbench</button>
+            </div>
+            <div class="field-full">
+              <label class="fl">Prompt 指令编辑 (image.edit)</label>
+              <textarea class="fi" id="act-img-prompt" placeholder="例如：把骑士盔甲改成金色龙鳞甲"></textarea>
+            </div>
+            <button class="primary sm" id="btn-img-edit">执行 AI 编辑</button>
+            <hr style="border:none; border-top:1px solid var(--border); margin:10px 0;">
+            <div class="field-grid">
+              <div>
+                <label class="fl">本地预处理工具</label>
+                <select class="fi" id="act-img-tool">
+                  <option value="remove_background">Remove Background 去背</option>
+                  <option value="trim">Trim 裁切透明边缘</option>
+                  <option value="pad">Pad 扩展边距</option>
+                  <option value="resize">Resize 调整尺寸</option>
+                  <option value="crop">Crop 裁剪</option>
+                  <option value="convert">Convert 格式转换</option>
+                </select>
+              </div>
+              <div>
+                <label class="fl">参数 (宽/边距/格式/Box)</label>
+                <input class="fi" id="act-img-tool-arg" placeholder="如 128 或 png 或 0,0,64,64" />
+              </div>
+            </div>
+            <button class="sm" id="btn-img-local-tool">执行本地图片处理</button>
+          </div>
+
+          <div class="action-group">
+            <h4>2. Generate Frame Sequence 生成序列帧</h4>
+            <div class="sub-tabs">
+              <button class="sub-tab active" data-fstype="ai">AI 精灵图生成</button>
+              <button class="sub-tab" data-fstype="slice">确定性网格切分</button>
+            </div>
+            <div id="fs-ai-fields">
+              <label class="fl">动作序列描述</label>
+              <input class="fi" id="act-fs-prompt" value="walk cycle animation sprite sheet" style="margin-bottom:8px;" />
+            </div>
+            <div class="field-grid">
+              <div><label class="fl">行数 (Rows)</label><input class="fi" type="number" id="act-fs-rows" value="2" min="1" max="16"></div>
+              <div><label class="fl">列数 (Columns)</label><input class="fi" type="number" id="act-fs-cols" value="2" min="1" max="16"></div>
+              <div><label class="fl">帧率 (FPS)</label><input class="fi" type="number" id="act-fs-fps" value="10" min="1" max="60"></div>
+              <div style="display:flex; align-items:flex-end; padding-bottom:4px;">
+                <label style="font-size:11px; display:flex; align-items:center; gap:6px;"><input type="checkbox" id="act-fs-rembg"> 自动去背</label>
+              </div>
+            </div>
+            <button class="primary sm" id="btn-fs-generate">生成 Frame Sequence Atlas</button>
+          </div>
+
+          <div class="action-group">
+            <h4>3. Generate Video 图生视频 (video.generate)</h4>
+            <div class="field-full">
+              <label class="fl">视频动态描述 (首帧已自动绑定当前图片)</label>
+              <input class="fi" id="act-vid-prompt" placeholder="例如：角色缓慢拔剑，披风随风飘动" />
+            </div>
+            <div class="field-grid">
+              <div><label class="fl">时长 (秒)</label><input class="fi" type="number" id="act-vid-dur" value="5" min="1" max="15"></div>
+              <div><label class="fl">分辨率</label><select class="fi" id="act-vid-res"><option value="720p">720p</option><option value="1080p">1080p</option></select></div>
+            </div>
+            <button class="primary sm" id="btn-img-to-vid">生成视频</button>
+          </div>
+
+          <div class="action-group">
+            <h4>4. Generate 3D Model 图生 3D (3d.generate)</h4>
+            <div class="field-grid">
+              <div><label class="fl">输出格式</label><select class="fi" id="act-3d-fmt"><option value="glb">GLB</option><option value="fbx">FBX</option><option value="obj">OBJ</option></select></div>
+              <div><label class="fl">附加描述 (可选)</label><input class="fi" id="act-3d-prompt" placeholder="可选" /></div>
+            </div>
+            <button class="primary sm" id="btn-img-to-3d">生成 3D 模型</button>
+          </div>
+        `;
+
+        document.getElementById('btn-emb-region').onclick = () =>
+          openEmbeddedWorkbench('图像局部重绘 Workbench', `/image/index.html?embedded=1&mode=region_edit&token=${encTok}&source_path=${encSrc}`);
+        document.getElementById('btn-emb-tools').onclick = () =>
+          openEmbeddedWorkbench('本地图片工具 Workbench', `/image/index.html?embedded=1&mode=tools&token=${encTok}&source_path=${encSrc}`);
+        document.getElementById('btn-emb-annotate').onclick = () =>
+          openEmbeddedWorkbench('自由批注 Workbench', `/image/index.html?embedded=1&mode=annotate&token=${encTok}&source_path=${encSrc}`);
+
+        document.getElementById('btn-img-edit').onclick = () => runAction({
+          action: 'image_edit',
+          source_path: src,
+          prompt: document.getElementById('act-img-prompt').value.trim(),
+        });
+
+        document.getElementById('btn-img-local-tool').onclick = () => {
+          const tool = document.getElementById('act-img-tool').value;
+          const arg = document.getElementById('act-img-tool-arg').value.trim();
+          const body = { action: 'image_local_tool', source_path: src, tool };
+          if (tool === 'resize') body.width = Number(arg) || 128;
+          else if (tool === 'pad') body.padding = Number(arg) || 16;
+          else if (tool === 'crop') body.box = arg || '0,0,64,64';
+          else if (tool === 'convert') body.format = arg || 'webp';
+          else if (tool === 'remove_background' && arg) body.threshold = Number(arg) || 30;
+          runAction(body);
+        };
+
+        let fsMode = 'ai';
+        container.querySelectorAll('[data-fstype]').forEach(btn => {
+          btn.onclick = () => {
+            fsMode = btn.dataset.fstype;
+            container.querySelectorAll('[data-fstype]').forEach(b => b.classList.toggle('active', b === btn));
+            document.getElementById('fs-ai-fields').style.display = fsMode === 'ai' ? 'block' : 'none';
+          };
+        });
+        document.getElementById('btn-fs-generate').onclick = () => runAction({
+          action: fsMode === 'ai' ? 'image_ai_spritesheet' : 'image_grid_slice',
+          source_path: src,
+          prompt: document.getElementById('act-fs-prompt').value.trim(),
+          rows: Number(document.getElementById('act-fs-rows').value) || 2,
+          columns: Number(document.getElementById('act-fs-cols').value) || 2,
+          fps: Number(document.getElementById('act-fs-fps').value) || 10,
+          remove_background: document.getElementById('act-fs-rembg').checked,
+        });
+
+        document.getElementById('btn-img-to-vid').onclick = () => runAction({
+          action: 'image_to_video',
+          source_path: src,
+          prompt: document.getElementById('act-vid-prompt').value.trim() || 'Animate smoothly',
+          duration: Number(document.getElementById('act-vid-dur').value) || 5,
+          resolution: document.getElementById('act-vid-res').value,
+        });
+
+        document.getElementById('btn-img-to-3d').onclick = () => runAction({
+          action: 'image_to_3d',
+          source_path: src,
+          output_format: document.getElementById('act-3d-fmt').value,
+          prompt: document.getElementById('act-3d-prompt').value.trim() || undefined,
+        });
+        return;
+      }
+
+      if (asset.category === 'frame_sequence') {
+        const mPath = (asset.metadata && asset.metadata.manifest_path) || '';
+        container.innerHTML = `
+          <div class="action-group">
+            <h4>序列帧操作 (Frame Sequence)</h4>
+            <div class="btn-row" style="margin-bottom:10px;">
+              <button class="sm" id="btn-emb-seq-prev">独立窗口预览序列帧</button>
+              <button class="sm" id="btn-fs-extract">解包为单帧 PNG</button>
+            </div>
+            <div class="field-grid">
+              <div><label class="fl">新行数</label><input class="fi" type="number" id="act-repack-rows" value="${(asset.metadata && asset.metadata.rows) || 2}"></div>
+              <div><label class="fl">新列数</label><input class="fi" type="number" id="act-repack-cols" value="${(asset.metadata && asset.metadata.columns) || 2}"></div>
+              <div><label class="fl">FPS</label><input class="fi" type="number" id="act-repack-fps" value="${(asset.metadata && asset.metadata.fps) || 10}"></div>
+            </div>
+            <button class="primary sm" id="btn-fs-repack">重新切分并生成 Atlas</button>
+          </div>
+        `;
+        document.getElementById('btn-emb-seq-prev').onclick = () =>
+          openEmbeddedWorkbench('序列帧预览 Workbench', `/video/index.html?embedded=1&mode=sequence_preview&token=${encTok}&source_path=${encSrc}&manifest_path=${encodeURIComponent(mPath)}`);
+        document.getElementById('btn-fs-extract').onclick = () => runAction({
+          action: 'frame_sequence_extract_frames',
+          source_path: src,
+          manifest_path: mPath || undefined,
+        });
+        document.getElementById('btn-fs-repack').onclick = () => runAction({
+          action: 'frame_sequence_repack',
+          source_path: src,
+          manifest_path: mPath || undefined,
+          rows: Number(document.getElementById('act-repack-rows').value) || 2,
+          columns: Number(document.getElementById('act-repack-cols').value) || 2,
+          fps: Number(document.getElementById('act-repack-fps').value) || 10,
+        });
+        return;
+      }
+
+      if (asset.category === 'video') {
+        const audioOpts = state.assets.filter(a => a.category === 'audio')
+          .map(a => `<option value="${escapeHtml(a.path)}">${escapeHtml(a.name)}</option>`).join('');
+        container.innerHTML = `
+          <div class="action-group">
+            <h4>1. 视频抽帧与序列帧图集 (Frame Sequence)</h4>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <button class="primary sm" id="btn-emb-vid-fs">打开交互式抽帧去背 Workbench</button>
+              <button class="sm" id="btn-vid-sheet">快速生成 Atlas (10 FPS)</button>
+            </div>
+          </div>
+          <div class="action-group">
+            <h4>2. 视频编辑与本地处理</h4>
+            <div class="field-full">
+              <label class="fl">AI 视频编辑提示词 (video.edit)</label>
+              <input class="fi" id="act-vedit-prompt" placeholder="例如：添加赛博朋克霓虹雨夜氛围" />
+            </div>
+            <button class="primary sm" id="btn-vid-edit" style="margin-bottom:10px;">执行 video.edit</button>
+            <div class="field-grid">
+              <div><label class="fl">裁剪起止 (Start / Dur)</label><input class="fi" id="act-vtrim-dur" type="number" value="2" step="0.5"></div>
+              <div><label class="fl">格式转换</label><select class="fi" id="act-vconv-fmt"><option value="gif">GIF</option><option value="webm">WebM</option><option value="mp4">MP4</option></select></div>
+            </div>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <button class="sm" id="btn-vid-trim">Trim 修剪</button>
+              <button class="sm" id="btn-vid-conv">Convert 转码</button>
+            </div>
+            ${audioOpts ? `
+              <label class="fl">音视频混流 (Mux Audio)</label>
+              <div style="display:flex; gap:6px;">
+                <select class="fi" id="act-vmux-audio">${audioOpts}</select>
+                <button class="sm" id="btn-vid-mux" style="flex-shrink:0;">Mux 合并</button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+        document.getElementById('btn-emb-vid-fs').onclick = () =>
+          openEmbeddedWorkbench('视频序列帧提取 Workbench', `/video/index.html?embedded=1&mode=video_frame_sequence&token=${encTok}&source_path=${encSrc}`);
+        document.getElementById('btn-vid-sheet').onclick = () => runAction({
+          action: 'video_spritesheet',
+          source_path: src,
+          fps: 10,
+        });
+        document.getElementById('btn-vid-edit').onclick = () => runAction({
+          action: 'video_edit',
+          source_path: src,
+          prompt: document.getElementById('act-vedit-prompt').value.trim(),
+        });
+        document.getElementById('btn-vid-trim').onclick = () => runAction({
+          action: 'video_trim',
+          source_path: src,
+          start: 0,
+          duration: Number(document.getElementById('act-vtrim-dur').value) || 2,
+        });
+        document.getElementById('btn-vid-conv').onclick = () => runAction({
+          action: 'video_convert',
+          source_path: src,
+          format: document.getElementById('act-vconv-fmt').value,
+        });
+        const muxBtn = document.getElementById('btn-vid-mux');
+        if (muxBtn) {
+          muxBtn.onclick = () => runAction({
+            action: 'video_mux',
+            source_path: src,
+            audio_path: document.getElementById('act-vmux-audio').value,
+          });
+        }
+        return;
+      }
+
+      if (asset.category === '3d') {
+        container.innerHTML = `
+          <div class="action-group">
+            <h4>1. 3D Inspector & 多视角序列帧渲染</h4>
+            <button class="primary sm" id="btn-emb-3d">打开 3D 序列帧渲染 Workbench</button>
+          </div>
+          <div class="action-group">
+            <h4>2. 云端骨骼绑定与动画 (Rig / Animate / Texture / Convert)</h4>
+            <div class="field-grid">
+              <div><label class="fl">骨骼类型 (Rig)</label><select class="fi" id="act-3d-rigtype"><option value="auto">auto</option><option value="biped">biped</option><option value="quadruped">quadruped</option></select></div>
+              <div><label class="fl">动画名称 (Animate)</label><input class="fi" id="act-3d-anim" value="walk" /></div>
+            </div>
+            <div class="btn-row" style="margin-bottom:8px;">
+              <button class="sm" id="btn-3d-rigcheck">Rig Check</button>
+              <button class="primary sm" id="btn-3d-rig">Auto Rig</button>
+              <button class="primary sm" id="btn-3d-anim">Animate</button>
+            </div>
+            <div class="field-grid">
+              <div><label class="fl">重绘贴图 Prompt</label><input class="fi" id="act-3d-texprompt" placeholder="风格描述" /></div>
+              <div><label class="fl">转换格式</label><select class="fi" id="act-3d-convfmt"><option value="glb">GLB</option><option value="fbx">FBX</option><option value="obj">OBJ</option><option value="usdz">USDZ</option></select></div>
+            </div>
+            <div class="btn-row">
+              <button class="sm" id="btn-3d-tex">Re-Texture</button>
+              <button class="sm" id="btn-3d-conv">Convert 格式</button>
+            </div>
+          </div>
+          <div class="action-group">
+            <h4>3. 本地 3D 检查与贴图解包</h4>
+            <div class="btn-row">
+              <button class="sm" id="btn-3d-info">Model Info</button>
+              <button class="sm" id="btn-3d-val">Validate PBR/Faces</button>
+              <button class="sm" id="btn-3d-ex">Extract Textures</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('btn-emb-3d').onclick = () =>
+          openEmbeddedWorkbench('3D 检查与多视角序列帧 Workbench', `/3d/index.html?embedded=1&mode=model3d_render_sequence&token=${encTok}&source_path=${encSrc}`);
+        document.getElementById('btn-3d-rigcheck').onclick = () => runAction({ action: 'model3d_rig_check', source_path: src });
+        document.getElementById('btn-3d-rig').onclick = () => runAction({ action: 'model3d_rig', source_path: src, rig_type: document.getElementById('act-3d-rigtype').value });
+        document.getElementById('btn-3d-anim').onclick = () => runAction({ action: 'model3d_animate', source_path: src, animation: document.getElementById('act-3d-anim').value.trim() || 'walk', animate_in_place: true });
+        document.getElementById('btn-3d-tex').onclick = () => runAction({ action: 'model3d_texture', source_path: src, prompt: document.getElementById('act-3d-texprompt').value.trim() || 'stylized PBR texture' });
+        document.getElementById('btn-3d-conv').onclick = () => runAction({ action: 'model3d_convert', source_path: src, output_format: document.getElementById('act-3d-convfmt').value });
+        document.getElementById('btn-3d-info').onclick = () => runAction({ action: 'model3d_info', source_path: src }, { selectCreated: false });
+        document.getElementById('btn-3d-val').onclick = () => runAction({ action: 'model3d_validate', source_path: src, require_pbr: true }, { selectCreated: false });
+        document.getElementById('btn-3d-ex').onclick = () => runAction({ action: 'model3d_extract_textures', source_path: src });
+        return;
+      }
+
+      if (asset.category === 'audio') {
+        container.innerHTML = `
+          <div class="action-group">
+            <h4>1. 参考音色语音合成 (audio.speech)</h4>
+            <div class="field-full">
+              <label class="fl">台词文本 (当前音频将作为 --reference-audio)</label>
+              <textarea class="fi" id="act-aud-text" placeholder="输入需要朗读的角色台词..."></textarea>
+            </div>
+            <button class="primary sm" id="btn-aud-speech">合成语音</button>
+          </div>
+          <div class="action-group">
+            <h4>2. 本地音频后处理</h4>
+            <div class="field-grid">
+              <div><label class="fl">修剪时长 (秒)</label><input class="fi" type="number" id="act-aud-dur" value="1.5" step="0.1"></div>
+              <div><label class="fl">目标格式</label><select class="fi" id="act-aud-fmt"><option value="wav">WAV</option><option value="mp3">MP3</option><option value="ogg">OGG</option></select></div>
+            </div>
+            <div class="btn-row">
+              <button class="sm" id="btn-aud-trim">Trim 修剪</button>
+              <button class="sm" id="btn-aud-fade">Fade 淡入淡出</button>
+              <button class="sm" id="btn-aud-norm">Normalize 响度</button>
+              <button class="sm" id="btn-aud-conv">Convert 转码</button>
+            </div>
+          </div>
+        `;
+        document.getElementById('btn-aud-speech').onclick = () => runAction({
+          action: 'audio_speech',
+          source_path: src,
+          text: document.getElementById('act-aud-text').value.trim(),
+        });
+        document.getElementById('btn-aud-trim').onclick = () => runAction({
+          action: 'audio_trim',
+          source_path: src,
+          start: 0,
+          duration: Number(document.getElementById('act-aud-dur').value) || 1.5,
+        });
+        document.getElementById('btn-aud-fade').onclick = () => runAction({
+          action: 'audio_fade',
+          source_path: src,
+          fade_in: 0.2,
+          fade_out: 0.2,
+        });
+        document.getElementById('btn-aud-norm').onclick = () => runAction({
+          action: 'audio_normalize',
+          source_path: src,
+          target_lufs: -14.0,
+        });
+        document.getElementById('btn-aud-conv').onclick = () => runAction({
+          action: 'audio_convert',
+          source_path: src,
+          format: document.getElementById('act-aud-fmt').value,
+        });
+      }
+    }
+
+    async function init() {
+      if (window.AsxAccountBar) {
+        window.AsxAccountBar.mount('#account-bar-slot', {
+          token,
+          theme: 'dark',
+          onAuthChange: () => {},
+        });
+      }
+
+      document.getElementById('category-tabs').querySelectorAll('.cat-tab').forEach(btn => {
+        btn.onclick = () => {
+          state.category = btn.dataset.cat;
+          document.querySelectorAll('.cat-tab').forEach(b => b.classList.toggle('active', b === btn));
+          loadAssets();
+        };
+      });
+
+      document.getElementById('source-filter').onchange = (e) => {
+        state.source = e.target.value;
+        loadAssets();
+      };
+
+      let searchTimer = null;
+      document.getElementById('search-input').oninput = (e) => {
+        state.query = e.target.value;
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => loadAssets(), 180);
+      };
+
+      document.getElementById('rescan-btn').onclick = () => loadAssets({ noCache: true });
+      document.getElementById('embedded-close-btn').onclick = closeEmbeddedWorkbench;
+
+      window.addEventListener('message', async (ev) => {
+        if (!ev.data || typeof ev.data !== 'object') return;
+        if (ev.data.type === 'asx-workbench-cancel') {
+          closeEmbeddedWorkbench();
+          return;
+        }
+        if (ev.data.type === 'asx-workbench-complete') {
+          closeEmbeddedWorkbench();
+          const res = ev.data.result || {};
+          const nextPath = (res.files && res.files[0]) || (res.image && res.image.path) || (res.atlas && res.atlas.path) || null;
+          if (nextPath) state.selectedPath = nextPath;
+          showToast('子工作台操作完成并已同步血缘关系', 'success');
+          await loadAssets({ noCache: true });
+        }
+      });
+
+      try {
+        state.session = await apiGet('/api/session');
+        const wsRoot = state.session.metadata && state.session.metadata.workspace_root;
+        const wsEl = document.getElementById('workspace-root-label');
+        wsEl.textContent = wsRoot ? ('Workspace: ' + wsRoot.split('/').pop()) : 'Workspace: --';
+        wsEl.title = wsRoot || '';
+      } catch (err) {
+        showToast('初始化会话失败: ' + err.message, 'error');
+      }
+
+      await loadAssets();
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
   </script>
 </body>
 </html>

@@ -50,3 +50,17 @@ python3 "<skill-dir>/scripts/asynx.py" lineage "artifact_0123456789abcdef" --roo
 - `asset`：目标受管资产元数据（`artifact_id`、`model`、`operation`、`prompt`、`source_kind`、`task_id` 等；若为外部文件则为 `null`）。
 - `parents` / `children`：直接上游父边与直接下游子边。
 - `ancestors` / `descendants`：完整 DAG 上游祖先边集合与下游后代边集合。
+
+## 统一资产管理器工作台 (`ui`)
+
+```bash
+python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project" [--no-open]
+```
+
+- **离线浏览与懒加载登录**：启动时无需预先登录，可直接浏览工作区五类资产、检查详情与血缘；当触发云端生成/编辑操作时，若尚未登录会返回 `need_login` 并在顶部账号栏弹出登录/注册窗口，登录完成后即可继续操作。
+- **核心工作台 HTTP 接口**（均需 `X-Asx-Session-Token` 或 `?token=`）：
+  - `GET /api/assets`：按 `category`、`source`、`managed_only`、`external_only`、`query`、`no_cache` 实时扫描工作区。
+  - `GET /api/lineage`：查询目标资产的上下游血缘卡片与 DAG 边集合。
+  - `GET /api/workspace-file?path=...`：在严格限制于 `--root` 目录内安全流式读取工作区媒体文件（越界返回 `403`）。
+  - `POST /api/manager/action`：调度跨模态本地处理与云端生成任务并自动写入 `asset_lineage`。
+  - 内嵌子工作台模式（`/image/index.html`、`/video/index.html`、`/3d/index.html` 携带 `?embedded=1&source_path=...`）：保持主工作台会话存活，提交后实时回写账本并刷新资产列表与血缘图谱。

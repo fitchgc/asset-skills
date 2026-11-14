@@ -30,7 +30,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         from src.build_skills import package_skill
-        for mod in ("image", "audio", "video", "3d"):
+        for mod in ("image", "audio", "video", "3d", "asset_manager"):
             package_skill(mod)
 
     def setUp(self) -> None:
@@ -39,9 +39,9 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
         self.state_db = Path(self.temp_dir) / "state.db"
         self.config_file = Path(self.temp_dir) / "config.json"
 
-        # Unpack all 4 zip packages into isolated agent skills directory
+        # Unpack all 5 zip packages into isolated agent skills directory
         dist_dir = REPO_ROOT / "dist"
-        for skill_name in ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d"):
+        for skill_name in ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-asset-manager"):
             zip_path = dist_dir / f"{skill_name}.zip"
             with zipfile.ZipFile(zip_path, "r") as zf:
                 zf.extractall(self.agent_skills_dir)
@@ -98,9 +98,9 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
         return json.loads(proc.stdout)
 
     def test_release_packages_and_manifest_integrity(self) -> None:
-        """Lockstep release packaging produces 4 zip archives with verified SHA-256 manifests."""
+        """Lockstep release packaging produces 5 zip archives with verified SHA-256 manifests and no __pycache__."""
         dist_dir = REPO_ROOT / "dist"
-        skills = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d")
+        skills = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-asset-manager")
 
         for skill in skills:
             zip_file = dist_dir / f"{skill}.zip"
@@ -108,6 +108,11 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
 
             self.assertTrue(zip_file.is_file(), f"Missing release archive: {zip_file}")
             self.assertTrue(manifest_file.is_file(), f"Missing manifest: {manifest_file}")
+
+            # Verify no __pycache__ or *.pyc inside packaged zips
+            with zipfile.ZipFile(zip_file, "r") as zf:
+                bad_entries = [n for n in zf.namelist() if "__pycache__" in n or n.endswith((".pyc", ".pyo"))]
+                self.assertEqual(bad_entries, [], f"Found cache files in {zip_file}: {bad_entries}")
 
             # Verify sha256 in manifest matches actual archive
             manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
@@ -184,6 +189,16 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
         )
         self.assertTrue(norm_res["ok"])
         self.assertTrue(Path(norm_res["audio"]["path"]).is_file())
+
+        # Step 5: asynx-asset-manager scans output workspace and verifies cross-skill lineage
+        scan_res = self.run_skill_cli("asynx-asset-manager", "scan", "--root", str(out_root))
+        self.assertTrue(scan_res["ok"])
+        self.assertEqual(scan_res["counts"]["managed"], scan_res["counts"]["total"])
+        self.assertGreaterEqual(scan_res["counts"]["by_category"]["frame_sequence"], 1)
+
+        lin_res = self.run_skill_cli("asynx-asset-manager", "lineage", anim_glb_path)
+        self.assertTrue(lin_res["ok"])
+        self.assertGreaterEqual(len(lin_res["ancestors"]), 3)
 
         # Verify all 4 modalities recorded in shared SQLite state ledger
         conn = connect_db(self.state_db)

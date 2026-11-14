@@ -98,7 +98,12 @@
 
   <script src="/account-bar.js"></script>
   <script>
-    const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token') || window.location.hash.replace('#token=', '');
+    const isEmbedded = urlParams.get('embedded') === '1';
+    const paramSourcePath = urlParams.get('source_path') || '';
+    const paramMode = urlParams.get('mode') || '';
+    const paramManifestPath = urlParams.get('manifest_path') || '';
     let session = null;
     let video = document.getElementById('source-video');
     let previewCanvas = document.getElementById('preview-canvas');
@@ -110,10 +115,20 @@
     let playbackInterval = null;
 
     async function init() {
-      if (window.AsxAccountBar) {
+      if (!isEmbedded && window.AsxAccountBar) {
         window.AsxAccountBar.mount('#account-bar-slot', { token, theme: 'dark' });
       }
-      const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
+      if (isEmbedded) {
+        const slot = document.getElementById('account-bar-slot');
+        if (slot) slot.style.display = 'none';
+      }
+      const qs = new URLSearchParams();
+      if (paramSourcePath) qs.set('source_path', paramSourcePath);
+      if (paramMode) qs.set('mode', paramMode);
+      if (paramManifestPath) qs.set('manifest_path', paramManifestPath);
+      const res = await fetch('/api/session' + (qs.toString() ? '?' + qs.toString() : ''), {
+        headers: { 'X-Asx-Session-Token': token },
+      });
       session = await res.json();
       document.getElementById('mode-badge').textContent = session.mode;
 
@@ -123,7 +138,9 @@
         return;
       }
 
-      video.src = '/api/source?token=' + encodeURIComponent(token);
+      video.src = session.source_url
+        ? (session.source_url.includes('?') ? session.source_url : session.source_url + '?token=' + encodeURIComponent(token))
+        : ('/api/source?token=' + encodeURIComponent(token));
       video.onloadedmetadata = () => {
         document.getElementById('end-time').value = video.duration.toFixed(2);
         resampleFrames();
@@ -287,23 +304,39 @@
       const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Asx-Session-Token': token },
-        body: json.stringify({ atlas: atlasDataUrl, manifest }),
+        body: JSON.stringify({
+          mode: 'video_frame_sequence',
+          ...(paramSourcePath ? { source_path: paramSourcePath } : {}),
+          ...(isEmbedded ? { keep_alive: true } : {}),
+          atlas: atlasDataUrl,
+          manifest,
+        }),
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        if (isEmbedded && window.parent !== window) {
+          window.parent.postMessage({ type: 'asx-workbench-complete', result: data.result }, '*');
+          return;
+        }
         alert('Atlas exported successfully!');
         window.close();
       } else {
-        alert('Export failed');
+        alert('Export failed: ' + (data.error?.message || 'Unknown error'));
       }
     };
 
     document.getElementById('cancel-btn').onclick = async () => {
+      if (isEmbedded && window.parent !== window) {
+        window.parent.postMessage({ type: 'asx-workbench-cancel' }, '*');
+        return;
+      }
       await fetch('/api/cancel', { method: 'POST', headers: { 'X-Asx-Session-Token': token } });
       window.close();
     };
 
     async function loadSequencePreview() {
-      const manifestRes = await fetch('/api/manifest?token=' + encodeURIComponent(token));
+      const mUrl = '/api/manifest?token=' + encodeURIComponent(token) + (paramManifestPath ? '&path=' + encodeURIComponent(paramManifestPath) : '');
+      const manifestRes = await fetch(mUrl);
       const manifest = await manifestRes.json();
       const atlasImg = new Image();
       atlasImg.onload = () => {
@@ -320,7 +353,9 @@
           idx++;
         }, 1000 / (manifest.meta?.fps || 10));
       };
-      atlasImg.src = '/api/source?token=' + encodeURIComponent(token);
+      atlasImg.src = session.source_url
+        ? (session.source_url.includes('?') ? session.source_url : session.source_url + '?token=' + encodeURIComponent(token))
+        : ('/api/source?token=' + encodeURIComponent(token));
     }
 
     init();
