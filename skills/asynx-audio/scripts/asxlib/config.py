@@ -413,7 +413,12 @@ def check_state_ledger() -> dict[str, Any]:
         }
 
 
-def doctor(*, verify: bool = False, modality: str | None = None) -> dict[str, Any]:
+def doctor(
+    *,
+    verify: bool = False,
+    modality: str | None = None,
+    allow_login_ui: bool | None = None,
+) -> dict[str, Any]:
     status = config_status()
     checks: list[dict[str, Any]] = []
     issues: list[dict[str, Any]] = []
@@ -523,10 +528,22 @@ def doctor(*, verify: bool = False, modality: str | None = None) -> dict[str, An
     }
 
     if verify:
+        from .auth import is_login_ui_allowed
+
+        effective_allow_login = is_login_ui_allowed() if allow_login_ui is None else allow_login_ui
         try:
-            client = load_client(allow_login_ui=False)
+            client = load_client(allow_login_ui=effective_allow_login)
             identity, _id_req = client.partner_identity()
             models, request_id = client.models(modality=modality)
+            if not config_ok:
+                status = config_status()
+                result["config"] = status
+                issues[:] = [i for i in issues if i.get("code") not in {"need_login", "invalid_base_url"}]
+                for chk in checks:
+                    if chk.get("name") == "credentials":
+                        chk["ok"] = True
+                        chk["message"] = "Partner token session configured"
+                result["ok"] = not any(issue["level"] == "error" for issue in issues)
             result["verification"] = {
                 "ok": True,
                 "model_count": len(models),

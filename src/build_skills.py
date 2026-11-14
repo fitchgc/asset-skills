@@ -94,13 +94,17 @@ def build_skill(modality_key: str) -> Path:
         for py_file in modality_src.glob("*.py"):
             shutil.copy2(py_file, asxlib_dir / py_file.name)
 
-    # 5. Copy UI bundle if present for this modality
-    ui_src = SRC_DIR / "ui" / modality_key
+    # 5. Copy UI bundle (modality-specific + shared common UI assets)
     target_ui = asxlib_dir / "ui"
+    if target_ui.exists():
+        shutil.rmtree(target_ui)
+    target_ui.mkdir(parents=True, exist_ok=True)
+    ui_src = SRC_DIR / "ui" / modality_key
     if ui_src.exists():
-        if target_ui.exists():
-            shutil.rmtree(target_ui)
-        shutil.copytree(ui_src, target_ui)
+        shutil.copytree(ui_src, target_ui, dirs_exist_ok=True)
+    common_ui = SRC_DIR / "ui" / "common"
+    if common_ui.is_dir():
+        shutil.copytree(common_ui, target_ui, dirs_exist_ok=True)
 
     # 6. Generate .asx-install.json receipt
     version = get_version()

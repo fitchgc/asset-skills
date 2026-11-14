@@ -46,7 +46,8 @@
       <h2 style="font-size: 15px; font-weight: 600;">Asynx Video Workbench</h2>
       <span class="badge" id="mode-badge">Loading</span>
     </div>
-    <div style="display: flex; gap: 8px;">
+    <div style="display: flex; align-items: center; gap: 10px;">
+      <div id="account-bar-slot"></div>
       <button class="danger" id="cancel-btn">Cancel</button>
       <button class="primary" id="export-btn">Export Atlas</button>
     </div>
@@ -95,6 +96,7 @@
     </div>
   </main>
 
+  <script src="/account-bar.js"></script>
   <script>
     const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
     let session = null;
@@ -108,6 +110,9 @@
     let playbackInterval = null;
 
     async function init() {
+      if (window.AsxAccountBar) {
+        window.AsxAccountBar.mount('#account-bar-slot', { token, theme: 'dark' });
+      }
       const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
       session = await res.json();
       document.getElementById('mode-badge').textContent = session.mode;

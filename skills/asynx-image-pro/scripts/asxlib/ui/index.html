@@ -495,7 +495,8 @@
       </div>
     </div>
     <div class="header-actions">
-      <span style="font-size: 12px; color: #a1a1aa; margin-right: 8px;">Asynx Local UI Workbench</span>
+      <div id="account-bar-slot"></div>
+      <span style="font-size: 12px; color: #a1a1aa; margin-right: 4px;">Asynx Local UI Workbench</span>
       <button class="btn-header" id="cancel-btn">取消</button>
       <button class="btn-header" id="finish-btn" style="background: #18181b; color: #ffffff; border-color: #18181b;">完成</button>
     </div>
@@ -614,6 +615,7 @@
     <p id="loading-text" style="font-size: 13px; font-weight: 500; color: #171717;">处理中...</p>
   </div>
 
+  <script src="/account-bar.js"></script>
   <script>
     // 常量定义（参考 image-flow 规范）
     const ANNOTATION_COLOR = '#ef4444';
@@ -682,6 +684,9 @@
 
     // 初始化
     async function init() {
+      if (window.AsxAccountBar) {
+        window.AsxAccountBar.mount('#account-bar-slot', { token, theme: 'light' });
+      }
       try {
         const res = await fetch('/api/session', { headers: { 'X-Asx-Session-Token': token } });
         if (!res.ok) throw new Error('Unauthorized or session expired');

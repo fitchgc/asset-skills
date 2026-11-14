@@ -5,6 +5,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import secrets
 import socket
 import threading
@@ -15,13 +16,28 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from .auth import (
+    LoginSvrClient,
+    clear_auth_session,
+    is_login_ui_disabled,
+    load_auth_session,
+    login_and_provision,
+    register_and_provision,
+    register_login_ui_handler,
+    resolve_login_svr_url,
+    save_auth_session,
+    set_login_ui_disabled,
+    validate_login_svr_url,
+)
 from .client import AsynxClient
-from .config import load_credentials
+from .config import load_credentials, read_config
 from .constants import DEFAULT_OUTPUT_DIR
 from .errors import AsxError
 from .output import emit, log
 from .state import connect_db, upsert_asset, utc_now
 from .tasks import run_task_submission
+
+_USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")
 
 
 def _decode_data_url(data_url: str) -> tuple[bytes, str]:
@@ -65,6 +81,30 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
 
+    def _static_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        if self.server.static_dir and self.server.static_dir.is_dir():
+            roots.append(self.server.static_dir)
+        bundled_ui = Path(__file__).resolve().parent / "ui"
+        if bundled_ui.is_dir() and bundled_ui not in roots:
+            roots.append(bundled_ui)
+        dev_common = Path(__file__).resolve().parents[2] / "src" / "ui" / "common"
+        if dev_common.is_dir() and dev_common not in roots:
+            roots.append(dev_common)
+        return roots
+
+    def _resolve_static_file(self, rel_path: str) -> tuple[Path | None, bool]:
+        """Return (resolved_file, forbidden). Checks static_dir then shared/common fallbacks."""
+        clean_rel = rel_path.lstrip("/")
+        for root in self._static_roots():
+            resolved_root = root.resolve()
+            candidate = (resolved_root / clean_rel).resolve()
+            if not candidate.is_relative_to(resolved_root):
+                return None, True
+            if candidate.is_file():
+                return candidate, False
+        return None, False
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
@@ -72,6 +112,42 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
         if path.startswith("/api/"):
             if not self._check_auth():
                 self._send_json({"ok": False, "error": {"code": "unauthorized", "message": "Unauthorized"}}, status=401)
+                return
+
+            if path == "/api/auth/status":
+                self._send_json(self.server.get_auth_status())
+                return
+
+            if path == "/api/auth/check-username":
+                qs = parse_qs(parsed.query)
+                username = (qs.get("username") or [""])[0].strip().lower()
+                login_svr_override = (qs.get("login_svr_url") or [None])[0]
+                if not _USERNAME_RE.match(username):
+                    self._send_json(
+                        AsxError(
+                            "用户名格式不正确，需为 3–32 位小写字母、数字或下划线 (^[a-z0-9_]{3,32}$)",
+                            code="invalid_credentials_format",
+                            details={"username": username},
+                        ).payload(),
+                        status=400,
+                    )
+                    return
+                try:
+                    resolved_url = validate_login_svr_url(
+                        login_svr_override or self.server.metadata.get("login_svr_url") or resolve_login_svr_url(read_config())
+                    )
+                    data = LoginSvrClient(resolved_url).check_username(username)
+                    self._send_json(
+                        {
+                            "ok": True,
+                            "username": username,
+                            "exists": bool(data.get("exists")),
+                            "available": bool(data.get("available")),
+                            "login_svr_url": resolved_url,
+                        }
+                    )
+                except AsxError as exc:
+                    self._send_json(exc.payload(), status=400)
                 return
 
             if path == "/api/manifest" and "manifest_path" in self.server.metadata:
@@ -139,27 +215,26 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 return
 
         # Serve static frontend files
-        static_dir = self.server.static_dir
-        if static_dir and static_dir.is_dir():
-            rel_path = path.lstrip("/") or "index.html"
-            target_file = (static_dir / rel_path).resolve()
-            if not str(target_file).startswith(str(static_dir.resolve())):
-                self.send_response(403)
-                self.end_headers()
-                return
-
-            if target_file.is_file():
-                mime, _ = mimetypes.guess_type(str(target_file))
-                mime = mime or "application/octet-stream"
-                size = target_file.stat().st_size
-                self.send_response(200)
-                self.send_header("Content-Type", mime)
-                self.send_header("Content-Length", str(size))
-                self.end_headers()
-                with target_file.open("rb") as f:
-                    while chunk := f.read(64 * 1024):
-                        self.wfile.write(chunk)
-                return
+        rel_path = path.lstrip("/") or "index.html"
+        if self.server.mode == "login" and rel_path == "index.html":
+            rel_path = "login.html"
+        target_file, forbidden = self._resolve_static_file(rel_path)
+        if forbidden:
+            self.send_response(403)
+            self.end_headers()
+            return
+        if target_file is not None:
+            mime, _ = mimetypes.guess_type(str(target_file))
+            mime = mime or "application/octet-stream"
+            size = target_file.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", mime)
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with target_file.open("rb") as f:
+                while chunk := f.read(64 * 1024):
+                    self.wfile.write(chunk)
+            return
 
         self._send_json({"ok": False, "error": {"code": "not_found", "message": "Not found"}}, status=404)
 
@@ -177,6 +252,50 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             body = json.loads(raw_body.decode("utf-8"))
         except json.JSONDecodeError:
             self._send_json({"ok": False, "error": {"code": "invalid_json", "message": "Invalid JSON"}}, status=400)
+            return
+
+        if path == "/api/auth/login":
+            try:
+                res = self.server.handle_auth_login(body)
+                self._send_json(res)
+                if self.server.mode == "login":
+                    threading.Timer(0.25, self.server.shutdown_event.set).start()
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": {"code": "login_failed", "message": str(exc)}}, status=500)
+            return
+
+        if path == "/api/auth/register":
+            try:
+                res = self.server.handle_auth_register(body)
+                self._send_json(res)
+                if self.server.mode == "login":
+                    threading.Timer(0.25, self.server.shutdown_event.set).start()
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": {"code": "register_failed", "message": str(exc)}}, status=500)
+            return
+
+        if path == "/api/auth/change-password":
+            try:
+                res = self.server.handle_auth_change_password(body)
+                self._send_json(res)
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": {"code": "change_password_failed", "message": str(exc)}}, status=500)
+            return
+
+        if path == "/api/auth/logout":
+            try:
+                res = self.server.handle_auth_logout()
+                self._send_json(res)
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=400)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": {"code": "logout_failed", "message": str(exc)}}, status=500)
             return
 
         if path == "/api/cancel":
@@ -253,6 +372,7 @@ class WorkbenchServer(ThreadingHTTPServer):
         self.session_token = secrets.token_hex(24)
         self.shutdown_event = threading.Event()
         self.result_payload: dict[str, Any] = {}
+        self.auth_result: dict[str, Any] | None = None
         self.exit_code: int = 0
         self.models: list[dict[str, Any]] = []
 
@@ -263,6 +383,160 @@ class WorkbenchServer(ThreadingHTTPServer):
                 self.models = models
             except Exception:
                 self.models = []
+
+    def get_auth_status(self) -> dict[str, Any]:
+        config = read_config()
+        try:
+            login_svr_url = validate_login_svr_url(
+                self.metadata.get("login_svr_url") or resolve_login_svr_url(config)
+            )
+        except AsxError:
+            login_svr_url = str(self.metadata.get("login_svr_url") or "")
+
+        try:
+            session = load_auth_session(allow_login_ui=False, sync_config=False)
+        except AsxError:
+            if self.client is not None and self.client.partner_token:
+                identity: dict[str, Any] | None = None
+                identity_error: dict[str, Any] | None = None
+                try:
+                    identity, _ = self.client.partner_identity()
+                except AsxError as exc:
+                    identity_error = exc.payload()["error"]
+                return {
+                    "ok": True,
+                    "authenticated": True,
+                    "login_svr_url": login_svr_url,
+                    "user": config.get("user") if isinstance(config.get("user"), dict) else None,
+                    "identity": identity,
+                    **({"identity_error": identity_error} if identity_error else {}),
+                }
+            return {
+                "ok": True,
+                "authenticated": False,
+                "login_svr_url": login_svr_url,
+                "user": None,
+                "identity": None,
+            }
+
+        gw_client = AsynxClient(session.base_url, session=session)
+        identity = None
+        identity_error = None
+        try:
+            identity, _ = gw_client.partner_identity()
+        except AsxError as exc:
+            identity_error = exc.payload()["error"]
+        return {
+            "ok": True,
+            "authenticated": True,
+            "login_svr_url": session.login_svr_url,
+            "user": session.user,
+            "asynx": session.asynx,
+            "identity": identity,
+            **({"identity_error": identity_error} if identity_error else {}),
+        }
+
+    def _finish_auth_success(
+        self,
+        *,
+        session: Any,
+        identity: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.client = AsynxClient(session.base_url, session=session)
+        self.auth_result = {
+            "login_svr_url": session.login_svr_url,
+            "token": session.token,
+            "refreshToken": session.refresh_token,
+            "asynx": dict(session.asynx),
+            "user": dict(session.user),
+        }
+        payload = {
+            "ok": True,
+            "authenticated": True,
+            "login_svr_url": session.login_svr_url,
+            "user": session.user,
+            "identity": identity,
+        }
+        if self.mode == "login":
+            self.result_payload = payload
+            self.exit_code = 0
+        return payload
+
+    def handle_auth_login(self, body: dict[str, Any]) -> dict[str, Any]:
+        username = str(body.get("username") or "").strip().lower()
+        password = str(body.get("password") or "")
+        login_svr_url = body.get("login_svr_url")
+        if isinstance(login_svr_url, str) and not login_svr_url.strip():
+            login_svr_url = None
+        if not username or not password:
+            raise AsxError("请输入用户名和密码", code="invalid_credentials_format")
+        resolved_login_url = validate_login_svr_url(
+            login_svr_url or self.metadata.get("login_svr_url") or resolve_login_svr_url(read_config())
+        )
+        session, identity = login_and_provision(
+            username,
+            password,
+            login_svr_url=resolved_login_url,
+        )
+        return self._finish_auth_success(session=session, identity=identity)
+
+    def handle_auth_register(self, body: dict[str, Any]) -> dict[str, Any]:
+        username = str(body.get("username") or "").strip().lower()
+        password = str(body.get("password") or "")
+        nickname_raw = body.get("nickname")
+        nickname = str(nickname_raw).strip() if isinstance(nickname_raw, str) and nickname_raw.strip() else None
+        login_svr_url = body.get("login_svr_url")
+        if isinstance(login_svr_url, str) and not login_svr_url.strip():
+            login_svr_url = None
+
+        if not _USERNAME_RE.match(username):
+            raise AsxError(
+                "用户名格式不正确，需为 3–32 位小写字母、数字或下划线 (^[a-z0-9_]{3,32}$)",
+                code="invalid_credentials_format",
+            )
+        if not (6 <= len(password) <= 64):
+            raise AsxError(
+                "密码长度需为 6–64 位字符",
+                code="invalid_credentials_format",
+            )
+        resolved_login_url = validate_login_svr_url(
+            login_svr_url or self.metadata.get("login_svr_url") or resolve_login_svr_url(read_config())
+        )
+        session, identity = register_and_provision(
+            username,
+            password,
+            nickname=nickname,
+            login_svr_url=resolved_login_url,
+        )
+        return self._finish_auth_success(session=session, identity=identity)
+
+    def handle_auth_change_password(self, body: dict[str, Any]) -> dict[str, Any]:
+        old_pw = str(body.get("oldPassword") if body.get("oldPassword") is not None else (body.get("old_password") or ""))
+        new_pw = str(body.get("newPassword") if body.get("newPassword") is not None else (body.get("new_password") or ""))
+        if not old_pw:
+            raise AsxError("请输入原密码", code="invalid_password_change")
+        if not (6 <= len(new_pw) <= 64):
+            raise AsxError("新密码长度需为 6–64 位字符", code="invalid_password_change")
+        if old_pw == new_pw:
+            raise AsxError("新密码不能与原密码相同", code="invalid_password_change")
+
+        session = load_auth_session(allow_login_ui=False)
+        token = session.ensure_valid_token()
+        data = LoginSvrClient(session.login_svr_url).change_password(token, old_pw, new_pw)
+        save_auth_session(data, login_svr_url=session.login_svr_url)
+        session._apply_session_payload(data)
+        self.client = AsynxClient(session.base_url, session=session)
+        return {
+            "ok": True,
+            "user": session.user,
+            "message": "密码已修改",
+        }
+
+    def handle_auth_logout(self) -> dict[str, Any]:
+        clear_auth_session(keep_login_svr_url=True)
+        self.client = None
+        self.auth_result = None
+        return {"ok": True, "authenticated": False}
 
     def handle_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         mode = body.get("mode") or self.mode
@@ -476,27 +750,11 @@ def _safe_open_browser(url: str) -> bool:
         return False
 
 
-def launch_workbench(
+def _run_workbench_server(
+    server: WorkbenchServer,
     *,
-    mode: str,
-    source_path: str | None = None,
-    output_path: str | None = None,
-    output_dir: str | None = None,
-    static_dir: Path | None = None,
-    metadata: dict[str, Any] | None = None,
-    client: AsynxClient | None = None,
-    open_browser: bool = True,
+    open_browser: bool,
 ) -> tuple[dict[str, Any], int]:
-    """Start local ephemeral workbench HTTP server and block until user submits or cancels."""
-    server = WorkbenchServer(
-        mode=mode,
-        source_path=source_path,
-        output_path=output_path,
-        output_dir=output_dir,
-        static_dir=static_dir,
-        metadata=metadata,
-        client=client,
-    )
     port = server.server_address[1]
     url = f"http://127.0.0.1:{port}/?token={server.session_token}#token={server.session_token}"
 
@@ -521,3 +779,91 @@ def launch_workbench(
         server.server_close()
 
     return server.result_payload, server.exit_code
+
+
+def launch_workbench(
+    *,
+    mode: str,
+    source_path: str | None = None,
+    output_path: str | None = None,
+    output_dir: str | None = None,
+    static_dir: Path | None = None,
+    metadata: dict[str, Any] | None = None,
+    client: AsynxClient | None = None,
+    open_browser: bool = True,
+) -> tuple[dict[str, Any], int]:
+    """Start local ephemeral workbench HTTP server and block until user submits or cancels."""
+    effective_open = open_browser and os.environ.get("ASYNX_NO_OPEN_BROWSER", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    server = WorkbenchServer(
+        mode=mode,
+        source_path=source_path,
+        output_path=output_path,
+        output_dir=output_dir,
+        static_dir=static_dir,
+        metadata=metadata,
+        client=client,
+    )
+    return _run_workbench_server(server, open_browser=effective_open)
+
+
+def _login_static_dir() -> Path | None:
+    bundled = Path(__file__).resolve().parent / "ui"
+    if bundled.is_dir():
+        return bundled
+    dev_common = Path(__file__).resolve().parents[2] / "src" / "ui" / "common"
+    if dev_common.is_dir():
+        return dev_common
+    return None
+
+
+def launch_login_workbench_session(
+    *,
+    login_svr_url: str | None = None,
+    open_browser: bool = True,
+) -> tuple[dict[str, Any], int, dict[str, Any] | None]:
+    resolved_url = validate_login_svr_url(login_svr_url or resolve_login_svr_url(read_config()))
+    effective_open = open_browser and os.environ.get("ASYNX_NO_OPEN_BROWSER", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    server = WorkbenchServer(
+        mode="login",
+        source_path=None,
+        output_path=None,
+        output_dir=None,
+        static_dir=_login_static_dir(),
+        metadata={"login_svr_url": resolved_url},
+        client=None,
+    )
+    payload, exit_code = _run_workbench_server(server, open_browser=effective_open)
+    return payload, exit_code, server.auth_result
+
+
+def launch_login_workbench(login_svr_url: str | None = None) -> dict[str, Any] | None:
+    """Blocking LoginUIHandler hook registered with auth.register_login_ui_handler."""
+    _payload, exit_code, auth_result = launch_login_workbench_session(
+        login_svr_url=login_svr_url,
+        open_browser=True,
+    )
+    if exit_code == 0 and isinstance(auth_result, dict):
+        return auth_result
+    return None
+
+
+def register_default_login_ui_handler() -> None:
+    register_login_ui_handler(launch_login_workbench)
+
+
+def configure_login_ui(*, no_login_ui: bool = False) -> None:
+    set_login_ui_disabled(no_login_ui)
+    if no_login_ui or is_login_ui_disabled():
+        register_login_ui_handler(None)
+    else:
+        register_default_login_ui_handler()
