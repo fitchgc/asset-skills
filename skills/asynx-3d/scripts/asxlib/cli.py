@@ -8,6 +8,12 @@ from typing import Any, NoReturn
 
 from .artifacts import recent_payload
 from .batches import execute_batch
+from .cli_common import (
+    add_auth_commands,
+    attach_global_auth_flags,
+    handle_auth_command,
+    prepare_cli_auth,
+)
 from .client import AsynxClient
 from .config import config_status, configure, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
@@ -61,6 +67,7 @@ def parser() -> argparse.ArgumentParser:
     commands = res.add_subparsers(dest="command", required=True)
 
     _add_local_model3d_commands(commands)
+    add_auth_commands(res, commands)
 
     # Cloud generation
     gen = commands.add_parser("generate", help="生成 3D 模型 (文生 3D、图生 3D)")
@@ -223,10 +230,15 @@ def parser() -> argparse.ArgumentParser:
     update_apply_cmd.add_argument("--force", action="store_true")
     update_sub.add_parser("rollback")
 
+    attach_global_auth_flags(res)
     return res
 
 
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
+    prepare_cli_auth(args)
+    auth_result = handle_auth_command(args)
+    if auth_result is not None:
+        return auth_result
     if args.command == "model3d":
         return execute_local_model3d(args)
 

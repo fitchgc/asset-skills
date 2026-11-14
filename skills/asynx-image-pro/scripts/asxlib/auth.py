@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -40,12 +41,44 @@ UNREFRESHABLE_LOGIN_SVR_CODES = frozenset({10, 11, 12, 15, 401})
 
 LoginUIHandler = Callable[[str], dict[str, Any] | None]
 _login_ui_handler: LoginUIHandler | None = None
+_login_ui_cli_disabled: bool = False
 
 
 def register_login_ui_handler(handler: LoginUIHandler | None) -> None:
-    """Register the Ticket 02 interactive Login Workbench launcher hook."""
+    """Register the interactive Login Workbench launcher hook."""
     global _login_ui_handler
     _login_ui_handler = handler
+
+
+def set_login_ui_disabled(disabled: bool) -> None:
+    global _login_ui_cli_disabled
+    _login_ui_cli_disabled = bool(disabled)
+
+
+def _truthy_env(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def is_login_ui_disabled() -> bool:
+    if _login_ui_cli_disabled or _truthy_env("ASYNX_NO_LOGIN_UI") or _truthy_env("CI"):
+        return True
+    if (
+        os.name != "nt"
+        and not sys.platform.startswith("darwin")
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+        and not _truthy_env("ASYNX_NO_OPEN_BROWSER")
+    ):
+        return True
+    return False
+
+
+def is_login_ui_allowed(explicit: bool | None = None) -> bool:
+    if explicit is False:
+        return False
+    if is_login_ui_disabled():
+        return False
+    return _login_ui_handler is not None
 
 
 def validate_login_svr_url(value: str | None) -> str:
@@ -416,9 +449,11 @@ class AuthSession:
         login_svr_code: int | None = None,
         message: str | None = None,
     ) -> str:
-        if self.allow_login_ui and _login_ui_handler is not None:
+        if is_login_ui_allowed(self.allow_login_ui) and _login_ui_handler is not None:
             new_data = _login_ui_handler(self.login_svr_url)
             if isinstance(new_data, dict) and isinstance(new_data.get("token"), str):
+                if isinstance(new_data.get("login_svr_url"), str) and new_data["login_svr_url"].strip():
+                    self.login_svr_url = validate_login_svr_url(new_data["login_svr_url"])
                 self._apply_session_payload(new_data)
                 return self.token
         raise AsxError(
@@ -484,11 +519,17 @@ def load_auth_session(*, allow_login_ui: bool = True, sync_config: bool = True) 
     user = dict(config.get("user")) if isinstance(config.get("user"), dict) else {}
 
     if not token and not refresh_token:
-        if allow_login_ui and _login_ui_handler is not None:
+        if is_login_ui_allowed(allow_login_ui) and _login_ui_handler is not None:
             new_data = _login_ui_handler(login_svr_url)
             if isinstance(new_data, dict) and isinstance(new_data.get("token"), str):
+                updated_cfg = read_config()
+                resolved_url = (
+                    validate_login_svr_url(new_data["login_svr_url"])
+                    if isinstance(new_data.get("login_svr_url"), str) and new_data["login_svr_url"].strip()
+                    else resolve_login_svr_url(updated_cfg)
+                )
                 return AuthSession(
-                    login_svr_url=resolve_login_svr_url(new_data),
+                    login_svr_url=resolved_url,
                     token=new_data["token"],
                     refresh_token=new_data.get("refreshToken"),
                     asynx=new_data.get("asynx") if isinstance(new_data.get("asynx"), dict) else {},

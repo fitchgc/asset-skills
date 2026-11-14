@@ -12,4 +12,4 @@ def emit(payload: dict[str, Any]) -> None:
 
 
 def log(*values: Any) -> None:
-    print(*values, file=sys.stderr)
+    print(*values, file=sys.stderr, flush=True)

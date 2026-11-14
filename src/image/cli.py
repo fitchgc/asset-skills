@@ -8,6 +8,12 @@ from typing import Any, NoReturn
 
 from .artifacts import recent_payload
 from .batches import execute_batch
+from .cli_common import (
+    add_auth_commands,
+    attach_global_auth_flags,
+    handle_auth_command,
+    prepare_cli_auth,
+)
 from .client import AsynxClient
 from .config import (
     config_status,
@@ -210,6 +216,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--version", action="version", version=VERSION)
     commands = result.add_subparsers(dest="command", required=True)
     _add_local_image_commands(commands)
+    add_auth_commands(result, commands)
 
     configure_command = commands.add_parser("configure", help="安全保存 Asynx API Key")
     configure_command.add_argument(
@@ -340,6 +347,7 @@ def parser() -> argparse.ArgumentParser:
     resume.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
     cancel = batch_commands.add_parser("cancel", help="取消批次中的 Task")
     cancel.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
+    attach_global_auth_flags(result)
     return result
 
 
@@ -357,6 +365,10 @@ def _ui_static_dir() -> Path:
 
 
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
+    prepare_cli_auth(args)
+    auth_result = handle_auth_command(args)
+    if auth_result is not None:
+        return auth_result
     if args.command == "ui":
         from .ui_server import launch_workbench
         ui_static = _ui_static_dir()
