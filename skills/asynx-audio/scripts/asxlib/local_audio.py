@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AsxError
+from .state import connect_db, record_artifact_with_lineage
 
 _AUDIO_FORMATS = {"wav", "mp3", "ogg", "m4a", "flac", "aac"}
 
@@ -241,18 +242,55 @@ def audio_concat(
     return audio_info(dst)
 
 
+def _record_local_audio(
+    result: dict[str, Any],
+    *,
+    operation: str,
+    parents: list[str | Path],
+) -> None:
+    conn = connect_db()
+    try:
+        record_artifact_with_lineage(
+            conn,
+            file_path=result["path"],
+            modality="audio",
+            operation=operation,
+            source_kind="local_process",
+            category="audio",
+            size_bytes=result.get("size_bytes"),
+            metadata={
+                k: result[k]
+                for k in ("format", "codec", "channels", "sample_rate", "duration_seconds")
+                if k in result
+            },
+            parent_paths=parents,
+        )
+    finally:
+        conn.close()
+
+
 def execute_local_audio(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     cmd = args.audio_command
     if cmd == "info":
         return {"ok": True, "audio": audio_info(args.input)}, 0
     if cmd == "convert":
-        return {"ok": True, "audio": audio_convert(args.input, args.output, args.format)}, 0
+        res = audio_convert(args.input, args.output, args.format)
+        _record_local_audio(res, operation="convert", parents=[args.input])
+        return {"ok": True, "audio": res}, 0
     if cmd == "trim":
-        return {"ok": True, "audio": audio_trim(args.input, args.output, start=args.start, end=args.end, duration=args.duration)}, 0
+        res = audio_trim(args.input, args.output, start=args.start, end=args.end, duration=args.duration)
+        _record_local_audio(res, operation="trim", parents=[args.input])
+        return {"ok": True, "audio": res}, 0
     if cmd == "fade":
-        return {"ok": True, "audio": audio_fade(args.input, args.output, fade_in=args.fade_in, fade_out=args.fade_out)}, 0
+        res = audio_fade(args.input, args.output, fade_in=args.fade_in, fade_out=args.fade_out)
+        _record_local_audio(res, operation="fade", parents=[args.input])
+        return {"ok": True, "audio": res}, 0
     if cmd == "normalize":
-        return {"ok": True, "audio": audio_normalize(args.input, args.output, target_lufs=args.target_lufs)}, 0
+        res = audio_normalize(args.input, args.output, target_lufs=args.target_lufs)
+        _record_local_audio(res, operation="normalize", parents=[args.input])
+        return {"ok": True, "audio": res}, 0
     if cmd == "concat":
-        return {"ok": True, "audio": audio_concat(args.inputs, args.output)}, 0
+        res = audio_concat(args.inputs, args.output)
+        _record_local_audio(res, operation="concat", parents=list(args.inputs))
+        return {"ok": True, "audio": res}, 0
     raise AssertionError("unreachable")

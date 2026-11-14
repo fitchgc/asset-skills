@@ -9,6 +9,7 @@ from typing import Any
 from .config import state_path
 from .constants import UTC
 from .errors import AsxError
+from .state import SCHEMA_VERSION
 
 
 def recent_payload(
@@ -62,10 +63,14 @@ def recent_payload(
                     "model": row["model"],
                     "operation": row["operation"],
                     "modality": row["modality"] if "modality" in row.keys() else "image",
+                    "category": row["category"] if "category" in row.keys() else None,
+                    "source_kind": row["source_kind"] if "source_kind" in row.keys() else "cloud_task",
+                    "operation": row["operation"] if "operation" in row.keys() else row["operation"],
+                    "sha256": row["sha256"],
                     "created_at": row["created_at"],
                     "missing": not Path(path).is_file(),
                 }
             )
-        return {"ok": True, "schema_version": 2, "artifacts": items}
+        return {"ok": True, "schema_version": SCHEMA_VERSION, "artifacts": items}
     finally:
         connection.close()

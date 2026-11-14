@@ -130,13 +130,13 @@ class TestSharedFoundationAndMigration(unittest.TestCase):
         conn.commit()
         conn.close()
 
-        # Connect using our v2 code
+        # Connect using our v3 code (migrates v1 -> v2 -> v3)
         migrated_conn = connect_db(self.state_db_path)
         ensure_batch_schema(migrated_conn)
 
-        # Check version bumped to 2
+        # Check version bumped to 3
         version = int(migrated_conn.execute("PRAGMA user_version").fetchone()[0])
-        self.assertEqual(version, 2)
+        self.assertEqual(version, 3)
 
         # Check tasks modality column backfilled as 'image'
         task = get_task(migrated_conn, "local_v1")
@@ -237,7 +237,7 @@ class TestSharedFoundationAndMigration(unittest.TestCase):
         self.assertTrue(doc["ok"])
         self.assertTrue(doc["config"]["configured"])
         self.assertTrue(doc["ledger"]["ok"])
-        self.assertEqual(doc["ledger"]["schema_version"], 2)
+        self.assertEqual(doc["ledger"]["schema_version"], 3)
         self.assertTrue(doc["media_tools"]["available"])
 
 

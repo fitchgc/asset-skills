@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AsxError
+from .state import connect_db, new_local_task_id, record_artifact_with_lineage
 
 _VIDEO_FORMATS = {"mp4", "webm", "gif", "mov", "mkv"}
 
@@ -300,18 +301,95 @@ def video_mux(
     return video_info(dst)
 
 
+def _record_local_video_outputs(
+    paths: list[str | Path],
+    *,
+    operation: str,
+    category: str,
+    parents: list[str | Path],
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    if not paths:
+        return
+    conn = connect_db()
+    try:
+        local_task_id = new_local_task_id("local_proc")
+        for idx, file_path in enumerate(paths):
+            record_artifact_with_lineage(
+                conn,
+                file_path=file_path,
+                modality="video",
+                operation=operation,
+                source_kind="local_process",
+                category=category,
+                local_task_id=local_task_id,
+                remote_index=idx,
+                metadata=metadata,
+                parent_paths=parents,
+            )
+    finally:
+        conn.close()
+
+
 def execute_local_video(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     cmd = args.video_command
     if cmd == "info":
         return {"ok": True, "video": video_info(args.input)}, 0
     if cmd == "extract-frames":
-        return {"ok": True, "frames": extract_frames(args.input, args.output_dir, fps=args.fps, prefix=args.prefix)}, 0
+        res = extract_frames(args.input, args.output_dir, fps=args.fps, prefix=args.prefix)
+        _record_local_video_outputs(
+            res["frames"],
+            operation="extract-frames",
+            category="image",
+            parents=[res["source"]],
+            metadata={"frame_count": res["frame_count"]},
+        )
+        return {"ok": True, "frames": res}, 0
     if cmd == "spritesheet":
-        return {"ok": True, "spritesheet": video_spritesheet(args.input, args.output_dir, fps=args.fps, columns=args.columns, frame_width=args.width, frame_height=args.height)}, 0
+        res = video_spritesheet(args.input, args.output_dir, fps=args.fps, columns=args.columns, frame_width=args.width, frame_height=args.height)
+        _record_local_video_outputs(
+            [res["atlas_path"]],
+            operation="spritesheet",
+            category="frame_sequence",
+            parents=[res["source"]],
+            metadata={
+                "manifest_path": res["manifest_path"],
+                "frame_count": res["frame_count"],
+                "columns": res["columns"],
+                "rows": res["rows"],
+                "frame_size": res["frame_size"],
+                "atlas_size": res["atlas_size"],
+            },
+        )
+        return {"ok": True, "spritesheet": res}, 0
     if cmd == "trim":
-        return {"ok": True, "video": video_trim(args.input, args.output, start=args.start, end=args.end, duration=args.duration)}, 0
+        res = video_trim(args.input, args.output, start=args.start, end=args.end, duration=args.duration)
+        _record_local_video_outputs(
+            [res["path"]],
+            operation="trim",
+            category="video",
+            parents=[args.input],
+            metadata={"duration_seconds": res.get("duration_seconds")},
+        )
+        return {"ok": True, "video": res}, 0
     if cmd == "convert":
-        return {"ok": True, "video": video_convert(args.input, args.output, args.format)}, 0
+        res = video_convert(args.input, args.output, args.format)
+        _record_local_video_outputs(
+            [res["path"]],
+            operation="convert",
+            category="video",
+            parents=[args.input],
+            metadata={"format": res.get("format")},
+        )
+        return {"ok": True, "video": res}, 0
     if cmd == "mux":
-        return {"ok": True, "video": video_mux(args.video, args.audio, args.output)}, 0
+        res = video_mux(args.video, args.audio, args.output)
+        _record_local_video_outputs(
+            [res["path"]],
+            operation="mux",
+            category="video",
+            parents=[args.video, args.audio],
+            metadata={"duration_seconds": res.get("duration_seconds")},
+        )
+        return {"ok": True, "video": res}, 0
     raise AssertionError("unreachable")

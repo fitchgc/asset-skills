@@ -20,7 +20,7 @@ from .config import load_credentials
 from .constants import DEFAULT_OUTPUT_DIR
 from .errors import AsxError
 from .output import emit, log
-from .state import connect_db, upsert_asset, utc_now
+from .state import connect_db, record_artifact_with_lineage
 from .tasks import run_task_submission
 
 
@@ -347,6 +347,8 @@ class WorkbenchServer(ThreadingHTTPServer):
         }
 
         idempotency_key = f"asx-ui-region-{token}"
+        parent_paths = [self.source_path] if self.source_path else []
+        ui_meta = {"workbench_mode": "region_edit", "prompt": final_prompt}
         res_payload, exit_code = run_task_submission(
             self.client,
             task_type="image.edit",
@@ -355,6 +357,8 @@ class WorkbenchServer(ThreadingHTTPServer):
             output_dir=str(dest_dir),
             idempotency_key=idempotency_key,
             modality="image",
+            parent_paths=parent_paths,
+            metadata=ui_meta,
         )
         # Fallback if the selected model does not support mask parameter (e.g., gemini-*-image)
         err_msg = str((res_payload.get("error") or {}).get("message", ""))
@@ -370,6 +374,8 @@ class WorkbenchServer(ThreadingHTTPServer):
                 output_dir=str(dest_dir),
                 idempotency_key=f"asx-ui-region-nomask-{token}",
                 modality="image",
+                parent_paths=parent_paths,
+                metadata=ui_meta,
             )
         return res_payload, exit_code
 
@@ -390,19 +396,26 @@ class WorkbenchServer(ThreadingHTTPServer):
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_bytes(data)
 
-        # Record artifact if ledger is available
+        mode = str(body.get("mode") or self.mode)
+        operation = "image_annotate" if mode in {"annotate", "image_annotate"} else "image_tools"
+        parent_paths = [self.source_path] if self.source_path else []
+        conn = connect_db()
         try:
-            conn = connect_db()
-            upsert_asset(
+            record_artifact_with_lineage(
                 conn,
-                local_task_id="local_ui_tool",
-                remote_index=0,
-                path=str(out_file),
-                bytes=len(data),
+                file_path=str(out_file),
+                modality="image",
+                operation=operation,
+                source_kind="ui_export",
+                category="image",
+                mime=mime,
+                size_bytes=len(data),
+                metadata={"recipe": body.get("recipe"), "workbench_mode": mode},
+                parent_paths=parent_paths,
+                model="ui",
             )
+        finally:
             conn.close()
-        except Exception:
-            pass
 
         return {
             "ok": True,
@@ -430,6 +443,39 @@ class WorkbenchServer(ThreadingHTTPServer):
 
         atlas_path.write_bytes(data)
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        mode = str(body.get("mode") or self.mode)
+        if mode in {"model3d_render_sequence", "render_sequence"}:
+            modality = "3d"
+            operation = "render_sequence"
+        else:
+            modality = "video"
+            operation = "frame_sequence"
+        extra_meta = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+        ledger_meta = {
+            **extra_meta,
+            "manifest_path": str(manifest_path),
+            "frames": len(manifest.get("frames", {})),
+            "workbench_mode": mode,
+        }
+        parent_paths = [self.source_path] if self.source_path else []
+        conn = connect_db()
+        try:
+            record_artifact_with_lineage(
+                conn,
+                file_path=str(atlas_path),
+                modality=modality,
+                operation=operation,
+                source_kind="ui_export",
+                category="frame_sequence",
+                mime="image/png",
+                size_bytes=len(data),
+                metadata=ledger_meta,
+                parent_paths=parent_paths,
+                model="ui",
+            )
+        finally:
+            conn.close()
 
         return {
             "ok": True,

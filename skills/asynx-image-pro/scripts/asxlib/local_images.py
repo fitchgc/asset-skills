@@ -8,6 +8,7 @@ from typing import Any
 
 from .constants import MAX_REFERENCE_SOURCE_BYTES, MAX_SAFE_IMAGE_PIXELS
 from .errors import AsxError
+from .state import connect_db, new_local_task_id, record_artifact_with_lineage
 
 _FORMATS = {
     "png": ("PNG", ".png"),
@@ -271,12 +272,31 @@ def _batch_convert(input_dir: str, output_dir: str, output_format: str, recursiv
         plan.append((source, target))
     files: list[dict[str, Any]] = []
     failed: list[dict[str, str]] = []
+    recorded_pairs: list[tuple[str, str, int]] = []
     for source, target in plan:
         try:
             image, _path, _source_format, _frames = _open_image(str(source))
-            files.append(_save(image, str(target), output_format, exclusive=True))
+            saved = _save(image, str(target), output_format, exclusive=True)
+            files.append(saved)
+            recorded_pairs.append((str(source.resolve()), str(saved["path"]), int(saved["size_bytes"])))
         except AsxError as exc:
             failed.append({"path": str(source), "code": exc.code, "message": exc.message})
+    if recorded_pairs:
+        conn = connect_db()
+        try:
+            for src_path, dst_path, sz in recorded_pairs:
+                record_artifact_with_lineage(
+                    conn,
+                    file_path=dst_path,
+                    modality="image",
+                    operation="batch-convert",
+                    source_kind="local_process",
+                    category="image",
+                    size_bytes=sz,
+                    parent_paths=[src_path],
+                )
+        finally:
+            conn.close()
     return {"source_dir": str(source_dir), "output_dir": str(destination), "files": files, "failed": failed, "count": len(files), "failed_count": len(failed)}
 
 
@@ -368,29 +388,104 @@ def _remove_background(value: str, output: str, threshold: int, output_format: s
     return result
 
 
+def _record_local_images(
+    outputs: list[dict[str, Any]],
+    *,
+    operation: str,
+    parents: list[str],
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    if not outputs:
+        return
+    conn = connect_db()
+    try:
+        local_task_id = new_local_task_id("local_proc")
+        for idx, item in enumerate(outputs):
+            record_artifact_with_lineage(
+                conn,
+                file_path=item["path"],
+                modality="image",
+                operation=operation,
+                source_kind="local_process",
+                category="image",
+                local_task_id=local_task_id,
+                remote_index=idx,
+                size_bytes=item.get("size_bytes"),
+                metadata=metadata,
+                parent_paths=parents,
+            )
+    finally:
+        conn.close()
+
+
 def execute_local_image(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if args.image_command == "info":
         return {"ok": True, "image": _image_info(args.input)}, 0
     if args.image_command == "convert":
-        return {"ok": True, "image": _save(_open_image(args.input)[0], args.output, args.format)}, 0
+        _image, source, _fmt, _frames = _open_image(args.input)
+        res = _save(_image, args.output, args.format)
+        _record_local_images([res], operation="convert", parents=[str(source)])
+        return {"ok": True, "image": res}, 0
     if args.image_command == "resize":
-        return {"ok": True, "image": _resize(args.input, args.output, args.width, args.height, args.format)}, 0
+        res = _resize(args.input, args.output, args.width, args.height, args.format)
+        _record_local_images(
+            [res],
+            operation="resize",
+            parents=[res["source"]],
+            metadata={"width": res["width"], "height": res["height"]},
+        )
+        return {"ok": True, "image": res}, 0
     if args.image_command == "crop":
-        return {"ok": True, "image": _crop(args.input, args.output, args.box, args.format)}, 0
+        res = _crop(args.input, args.output, args.box, args.format)
+        _record_local_images(
+            [res],
+            operation="crop",
+            parents=[res["source"]],
+            metadata={"box": res["box"]},
+        )
+        return {"ok": True, "image": res}, 0
     if args.image_command == "slice":
-        return {"ok": True, "slice": _slice(args.input, args.output_dir, args.rows, args.columns, args.prefix, args.format)}, 0
+        res = _slice(args.input, args.output_dir, args.rows, args.columns, args.prefix, args.format)
+        _record_local_images(
+            res["files"],
+            operation="slice",
+            parents=[res["source"]],
+            metadata={"rows": res["rows"], "columns": res["columns"]},
+        )
+        return {"ok": True, "slice": res}, 0
     if args.image_command == "pad":
-        return {"ok": True, "image": _pad(args.input, args.output, getattr(args, "padding", None), getattr(args, "width", None), getattr(args, "height", None), getattr(args, "background", "transparent"), args.format)}, 0
+        res = _pad(args.input, args.output, getattr(args, "padding", None), getattr(args, "width", None), getattr(args, "height", None), getattr(args, "background", "transparent"), args.format)
+        _record_local_images([res], operation="pad", parents=[res["source"]])
+        return {"ok": True, "image": res}, 0
     if args.image_command == "trim":
-        return {"ok": True, "image": _trim_transparent(args.input, args.output, args.format)}, 0
+        res = _trim_transparent(args.input, args.output, args.format)
+        _record_local_images([res], operation="trim", parents=[res["source"]])
+        return {"ok": True, "image": res}, 0
     if args.image_command == "alpha-bleed":
-        return {"ok": True, "image": _alpha_bleed_cleanup(args.input, args.output, args.format)}, 0
+        res = _alpha_bleed_cleanup(args.input, args.output, args.format)
+        _record_local_images([res], operation="alpha-bleed", parents=[res["source"]])
+        return {"ok": True, "image": res}, 0
     if args.image_command == "remove-background":
-        return {"ok": True, "image": _remove_background(args.input, args.output, getattr(args, "threshold", 30), args.format)}, 0
+        res = _remove_background(args.input, args.output, getattr(args, "threshold", 30), args.format)
+        _record_local_images([res], operation="remove-background", parents=[res["source"]])
+        return {"ok": True, "image": res}, 0
     if args.image_command == "contact-sheet":
-        return {"ok": True, "image": _contact_sheet(args.inputs, args.output, args.columns, args.cell_width, args.cell_height, args.background, args.format)}, 0
+        res = _contact_sheet(args.inputs, args.output, args.columns, args.cell_width, args.cell_height, args.background, args.format)
+        _record_local_images(
+            [res],
+            operation="contact-sheet",
+            parents=[str(_input_path(item)) for item in args.inputs],
+            metadata={"count": res["count"], "columns": res["columns"], "rows": res["rows"]},
+        )
+        return {"ok": True, "image": res}, 0
     if args.image_command in {"apply-mask", "mask"}:
-        return {"ok": True, "image": _apply_mask(args.input, args.mask, args.output, args.format)}, 0
+        res = _apply_mask(args.input, args.mask, args.output, args.format)
+        _record_local_images(
+            [res],
+            operation="apply-mask",
+            parents=[res["source"], res["mask"]],
+        )
+        return {"ok": True, "image": res}, 0
     if args.image_command == "batch-convert":
         payload = _batch_convert(args.input_dir, args.output_dir, args.format, args.recursive)
         return {"ok": payload["failed_count"] == 0, "batch": payload}, 0 if payload["failed_count"] == 0 else 2
