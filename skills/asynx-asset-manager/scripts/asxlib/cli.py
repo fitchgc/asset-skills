@@ -127,6 +127,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         workspace_root = str(Path(args.root).expanduser().resolve())
         return launch_workbench(
             mode="asset_manager",
+            output_dir=str(Path(workspace_root) / "generated-assets"),
             metadata={"workspace_root": workspace_root},
             static_dir=ui_static,
             client=None,

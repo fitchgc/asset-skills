@@ -43,6 +43,33 @@ MODALITIES = {
     },
 }
 
+CROSS_MODAL_MODULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("image", ("images.py", "local_images.py", "image_results.py", "reference_media.py")),
+    ("audio", ("audio_tasks.py", "local_audio.py")),
+    ("video", ("video_tasks.py", "local_video.py")),
+    ("model3d", ("model3d_tasks.py", "local_model3d.py")),
+)
+
+_IGNORED_CACHE_PATTERNS = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".DS_Store")
+
+
+def _is_cache_artifact(path: Path) -> bool:
+    return "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"} or path.name == ".DS_Store"
+
+
+def _prune_cache_artifacts(root: Path) -> None:
+    if not root.exists():
+        return
+    for cache_dir in sorted(root.rglob("__pycache__"), reverse=True):
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir, ignore_errors=True)
+    for path in list(root.rglob("*")):
+        if path.is_file() and _is_cache_artifact(path):
+            try:
+                path.unlink()
+            except OSError:
+                pass
+
 
 def get_version() -> str:
     from shared.asxlib.constants import VERSION
@@ -81,10 +108,10 @@ def build_skill(modality_key: str) -> Path:
     shared_vendor = SHARED_DIR / "vendor"
     target_vendor = scripts_dir / "vendor"
     if shared_vendor.exists() and not target_vendor.exists():
-        shutil.copytree(shared_vendor, target_vendor)
+        shutil.copytree(shared_vendor, target_vendor, ignore=_IGNORED_CACHE_PATTERNS)
 
     # 3. Copy shared/asxlib/ to scripts/asxlib/
-    for py_file in (SHARED_DIR / "asxlib").glob("*.py"):
+    for py_file in sorted((SHARED_DIR / "asxlib").glob("*.py")):
         shutil.copy2(py_file, asxlib_dir / py_file.name)
 
     # Create __init__.py in asxlib if missing
@@ -92,29 +119,51 @@ def build_skill(modality_key: str) -> Path:
     if not init_py.exists():
         init_py.write_text('"""Asynx skill library."""\n', encoding="utf-8")
 
-    # 4. Copy modality-specific modules from src/<modality>/
+    # 4. Copy cross-modal modules for asset_manager before modality-specific modules
+    #    so asset_manager's cli.py is never overwritten and standalone packages are self-contained.
+    if modality_key == "asset_manager":
+        for src_subdir, filenames in CROSS_MODAL_MODULES:
+            mod_dir = SRC_DIR / src_subdir
+            for fname in filenames:
+                src_file = mod_dir / fname
+                if src_file.is_file():
+                    shutil.copy2(src_file, asxlib_dir / fname)
+
+    # 5. Copy modality-specific modules from src/<modality>/
     modality_src = SRC_DIR / src_module_name
     if modality_src.exists():
-        for py_file in modality_src.glob("*.py"):
+        for py_file in sorted(modality_src.glob("*.py")):
             shutil.copy2(py_file, asxlib_dir / py_file.name)
 
-    # 5. Copy UI bundle (modality-specific + shared common UI assets)
+    # 6. Copy UI bundle (modality-specific + shared common UI assets + embedded sub-workbenches)
     target_ui = asxlib_dir / "ui"
     if target_ui.exists():
         shutil.rmtree(target_ui)
     target_ui.mkdir(parents=True, exist_ok=True)
     ui_src = SRC_DIR / "ui" / modality_key
     if ui_src.exists():
-        shutil.copytree(ui_src, target_ui, dirs_exist_ok=True)
+        shutil.copytree(ui_src, target_ui, dirs_exist_ok=True, ignore=_IGNORED_CACHE_PATTERNS)
     common_ui = SRC_DIR / "ui" / "common"
     if common_ui.is_dir():
-        shutil.copytree(common_ui, target_ui, dirs_exist_ok=True)
+        shutil.copytree(common_ui, target_ui, dirs_exist_ok=True, ignore=_IGNORED_CACHE_PATTERNS)
+    if modality_key == "asset_manager":
+        for sub_ui in ("image", "video", "3d"):
+            sub_ui_src = SRC_DIR / "ui" / sub_ui
+            if sub_ui_src.is_dir():
+                shutil.copytree(
+                    sub_ui_src,
+                    target_ui / sub_ui,
+                    dirs_exist_ok=True,
+                    ignore=_IGNORED_CACHE_PATTERNS,
+                )
 
-    # 6. Generate .asx-install.json receipt
+    _prune_cache_artifacts(skill_dir)
+
+    # 7. Generate .asx-install.json receipt
     version = get_version()
     file_hashes: dict[str, str] = {}
     for path in sorted(skill_dir.rglob("*")):
-        if path.is_file() and not path.name.startswith("."):
+        if path.is_file() and not path.name.startswith(".") and not _is_cache_artifact(path):
             rel_path = path.relative_to(skill_dir).as_posix()
             file_hashes[rel_path] = file_sha256(path)
 
@@ -144,9 +193,11 @@ def package_skill(modality_key: str) -> tuple[Path, Path]:
 
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in sorted(skill_dir.rglob("*")):
-            if path.is_file():
+            if path.is_file() and not _is_cache_artifact(path):
                 rel_path = path.relative_to(skill_dir).as_posix()
-                zf.write(path, f"{skill_name}/{rel_path}")
+                zi = zipfile.ZipInfo.from_file(path, f"{skill_name}/{rel_path}")
+                zi.date_time = (2025, 1, 1, 0, 0, 0)
+                zf.writestr(zi, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
 
     shutil.copy2(archive_path, versioned_archive_path)
 

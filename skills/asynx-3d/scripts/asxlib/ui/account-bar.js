@@ -551,5 +551,9 @@
     return refresh();
   }
 
-  global.AsxAccountBar = { mount, refresh };
+  global.AsxAccountBar = {
+    mount,
+    refresh,
+    openLogin: () => openSwitchAccountModal('login'),
+  };
 })(window);

@@ -39,6 +39,49 @@ from .tasks import run_task_submission
 
 _USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")
 
+_EXTRA_MIME_TYPES = {
+    ".glb": "model/gltf-binary",
+    ".gltf": "model/gltf+json",
+    ".obj": "text/plain; charset=utf-8",
+    ".webp": "image/webp",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".aac": "audio/aac",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+}
+
+
+def _guess_mime_type(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext in _EXTRA_MIME_TYPES:
+        return _EXTRA_MIME_TYPES[ext]
+    mime, _ = mimetypes.guess_type(str(path))
+    return mime or "application/octet-stream"
+
+
+def _asset_manager_modules() -> tuple[Any, Any]:
+    if __package__ and not __package__.startswith("shared."):
+        from . import actions, scanner
+        return scanner, actions
+    from src.asset_manager import actions, scanner
+    return scanner, actions
+
+
+def _http_status_for_error(code: str) -> int:
+    if code == "path_outside_workspace":
+        return 403
+    if code == "need_login":
+        return 401
+    if code in {"asset_not_found", "file_not_found", "not_found"}:
+        return 404
+    return 400
+
 
 def _decode_data_url(data_url: str) -> tuple[bytes, str]:
     if not data_url.startswith("data:"):
@@ -91,7 +134,64 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
         dev_common = Path(__file__).resolve().parents[2] / "src" / "ui" / "common"
         if dev_common.is_dir() and dev_common not in roots:
             roots.append(dev_common)
+        dev_ui_root = Path(__file__).resolve().parents[2] / "src" / "ui"
+        if dev_ui_root.is_dir() and dev_ui_root not in roots:
+            roots.append(dev_ui_root)
         return roots
+
+    def _send_file_stream(self, target_file: Path, *, cross_origin: bool = False) -> None:
+        size = target_file.stat().st_size
+        mime = _guess_mime_type(target_file)
+        range_header = self.headers.get("Range")
+        start = 0
+        end = size - 1
+        status = 200
+        if range_header and range_header.startswith("bytes=") and size > 0:
+            spec = range_header[len("bytes="):].split(",", 1)[0].strip()
+            if "-" in spec:
+                s_part, e_part = spec.split("-", 1)
+                try:
+                    if s_part:
+                        start = int(s_part)
+                        end = int(e_part) if e_part else size - 1
+                    elif e_part:
+                        suffix_len = int(e_part)
+                        start = max(0, size - suffix_len)
+                        end = size - 1
+                    if 0 <= start <= end < size:
+                        status = 206
+                except ValueError:
+                    start, end, status = 0, size - 1, 200
+
+        length = max(0, end - start + 1) if size > 0 else 0
+        self.send_response(status)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Accept-Ranges", "bytes")
+        if status == 206:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        if cross_origin:
+            self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
+        self.end_headers()
+        if length <= 0:
+            return
+        with target_file.open("rb") as f:
+            f.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = f.read(min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+    def _confine_if_needed(self, raw_path: str) -> Path:
+        ws_root = self.server.workspace_root()
+        if ws_root is not None:
+            _scanner, actions = _asset_manager_modules()
+            return actions.confine_workspace_path(raw_path, ws_root)
+        return Path(raw_path).expanduser().resolve()
 
     def _resolve_static_file(self, rel_path: str) -> tuple[Path | None, bool]:
         """Return (resolved_file, forbidden). Checks static_dir then shared/common fallbacks."""
@@ -150,9 +250,93 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(exc.payload(), status=400)
                 return
 
-            if path == "/api/manifest" and "manifest_path" in self.server.metadata:
-                m_path = Path(self.server.metadata["manifest_path"]).resolve()
-                if m_path.is_file():
+            if path == "/api/assets":
+                ws_root = self.server.workspace_root()
+                if ws_root is None:
+                    self._send_json(
+                        {"ok": False, "error": {"code": "workspace_not_configured", "message": "Workspace root is not configured"}},
+                        status=400,
+                    )
+                    return
+                qs = parse_qs(parsed.query)
+                category = (qs.get("category") or ["all"])[0]
+                source = (qs.get("source") or ["all"])[0]
+                managed_only = (qs.get("managed_only") or [""])[0].strip().lower() in {"1", "true", "yes"}
+                external_only = (qs.get("external_only") or [""])[0].strip().lower() in {"1", "true", "yes"}
+                query_text = (qs.get("query") or [None])[0]
+                no_cache = (qs.get("no_cache") or [""])[0].strip().lower() in {"1", "true", "yes"}
+                try:
+                    scanner, _actions = _asset_manager_modules()
+                    payload = scanner.scan_workspace(
+                        ws_root,
+                        category=category,
+                        managed_only=managed_only,
+                        external_only=external_only,
+                        source=source,
+                        query=query_text,
+                        use_cache=not no_cache,
+                    )
+                    self._send_json(payload)
+                except AsxError as exc:
+                    self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                return
+
+            if path == "/api/lineage" or path.startswith("/api/lineage/"):
+                qs = parse_qs(parsed.query)
+                target = (
+                    unquote(path[len("/api/lineage/"):])
+                    if path.startswith("/api/lineage/")
+                    else (qs.get("target") or [""])[0]
+                )
+                ws_root = self.server.workspace_root()
+                try:
+                    scanner, _actions = _asset_manager_modules()
+                    payload = scanner.asset_lineage_report(target, root=ws_root)
+                    self._send_json(payload)
+                except AsxError as exc:
+                    self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                return
+
+            if path == "/api/workspace-file":
+                ws_root = self.server.workspace_root()
+                if ws_root is None:
+                    self._send_json(
+                        {"ok": False, "error": {"code": "workspace_not_configured", "message": "Workspace root is not configured"}},
+                        status=400,
+                    )
+                    return
+                qs = parse_qs(parsed.query)
+                raw_target = (qs.get("path") or [""])[0]
+                if not raw_target:
+                    self._send_json(
+                        {"ok": False, "error": {"code": "missing_path", "message": "Missing path parameter"}},
+                        status=400,
+                    )
+                    return
+                try:
+                    target_file = self._confine_if_needed(raw_target)
+                except AsxError as exc:
+                    self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                    return
+                if not target_file.is_file():
+                    self._send_json({"ok": False, "error": {"code": "not_found", "message": "Workspace file not found"}}, status=404)
+                    return
+                self._send_file_stream(target_file, cross_origin=True)
+                return
+
+            if path == "/api/manifest":
+                qs = parse_qs(parsed.query)
+                req_manifest = (qs.get("path") or qs.get("manifest_path") or [None])[0]
+                m_path: Path | None = None
+                if req_manifest:
+                    try:
+                        m_path = self._confine_if_needed(req_manifest)
+                    except AsxError as exc:
+                        self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                        return
+                elif "manifest_path" in self.server.metadata:
+                    m_path = Path(self.server.metadata["manifest_path"]).resolve()
+                if m_path is not None and m_path.is_file():
                     data = m_path.read_bytes()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -161,15 +345,40 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     self.end_headers()
                     self.wfile.write(data)
                     return
+                self._send_json({"ok": False, "error": {"code": "not_found", "message": "Manifest not found"}}, status=404)
+                return
 
             if path == "/api/session":
+                qs = parse_qs(parsed.query)
+                req_source = (qs.get("source_path") or [None])[0]
+                req_mode = (qs.get("mode") or [None])[0]
+                req_manifest = (qs.get("manifest_path") or [None])[0]
+                effective_source = self.server.source_path
+                source_url = "/api/source"
+                if req_source:
+                    try:
+                        resolved_source = self._confine_if_needed(req_source)
+                    except AsxError as exc:
+                        self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                        return
+                    effective_source = str(resolved_source)
+                    source_url = f"/api/source?token={quote(self.server.session_token)}&path={quote(effective_source)}"
+                meta = dict(self.server.metadata)
+                if req_manifest:
+                    try:
+                        meta["manifest_path"] = str(self._confine_if_needed(req_manifest))
+                    except AsxError as exc:
+                        self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                        return
+                models = self.server.get_models_best_effort() if self.server.mode == "asset_manager" else self.server.models
                 session_data = {
                     "ok": True,
-                    "mode": self.server.mode,
-                    "source_url": "/api/source",
-                    "source_name": Path(self.server.source_path).name if self.server.source_path else None,
-                    "metadata": self.server.metadata,
-                    "models": self.server.models,
+                    "mode": req_mode or self.server.mode,
+                    "source_url": source_url,
+                    "source_path": effective_source,
+                    "source_name": Path(effective_source).name if effective_source else None,
+                    "metadata": meta,
+                    "models": models,
                 }
                 self._send_json(session_data)
                 return
@@ -177,41 +386,40 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             if path == "/api/result":
                 r_path = parse_qs(parsed.query).get("path", [None])[0]
                 if r_path:
-                    res_file = Path(r_path).expanduser().resolve()
+                    try:
+                        res_file = self._confine_if_needed(r_path)
+                    except AsxError as exc:
+                        self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                        return
                     if res_file.is_file():
-                        mime, _ = mimetypes.guess_type(str(res_file))
-                        mime = mime or "image/png"
-                        size = res_file.stat().st_size
-                        self.send_response(200)
-                        self.send_header("Content-Type", mime)
-                        self.send_header("Content-Length", str(size))
-                        self.send_header("Access-Control-Allow-Origin", "*")
-                        self.end_headers()
-                        with res_file.open("rb") as f:
-                            while chunk := f.read(64 * 1024):
-                                self.wfile.write(chunk)
+                        self._send_file_stream(res_file, cross_origin=True)
                         return
                 self._send_json({"ok": False, "error": {"code": "not_found", "message": "Result file not found"}}, status=404)
                 return
 
-            if path == "/api/source" and self.server.source_path:
-                source_file = Path(self.server.source_path).resolve()
-                if not source_file.is_file():
+            if path == "/api/source":
+                qs = parse_qs(parsed.query)
+                req_source = (qs.get("path") or [None])[0]
+                source_file: Path | None = None
+                if req_source:
+                    if self.server.workspace_root() is not None:
+                        try:
+                            source_file = self._confine_if_needed(req_source)
+                        except AsxError as exc:
+                            self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+                            return
+                    elif self.server.source_path and Path(req_source).expanduser().resolve() == Path(self.server.source_path).resolve():
+                        source_file = Path(self.server.source_path).resolve()
+                    else:
+                        self._send_json({"ok": False, "error": {"code": "path_outside_workspace", "message": "Source path override forbidden"}}, status=403)
+                        return
+                elif self.server.source_path:
+                    source_file = Path(self.server.source_path).resolve()
+
+                if source_file is None or not source_file.is_file():
                     self._send_json({"ok": False, "error": {"code": "not_found", "message": "Source file not found"}}, status=404)
                     return
-                mime, _ = mimetypes.guess_type(str(source_file))
-                mime = mime or "application/octet-stream"
-                size = source_file.stat().st_size
-
-                self.send_response(200)
-                self.send_header("Content-Type", mime)
-                self.send_header("Content-Length", str(size))
-                self.send_header("Access-Control-Allow-Origin", "*")
-                self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
-                self.end_headers()
-                with source_file.open("rb") as f:
-                    while chunk := f.read(64 * 1024):
-                        self.wfile.write(chunk)
+                self._send_file_stream(source_file, cross_origin=True)
                 return
 
         # Serve static frontend files
@@ -308,6 +516,28 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             self.server.shutdown_event.set()
             return
 
+        if path == "/api/manager/action":
+            ws_root = self.server.workspace_root()
+            if ws_root is None:
+                self._send_json(
+                    {"ok": False, "error": {"code": "workspace_not_configured", "message": "Workspace root is not configured"}},
+                    status=400,
+                )
+                return
+            try:
+                _scanner, actions = _asset_manager_modules()
+                res = actions.dispatch_manager_action(
+                    body,
+                    workspace_root=ws_root,
+                    require_client=self.server.require_client,
+                )
+                self._send_json(res)
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+            except Exception as exc:
+                self._send_json({"ok": False, "error": {"code": "action_failed", "message": str(exc)}}, status=500)
+            return
+
         if path == "/api/submit":
             try:
                 import importlib
@@ -321,10 +551,10 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "result": res_payload})
                 self.server.result_payload = res_payload
                 self.server.exit_code = exit_code
-                if not body.get("keep_alive"):
+                if self.server.mode != "asset_manager" and not body.get("keep_alive"):
                     threading.Timer(1.5, self.server.shutdown_event.set).start()
             except AsxError as exc:
-                self._send_json(exc.payload(), status=400)
+                self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
             except Exception as exc:
                 self._send_json({"ok": False, "error": {"code": "submit_failed", "message": str(exc)}}, status=500)
             return
@@ -538,6 +768,66 @@ class WorkbenchServer(ThreadingHTTPServer):
         self.auth_result = None
         return {"ok": True, "authenticated": False}
 
+    def workspace_root(self) -> Path | None:
+        raw = self.metadata.get("workspace_root") if isinstance(self.metadata, dict) else None
+        if isinstance(raw, str) and raw.strip():
+            return Path(raw).expanduser().resolve()
+        return None
+
+    def require_client(self) -> AsynxClient:
+        if self.client is not None:
+            return self.client
+        from .config import load_client
+
+        client = load_client(allow_login_ui=False)
+        self.client = client
+        return client
+
+    def get_models_best_effort(self) -> list[dict[str, Any]]:
+        if self.models:
+            return self.models
+        client = self.client
+        if client is None:
+            try:
+                client = self.require_client()
+            except Exception:
+                return []
+        try:
+            models, _ = client.models()
+            self.models = models
+            return models
+        except Exception:
+            return []
+
+    def _resolve_submit_context(self, body: dict[str, Any]) -> tuple[str | None, Path, Path | None]:
+        ws_root = self.workspace_root()
+        raw_source = body.get("source_path")
+        raw_dir = body.get("output_dir")
+        raw_out = body.get("output_path")
+
+        if ws_root is not None:
+            _scanner, actions = _asset_manager_modules()
+            if isinstance(raw_source, str) and raw_source.strip():
+                effective_source = str(actions.confine_workspace_path(raw_source, ws_root))
+            else:
+                effective_source = self.source_path
+            if isinstance(raw_dir, str) and raw_dir.strip():
+                dest_dir = actions.confine_workspace_path(raw_dir, ws_root)
+            elif self.output_dir and Path(self.output_dir).expanduser().resolve().is_relative_to(ws_root):
+                dest_dir = Path(self.output_dir).expanduser().resolve()
+            else:
+                dest_dir = (ws_root / "generated-assets").resolve()
+            if isinstance(raw_out, str) and raw_out.strip():
+                out_file: Path | None = actions.confine_workspace_path(raw_out, ws_root)
+            else:
+                out_file = Path(self.output_path).expanduser().resolve() if self.output_path else None
+            return effective_source, dest_dir, out_file
+
+        effective_source = str(Path(raw_source).expanduser().resolve()) if isinstance(raw_source, str) and raw_source.strip() else self.source_path
+        dest_dir = Path(raw_dir or self.output_dir).expanduser().resolve()
+        out_file = Path(raw_out or self.output_path).expanduser().resolve() if (raw_out or self.output_path) else None
+        return effective_source, dest_dir, out_file
+
     def handle_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         mode = body.get("mode") or self.mode
 
@@ -555,9 +845,11 @@ class WorkbenchServer(ThreadingHTTPServer):
             raise AsxError(f"Unsupported workbench mode: {mode}", code="unsupported_workbench_mode")
 
     def _handle_region_edit_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
-        if not self.client:
+        client = self.require_client() if self.mode == "asset_manager" else self.client
+        if not client:
             raise AsxError("Region edit requires Asset Gateway credentials", code="not_configured")
-        if not self.source_path:
+        effective_source, dest_dir, _out_file = self._resolve_submit_context(body)
+        if not effective_source:
             raise AsxError("Region edit requires a source image", code="missing_source_image")
 
         mask_data_url = body.get("mask")
@@ -567,13 +859,12 @@ class WorkbenchServer(ThreadingHTTPServer):
         overall_prompt = body.get("prompt", "").strip()
         selected_model = body.get("model") or "gpt-image-2.5-sunburst"
 
-        dest_dir = Path(self.output_dir).expanduser().resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         token = secrets.token_hex(6)
         mask_path = dest_dir / f"mask_{token}.png"
         preview_path = dest_dir / f"preview_{token}.png"
-        clean_source_path = Path(self.source_path)
+        clean_source_path = Path(effective_source)
 
         if source_data_url:
             source_bytes, _ = _decode_data_url(source_data_url)
@@ -621,10 +912,10 @@ class WorkbenchServer(ThreadingHTTPServer):
         }
 
         idempotency_key = f"asx-ui-region-{token}"
-        parent_paths = [self.source_path] if self.source_path else []
+        parent_paths = [effective_source] if effective_source else []
         ui_meta = {"workbench_mode": "region_edit", "prompt": final_prompt}
         res_payload, exit_code = run_task_submission(
-            self.client,
+            client,
             task_type="image.edit",
             body=request_body,
             model=selected_model,
@@ -641,7 +932,7 @@ class WorkbenchServer(ThreadingHTTPServer):
             fallback_input.pop("mask", None)
             fallback_body = {"model": selected_model, "input": fallback_input}
             res_payload, exit_code = run_task_submission(
-                self.client,
+                client,
                 task_type="image.edit",
                 body=fallback_body,
                 model=selected_model,
@@ -658,21 +949,20 @@ class WorkbenchServer(ThreadingHTTPServer):
         if not image_data:
             raise AsxError("No image data provided in submission", code="missing_image_data")
 
+        effective_source, dest_dir, out_file = self._resolve_submit_context(body)
         data, mime = _decode_data_url(image_data)
         ext = "png" if "png" in mime else "webp" if "webp" in mime else "jpg"
 
-        if self.output_path:
-            out_file = Path(self.output_path).expanduser().resolve()
-        else:
+        if out_file is None:
             token = secrets.token_hex(6)
-            out_file = Path(self.output_dir).expanduser().resolve() / f"processed_{token}.{ext}"
+            out_file = dest_dir / f"processed_{token}.{ext}"
 
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_bytes(data)
 
         mode = str(body.get("mode") or self.mode)
         operation = "image_annotate" if mode in {"annotate", "image_annotate"} else "image_tools"
-        parent_paths = [self.source_path] if self.source_path else []
+        parent_paths = [effective_source] if effective_source else []
         conn = connect_db()
         try:
             record_artifact_with_lineage(
@@ -708,8 +998,10 @@ class WorkbenchServer(ThreadingHTTPServer):
         if not atlas_data or not manifest:
             raise AsxError("Atlas PNG and Manifest JSON required", code="missing_atlas_data")
 
+        effective_source, dest_dir, _out_file = self._resolve_submit_context(body)
+        if self.mode == "asset_manager" and not body.get("output_dir"):
+            dest_dir = dest_dir / f"sequence_{secrets.token_hex(4)}"
         data, _ = _decode_data_url(atlas_data)
-        dest_dir = Path(self.output_dir).expanduser().resolve()
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         atlas_path = dest_dir / "atlas.png"
@@ -732,7 +1024,7 @@ class WorkbenchServer(ThreadingHTTPServer):
             "frames": len(manifest.get("frames", {})),
             "workbench_mode": mode,
         }
-        parent_paths = [self.source_path] if self.source_path else []
+        parent_paths = [effective_source] if effective_source else []
         conn = connect_db()
         try:
             record_artifact_with_lineage(
