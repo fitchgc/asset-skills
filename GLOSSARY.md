@@ -1,6 +1,6 @@
 # Agent Asset Skills
 
-面向 AI Agent 的多模态与游戏创作资产（图像、音频、视频、3D）生成、编辑、后处理与管线管理的同构技能集合（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`）。
+面向 AI Agent 的多模态与游戏创作资产（图像、音频、视频、序列帧、3D）生成、编辑、后处理、管线管理与项目资产浏览的同构技能集合（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`）。
 
 ## Language
 
@@ -13,8 +13,12 @@ _Avoid_: 资源文件、附件、通用数字资产
 _Avoid_: 资产类型、文件格式、频道
 
 **Asset Skill（资产技能）**:
-面向 AI Agent 的特定资产模态创作与处理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`），包含声明式工作流引导、自包含 CLI 脚本与按需启动的本地交互工作台。
+面向 AI Agent 的特定资产模态创作、处理或项目资产管理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`），包含声明式工作流引导、自包含 CLI 脚本与按需启动的本地交互工作台。
 _Avoid_: 插件、子代理、微服务
+
+**Identity Service（身份认证服务）**:
+负责用户账号注册、登录、会话刷新与网关接入参数下发的统一认证入口，向客户端签发用于访问资产网关的短期伙伴令牌（Partner Token）与长期刷新令牌（Refresh Token）。
+_Avoid_: 授权中心、Key 管理台
 
 **Asset Gateway（资产网关）**:
 提供统一鉴权、异步生成任务调度与产物分发的远端服务入口，屏蔽不同底层多模态模型的协议差异。
@@ -43,3 +47,11 @@ _Avoid_: 涂鸦、普通水印
 **Frame Sequence Atlas（序列帧图集）**:
 由视频抽帧或 3D 动画多视角渲染生成的 2D 游戏动画资产包，包含拼合后的精灵大图（Atlas PNG）与描述各帧坐标及动画元数据的清单文件（Manifest JSON）。
 _Avoid_: 动图、连拍图
+
+**Asset Manager（资产管理器）**:
+汇总展示当前项目内全部创作资产（图片、音频、序列帧图集、视频、3D 模型）的跨模态管理技能与交互工作台，区分由资产技能产出的受管资产与外部本地资产，并可直接针对选中资产发起跨模态衍生创作或编辑。
+_Avoid_: 文件浏览器、资源文件夹、图库
+
+**Asset Lineage（资产血缘）**:
+创作资产之间通过云端生成/编辑任务或本地后处理建立的有向父子派生关系，用于追溯任一资产是由哪些源资产经过何种操作衍生而来，以及它进一步派生出了哪些下游资产。
+_Avoid_: 历史版本、引用计数、文件树

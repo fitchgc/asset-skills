@@ -1,0 +1,3 @@
+# Asset Lineage Ledger and Unified Asset Manager Workbench
+
+The shared SQLite state ledger (`~/.local/state/asx/state.db`) is upgraded to `SCHEMA_VERSION = 3` to record directed parent-child asset lineage across both cloud generation tasks and local deterministic/UI post-processing operations, matching project files by path and SHA-256 so lineage survives file moves or renames. A fifth standalone skill, `asynx-asset-manager`, combines project workspace scanning with ledger lineage to display categorized assets (`image`, `audio`, `frame_sequence`, `video`, `3d`), highlight skill-generated artifacts, visualize upstream/downstream lineage chains, and invoke cross-modal editing and derivation workflows within a unified local workbench.

@@ -1,0 +1,3 @@
+# Identity Service Partner Token Authentication and Auto-Refresh
+
+Authentication is delegated to the Identity Service (`login_svr`), which issues short-lived Ed25519 (`EdDSA`) Partner Tokens (`token`, 24h) and long-lived Refresh Tokens (`refreshToken`, 30d) along with dynamic Asset Gateway configuration (`asynx.baseUrl`, `kid`, `issuer`, `audience`). All requests to the Asset Gateway authenticate exclusively via the `X-Asynx-Partner-Token` header (omitting `Authorization` to avoid `401 ambiguous_credentials`), proactively refreshing tokens within 60 seconds of expiry or on `kid`/`iss`/`aud` mismatch, passively retrying once on HTTP `401 invalid_partner_token`, and automatically launching the local Login Workbench when credentials are missing or unrefreshable.
