@@ -3,18 +3,21 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import mimetypes
 import os
 import random
 import tempfile
 import time
+import uuid
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .config import cache_path, validate_base_url
 from .constants import (
+    DEFAULT_TOKEN_HEADER,
     DOWNLOAD_LIMIT_BY_MODALITY,
     DOWNLOAD_TIMEOUT_BY_MODALITY,
     DOWNLOAD_TIMEOUT_SECONDS,
@@ -28,6 +31,9 @@ from .constants import (
     VERSION,
 )
 from .errors import AsxError
+
+if TYPE_CHECKING:
+    from .auth import AuthSession
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -56,24 +62,48 @@ def _decode_json(raw: bytes, *, context: str) -> dict[str, Any]:
     return data
 
 
+def _extract_request_id(headers: Any, body: dict[str, Any] | None = None) -> str | None:
+    if isinstance(body, dict) and isinstance(body.get("request_id"), str) and body["request_id"]:
+        return body["request_id"]
+    if headers:
+        req_id = headers.get("X-Request-Id") or headers.get("request-id")
+        if isinstance(req_id, str) and req_id:
+            return req_id
+    return None
+
+
 def _api_error(status: int, raw: bytes, headers: Any) -> AsxError:
     message = f"HTTP {status}"
     code = f"http_{status}"
     details: dict[str, Any] | None = None
+    req_id = _extract_request_id(headers)
     try:
         data = json.loads(raw.decode("utf-8"))
         if isinstance(data, dict):
+            req_id = _extract_request_id(headers, data)
             error = data.get("error")
             if isinstance(error, dict):
                 code = str(error.get("code") or code)
                 message = str(error.get("message") or message)
                 if isinstance(error.get("details"), dict):
                     details = error["details"]
-            elif isinstance(data.get("message"), str):
-                message = data["message"]
+            else:
+                if isinstance(data.get("code"), str) and data["code"]:
+                    code = data["code"]
+                if isinstance(data.get("message"), str) and data["message"]:
+                    message = data["message"]
+                if isinstance(data.get("data"), dict) and data["data"]:
+                    details = data["data"]
     except Exception:
         pass
-    return AsxError(message, code=code, details=details, exit_code=2)
+    return AsxError(
+        message,
+        code=code,
+        details=details,
+        exit_code=2,
+        http_status=status,
+        request_id=req_id,
+    )
 
 
 def _retry_after(headers: Any, attempt: int) -> float:
@@ -90,7 +120,15 @@ def _retry_after(headers: Any, attempt: int) -> float:
 
 def _origin(value: str) -> tuple[str, str, int | None]:
     parts = urlsplit(value)
-    return parts.scheme, parts.hostname or "", parts.port
+    scheme = parts.scheme.lower()
+    host = (parts.hostname or "").lower()
+    port = parts.port
+    if port is None:
+        if scheme == "https":
+            port = 443
+        elif scheme == "http":
+            port = 80
+    return scheme, host, port
 
 
 def _validate_asset_url(value: str, *, allow_local: bool = False) -> str:
@@ -134,12 +172,31 @@ def _normalize_models_list(raw_models: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _unwrap_payload(payload: Any) -> Any:
-    if isinstance(payload, dict) and "data" in payload and payload.get("code") in {"ok", 0, None}:
-        data = payload["data"]
-        if isinstance(data, (dict, list)):
-            return data
-    return payload
+def _validate_gateway_envelope(payload: dict[str, Any], *, status: int, req_id: str | None) -> Any:
+    if status not in {200, 202}:
+        raise AsxError(
+            f"Asset Gateway 返回异常 HTTP 状态 {status}",
+            code=f"http_{status}",
+            http_status=status,
+            request_id=req_id,
+            exit_code=2,
+        )
+    if payload.get("code") != "ok":
+        code = str(payload.get("code") or "invalid_api_response")
+        message = str(payload.get("message") or f"Asset Gateway 返回错误 ({code})")
+        details = payload.get("data") if isinstance(payload.get("data"), dict) else None
+        raise AsxError(
+            message,
+            code=code,
+            details=details,
+            http_status=status,
+            request_id=req_id,
+            exit_code=2,
+        )
+    data = payload.get("data")
+    if data is None:
+        return {}
+    return data
 
 
 def _matches_modality(model: dict[str, Any], modality: str | None) -> bool:
@@ -168,13 +225,139 @@ def _matches_modality(model: dict[str, Any], modality: str | None) -> bool:
     return True
 
 
+def _encode_multipart(
+    field_name: str,
+    filename: str,
+    content_type: str,
+    data: bytes,
+) -> tuple[bytes, str]:
+    boundary = f"----AsynxBoundary{uuid.uuid4().hex}"
+    parts = [
+        f"--{boundary}\r\n".encode("ascii"),
+        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode("utf-8"),
+        f"Content-Type: {content_type}\r\n\r\n".encode("ascii"),
+        data,
+        f"\r\n--{boundary}--\r\n".encode("ascii"),
+    ]
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
 class AsynxClient:
-    def __init__(self, base_url: str, api_key: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        partner_token: str | None = None,
+        *,
+        token_header: str = DEFAULT_TOKEN_HEADER,
+        session: AuthSession | None = None,
+    ) -> None:
         self.base_url = validate_base_url(base_url)
-        self.api_key = api_key
+        self.partner_token = partner_token or (session.token if session is not None else "")
+        self.token_header = (
+            session.token_header if session is not None else (token_header or DEFAULT_TOKEN_HEADER)
+        )
+        self.session = session
+
+    def _current_token(self) -> str:
+        if self.session is not None:
+            token = self.session.ensure_valid_token()
+            self.partner_token = token
+            self.base_url = self.session.base_url
+            self.token_header = self.session.token_header
+            return token
+        return self.partner_token
+
+    def _try_reactive_refresh(self, err: AsxError) -> bool:
+        if self.session is None:
+            return False
+        if err.http_status != 401:
+            return False
+        if err.code == "ambiguous_credentials":
+            return False
+        if err.code not in {"invalid_partner_token", "http_401"}:
+            return False
+        new_token = self.session.refresh_session()
+        self.partner_token = new_token
+        self.base_url = self.session.base_url
+        self.token_header = self.session.token_header
+        return True
 
     def _url(self, path: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
+
+    def _execute_gateway_raw(
+        self,
+        method: str,
+        path: str,
+        *,
+        payload: bytes | None = None,
+        content_type: str | None = None,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
+        idempotency_key: str | None = None,
+    ) -> tuple[int, dict[str, Any], str | None]:
+        for auth_attempt in range(2):
+            token = self._current_token()
+            url = self._url(path)
+            opener = build_opener(_NoRedirect())
+            retry_auth = False
+
+            for _redirect in range(MAX_REDIRECTS + 1):
+                redirected = False
+                for attempt in range(MAX_HTTP_ATTEMPTS):
+                    headers: dict[str, str] = {
+                        "User-Agent": f"asx-skill/{VERSION}",
+                        "Accept": "application/json",
+                    }
+                    if _origin(url) == _origin(self.base_url):
+                        headers[self.token_header] = token
+                    if payload is not None and content_type:
+                        headers["Content-Type"] = content_type
+                    if idempotency_key:
+                        headers["Idempotency-Key"] = idempotency_key
+
+                    request = Request(url, data=payload, headers=headers, method=method)
+                    try:
+                        with opener.open(request, timeout=timeout) as response:
+                            status = getattr(response, "status", 200)
+                            raw = response.read(MAX_API_RESPONSE_BYTES + 1)
+                            if len(raw) > MAX_API_RESPONSE_BYTES:
+                                raise AsxError("API 响应体超出限制", code="response_too_large")
+                            decoded = _decode_json(raw, context="API")
+                            req_id = _extract_request_id(response.headers, decoded)
+                            return status, decoded, req_id
+                    except HTTPError as exc:
+                        if exc.code in {301, 302, 303, 307, 308}:
+                            location = exc.headers.get("Location")
+                            if not location:
+                                raise AsxError(
+                                    "跳转未提供 Location 头部", code="invalid_api_redirect"
+                                ) from exc
+                            url = _validate_api_redirect(urljoin(url, location), base_url=self.base_url)
+                            redirected = True
+                            break
+                        raw = exc.read(MAX_API_RESPONSE_BYTES)
+                        if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
+                            time.sleep(_retry_after(exc.headers, attempt))
+                            continue
+                        err = _api_error(exc.code, raw, exc.headers)
+                        if auth_attempt == 0 and self._try_reactive_refresh(err):
+                            retry_auth = True
+                            break
+                        raise err from exc
+                    except (URLError, TimeoutError) as exc:
+                        if attempt < MAX_HTTP_ATTEMPTS - 1:
+                            time.sleep(_retry_after(None, attempt))
+                            continue
+                        raise AsxError(f"网络连接失败：{exc}", code="network_error") from exc
+                if retry_auth:
+                    break
+                if redirected:
+                    continue
+                raise AsxError("超过最大重定向次数", code="too_many_redirects")
+            if retry_auth:
+                continue
+            raise AsxError("超过最大重定向次数", code="too_many_redirects")
+        raise AsxError("Asynx 认证失败", code="invalid_partner_token", http_status=401, exit_code=2)
 
     def request_json(
         self,
@@ -184,51 +367,24 @@ class AsynxClient:
         body: dict[str, Any] | None = None,
         timeout: float = REQUEST_TIMEOUT_SECONDS,
         idempotency_key: str | None = None,
-    ) -> tuple[dict[str, Any], str | None]:
-        url = self._url(path)
+    ) -> tuple[Any, str | None]:
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "User-Agent": f"asx-skill/{VERSION}",
-            "Accept": "application/json",
-        }
-        if payload is not None:
-            headers["Content-Type"] = "application/json"
-        if idempotency_key:
-            headers["Idempotency-Key"] = idempotency_key
+        status, decoded, req_id = self._execute_gateway_raw(
+            method,
+            path,
+            payload=payload,
+            content_type="application/json" if payload is not None else None,
+            timeout=timeout,
+            idempotency_key=idempotency_key,
+        )
+        data = _validate_gateway_envelope(decoded, status=status, req_id=req_id)
+        return data, req_id
 
-        opener = build_opener(_NoRedirect())
-        for _redirect in range(MAX_REDIRECTS + 1):
-            for attempt in range(MAX_HTTP_ATTEMPTS):
-                request = Request(url, data=payload, headers=headers, method=method)
-                try:
-                    with opener.open(request, timeout=timeout) as response:
-                        raw = response.read(MAX_API_RESPONSE_BYTES + 1)
-                        if len(raw) > MAX_API_RESPONSE_BYTES:
-                            raise AsxError("API 响应体超出限制", code="response_too_large")
-                        req_id = response.headers.get("X-Request-Id") or response.headers.get("request-id")
-                        return _decode_json(raw, context="API"), req_id
-                except HTTPError as exc:
-                    if exc.code in {301, 302, 303, 307, 308}:
-                        location = exc.headers.get("Location")
-                        if not location:
-                            raise AsxError("跳转未提供 Location 头部", code="invalid_api_redirect") from exc
-                        url = _validate_api_redirect(urljoin(url, location), base_url=self.base_url)
-                        break
-                    raw = exc.read(MAX_API_RESPONSE_BYTES)
-                    if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
-                        time.sleep(_retry_after(exc.headers, attempt))
-                        continue
-                    raise _api_error(exc.code, raw, exc.headers) from exc
-                except (URLError, TimeoutError) as exc:
-                    if attempt < MAX_HTTP_ATTEMPTS - 1:
-                        time.sleep(_retry_after(None, attempt))
-                        continue
-                    raise AsxError(f"网络连接失败：{exc}", code="network_error") from exc
-            else:
-                continue
-            break
-        raise AsxError("超过最大重定向次数", code="too_many_redirects")
+    def partner_identity(self) -> tuple[dict[str, Any], str | None]:
+        data, req_id = self.request_json("GET", "/v1/partner/identity")
+        if not isinstance(data, dict):
+            raise AsxError("Partner identity 响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
 
     def models(self, modality: str | None = None) -> tuple[list[dict[str, Any]], str | None]:
         cache_file = cache_path()
@@ -236,8 +392,14 @@ class AsynxClient:
         if cache_file.is_file():
             try:
                 cached = json.loads(cache_file.read_text(encoding="utf-8"))
-                if isinstance(cached, dict) and now - cached.get("cached_at", 0) < MODEL_CACHE_TTL_SECONDS:
-                    models = _normalize_models_list(cached.get("models")) or _normalize_models_list(cached.get("items"))
+                if (
+                    isinstance(cached, dict)
+                    and cached.get("base_url") in {None, self.base_url}
+                    and now - cached.get("cached_at", 0) < MODEL_CACHE_TTL_SECONDS
+                ):
+                    models = _normalize_models_list(cached.get("models")) or _normalize_models_list(
+                        cached.get("items")
+                    )
                     if models:
                         filtered = [m for m in models if _matches_modality(m, modality)]
                         return filtered, cached.get("request_id")
@@ -245,22 +407,78 @@ class AsynxClient:
                 pass
 
         data, req_id = self.request_json("GET", "/v1/tasks/models")
-        models = (
-            _normalize_models_list(data.get("models"))
-            or _normalize_models_list(data.get("items"))
-            or _normalize_models_list(data.get("data"))
-            or _normalize_models_list(data)
-        )
+        models = _normalize_models_list(data)
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
             cache_file.write_text(
-                json.dumps({"cached_at": now, "request_id": req_id, "models": models}, ensure_ascii=False),
+                json.dumps(
+                    {
+                        "base_url": self.base_url,
+                        "cached_at": now,
+                        "request_id": req_id,
+                        "models": models,
+                    },
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
         except Exception:
             pass
         filtered = [m for m in models if _matches_modality(m, modality)]
         return filtered, req_id
+
+    def model_guide(self, name: str) -> tuple[dict[str, Any], str | None]:
+        data, req_id = self.request_json("GET", f"/v1/tasks/models/{quote(name, safe='')}/guide")
+        if not isinstance(data, dict):
+            raise AsxError("Model guide 响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
+
+    def quote(self, task_type: str, payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+        body = {"task_type": task_type, **payload}
+        data, req_id = self.request_json("POST", "/v1/tasks/quote", body=body)
+        if not isinstance(data, dict):
+            raise AsxError("Quote 响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
+
+    def upload_file(
+        self,
+        file_path: Path | str,
+        *,
+        filename: str | None = None,
+        content_type: str | None = None,
+        timeout: float = REQUEST_TIMEOUT_SECONDS,
+    ) -> tuple[dict[str, Any], str | None]:
+        path = Path(file_path).expanduser().resolve()
+        if not path.is_file():
+            raise AsxError(f"上传文件不存在：{path}", code="file_not_found")
+        raw_bytes = path.read_bytes()
+        resolved_name = filename or path.name
+        guessed_type = content_type or mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
+        multipart_body, multipart_ct = _encode_multipart("file", resolved_name, guessed_type, raw_bytes)
+        status, decoded, req_id = self._execute_gateway_raw(
+            "POST",
+            "/v1/files",
+            payload=multipart_body,
+            content_type=multipart_ct,
+            timeout=timeout,
+        )
+        if status not in {200, 201, 202}:
+            raise AsxError(
+                f"文件上传返回异常 HTTP 状态 {status}",
+                code=f"http_{status}",
+                http_status=status,
+                request_id=req_id,
+            )
+        if isinstance(decoded.get("id"), str) and decoded["id"]:
+            return decoded, req_id
+        if decoded.get("code") == "ok" and isinstance(decoded.get("data"), dict):
+            return decoded["data"], req_id
+        raise AsxError(
+            "文件上传响应缺少文件 id",
+            code="invalid_api_response",
+            http_status=status,
+            request_id=req_id,
+        )
 
     def submit(
         self,
@@ -270,15 +488,21 @@ class AsynxClient:
     ) -> tuple[dict[str, Any], str | None]:
         body = {"task_type": task_type, **payload}
         data, req_id = self.request_json("POST", "/v1/tasks", body=body, idempotency_key=idempotency_key)
-        return _unwrap_payload(data), req_id
+        if not isinstance(data, dict):
+            raise AsxError("提交任务响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
 
     def task(self, task_id: str) -> tuple[dict[str, Any], str | None]:
         data, req_id = self.request_json("GET", f"/v1/tasks/{quote(task_id, safe='')}")
-        return _unwrap_payload(data), req_id
+        if not isinstance(data, dict):
+            raise AsxError("任务查询响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
 
     def cancel(self, task_id: str) -> tuple[dict[str, Any], str | None]:
         data, req_id = self.request_json("POST", f"/v1/tasks/{quote(task_id, safe='')}/cancel")
-        return _unwrap_payload(data), req_id
+        if not isinstance(data, dict):
+            raise AsxError("取消任务响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
 
     def list_tasks(
         self,
@@ -290,7 +514,9 @@ class AsynxClient:
             params.append(f"status={quote(status, safe='')}")
         query_string = "?" + "&".join(params)
         data, req_id = self.request_json("GET", f"/v1/tasks{query_string}")
-        return _unwrap_payload(data), req_id
+        if not isinstance(data, dict):
+            raise AsxError("任务列表响应格式不正确", code="invalid_api_response", request_id=req_id)
+        return data, req_id
 
     def download_asset_to_file(
         self,
@@ -308,121 +534,133 @@ class AsynxClient:
         dest = Path(destination_path).resolve()
         dest.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
 
-        url = (
-            self._url(f"/v1/tasks/{quote(task_id, safe='')}/assets/{index}")
-            if download_url is None
-            else _validate_asset_url(
-                download_url,
-                allow_local=urlsplit(self.base_url).hostname in {"localhost", "127.0.0.1", "::1"},
-            )
-        )
-
         limit_bytes = max_bytes or DOWNLOAD_LIMIT_BY_MODALITY.get(
             modality or "image", MAX_ASSET_RESPONSE_BYTES
         )
         timeout = timeout_seconds or DOWNLOAD_TIMEOUT_BY_MODALITY.get(
             modality or "image", DOWNLOAD_TIMEOUT_SECONDS
         )
+        allow_local = urlsplit(self.base_url).hostname in {"localhost", "127.0.0.1", "::1"}
 
-        headers = {"User-Agent": f"asx-skill/{VERSION}"}
-        if _origin(url) == _origin(self.base_url):
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        for auth_attempt in range(2):
+            token = self._current_token()
+            url = (
+                self._url(f"/v1/tasks/{quote(task_id, safe='')}/assets/{index}")
+                if download_url is None
+                else _validate_asset_url(download_url, allow_local=allow_local)
+            )
+            opener = build_opener(_NoRedirect())
+            retry_auth = False
 
-        opener = build_opener(_NoRedirect())
-        for _redirect in range(MAX_REDIRECTS + 1):
-            for attempt in range(MAX_HTTP_ATTEMPTS):
-                request = Request(url, headers=headers, method="GET")
-                request_started = time.perf_counter()
-                try:
-                    with opener.open(request, timeout=timeout) as response:
-                        response_started = time.perf_counter()
-                        content_type = response.headers.get("Content-Type")
+            for _redirect in range(MAX_REDIRECTS + 1):
+                redirected = False
+                for attempt in range(MAX_HTTP_ATTEMPTS):
+                    headers: dict[str, str] = {"User-Agent": f"asx-skill/{VERSION}"}
+                    if _origin(url) == _origin(self.base_url):
+                        headers[self.token_header] = token
 
-                        # Stream in chunks into temporary file in target directory
-                        hasher = hashlib.sha256()
-                        total_bytes = 0
-                        prefix = f".tmp-{dest.name}-"
+                    request = Request(url, headers=headers, method="GET")
+                    request_started = time.perf_counter()
+                    try:
+                        with opener.open(request, timeout=timeout) as response:
+                            response_started = time.perf_counter()
+                            content_type = response.headers.get("Content-Type")
 
-                        with tempfile.NamedTemporaryFile(
-                            "wb", dir=str(dest.parent), prefix=prefix, delete=False
-                        ) as temp_file:
-                            temp_path = Path(temp_file.name)
-                            try:
-                                while True:
-                                    chunk = response.read(64 * 1024)
-                                    if not chunk:
-                                        break
-                                    total_bytes += len(chunk)
-                                    if total_bytes > limit_bytes:
-                                        raise AsxError(
-                                            f"Asset 文件超出大小限制 ({limit_bytes} 字节)",
-                                            code="asset_too_large",
-                                        )
-                                    hasher.update(chunk)
-                                    temp_file.write(chunk)
-                                temp_file.flush()
-                                os.fsync(temp_file.fileno())
+                            hasher = hashlib.sha256()
+                            total_bytes = 0
+                            prefix = f".tmp-{dest.name}-"
 
-                                cl_header = response.headers.get("Content-Length")
-                                if cl_header and cl_header.isdigit():
-                                    expected_bytes = int(cl_header)
-                                    if total_bytes < expected_bytes:
-                                        raise AsxError(
-                                            f"下载未完整接收：已接收 {total_bytes}/{expected_bytes} 字节",
-                                            code="download_truncated",
-                                        )
-                            except Exception:
-                                if temp_path.exists():
-                                    try:
-                                        temp_path.unlink()
-                                    except OSError:
-                                        pass
-                                raise
+                            with tempfile.NamedTemporaryFile(
+                                "wb", dir=str(dest.parent), prefix=prefix, delete=False
+                            ) as temp_file:
+                                temp_path = Path(temp_file.name)
+                                try:
+                                    while True:
+                                        chunk = response.read(64 * 1024)
+                                        if not chunk:
+                                            break
+                                        total_bytes += len(chunk)
+                                        if total_bytes > limit_bytes:
+                                            raise AsxError(
+                                                f"Asset 文件超出大小限制 ({limit_bytes} 字节)",
+                                                code="asset_too_large",
+                                            )
+                                        hasher.update(chunk)
+                                        temp_file.write(chunk)
+                                    temp_file.flush()
+                                    os.fsync(temp_file.fileno())
 
-                        temp_path.replace(dest)
+                                    cl_header = response.headers.get("Content-Length")
+                                    if cl_header and cl_header.isdigit():
+                                        expected_bytes = int(cl_header)
+                                        if total_bytes < expected_bytes:
+                                            raise AsxError(
+                                                f"下载未完整接收：已接收 {total_bytes}/{expected_bytes} 字节",
+                                                code="download_truncated",
+                                            )
+                                except Exception:
+                                    if temp_path.exists():
+                                        try:
+                                            temp_path.unlink()
+                                        except OSError:
+                                            pass
+                                    raise
 
-                        if metrics is not None:
-                            metrics.update(
-                                {
-                                    "ttfb_seconds": response_started - request_started,
-                                    "transfer_seconds": time.perf_counter() - response_started,
-                                    "bytes": total_bytes,
-                                    "sha256": hasher.hexdigest(),
-                                }
+                            temp_path.replace(dest)
+
+                            if metrics is not None:
+                                metrics.update(
+                                    {
+                                        "ttfb_seconds": response_started - request_started,
+                                        "transfer_seconds": time.perf_counter() - response_started,
+                                        "bytes": total_bytes,
+                                        "sha256": hasher.hexdigest(),
+                                    }
+                                )
+
+                            return {
+                                "path": str(dest),
+                                "bytes": total_bytes,
+                                "sha256": hasher.hexdigest(),
+                                "content_type": content_type,
+                            }
+                    except HTTPError as exc:
+                        if exc.code in {301, 302, 303, 307, 308}:
+                            location = exc.headers.get("Location")
+                            if not location:
+                                raise AsxError(
+                                    "Asset 下载跳转未提供 Location 头部",
+                                    code="invalid_asset_redirect",
+                                ) from exc
+                            url = _validate_asset_url(
+                                urljoin(url, location),
+                                allow_local=allow_local,
                             )
-
-                        return {
-                            "path": str(dest),
-                            "bytes": total_bytes,
-                            "sha256": hasher.hexdigest(),
-                            "content_type": content_type,
-                        }
-                except HTTPError as exc:
-                    if exc.code in {301, 302, 303, 307, 308}:
-                        location = exc.headers.get("Location")
-                        if not location:
-                            raise AsxError(
-                                "Asset 下载跳转未提供 Location 头部",
-                                code="invalid_asset_redirect",
-                            ) from exc
-                        url = _validate_asset_url(
-                            urljoin(url, location),
-                            allow_local=urlsplit(self.base_url).hostname in {"localhost", "127.0.0.1", "::1"},
-                        )
-                        break
-                    if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
-                        time.sleep(_retry_after(exc.headers, attempt))
-                        continue
-                    raise _api_error(exc.code, exc.read(MAX_API_RESPONSE_BYTES), exc.headers) from exc
-                except (URLError, TimeoutError) as exc:
-                    if attempt < MAX_HTTP_ATTEMPTS - 1:
-                        time.sleep(_retry_after(None, attempt))
-                        continue
-                    raise AsxError(f"Asset 下载失败：{exc}", code="asset_download_failed") from exc
-            else:
+                            redirected = True
+                            break
+                        raw = exc.read(MAX_API_RESPONSE_BYTES)
+                        if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
+                            time.sleep(_retry_after(exc.headers, attempt))
+                            continue
+                        err = _api_error(exc.code, raw, exc.headers)
+                        if auth_attempt == 0 and self._try_reactive_refresh(err):
+                            retry_auth = True
+                            break
+                        raise err from exc
+                    except (URLError, TimeoutError) as exc:
+                        if attempt < MAX_HTTP_ATTEMPTS - 1:
+                            time.sleep(_retry_after(None, attempt))
+                            continue
+                        raise AsxError(f"Asset 下载失败：{exc}", code="asset_download_failed") from exc
+                if retry_auth:
+                    break
+                if redirected:
+                    continue
+                raise AsxError("超过最大重定向次数", code="too_many_redirects")
+            if retry_auth:
                 continue
-            break
-        raise AsxError("超过最大重定向次数", code="too_many_redirects")
+            raise AsxError("超过最大重定向次数", code="too_many_redirects")
+        raise AsxError("Asset 下载认证失败", code="invalid_partner_token", http_status=401, exit_code=2)
 
     def asset(
         self,

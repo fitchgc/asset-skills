@@ -39,7 +39,7 @@ class TestLocalUIWorkbench(unittest.TestCase):
         img.save(self.source_png, format="PNG")
 
         self.gateway_server, self.gateway_url, self.gateway_thread = run_fake_gateway()
-        self.client = AsynxClient(self.gateway_url, "asx-test-key")
+        self.client = AsynxClient(self.gateway_url, "pt_test_key")
         self.static_dir = REPO_ROOT / "src" / "ui" / "image"
 
     def tearDown(self) -> None:

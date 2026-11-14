@@ -38,7 +38,7 @@ class TestVideoUIWorkbench(unittest.TestCase):
         self.source_mp4.write_bytes(b"FAKE_MP4_HEADER_DATA")
 
         self.gateway_server, self.gateway_url, self.gateway_thread = run_fake_gateway()
-        self.client = AsynxClient(self.gateway_url, "asx-video-key")
+        self.client = AsynxClient(self.gateway_url, "pt_video_key")
         self.static_dir = REPO_ROOT / "src" / "ui" / "video"
 
     def tearDown(self) -> None:

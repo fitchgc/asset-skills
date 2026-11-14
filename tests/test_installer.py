@@ -21,7 +21,7 @@ class TestInstaller(unittest.TestCase):
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config_file = self.config_dir / "config.json"
         self.config_file.write_text(
-            json.dumps({"api_key": "asx_live_test_key_installer_0000"}),
+            json.dumps({"token": "pt_test_installer_0000"}),
             encoding="utf-8",
         )
         os.environ["ASYNX_CONFIG_PATH"] = str(self.config_file)
@@ -126,14 +126,32 @@ class TestInstaller(unittest.TestCase):
         self.assertFalse(audio_dir.exists())
 
     def test_verify_with_fake_gateway(self) -> None:
+        from tests.fake_login_server import run_fake_login_server
+
         server, url, _ = run_fake_gateway()
         self.addCleanup(server.shutdown)
+        login_server, login_url, _ = run_fake_login_server(url)
+        self.addCleanup(login_server.shutdown)
+        login_server.seed_user("installer_user", "secret_123", "Installer")
 
-        # Point base_url to fake gateway
+        # Login via FakeLoginServer and save full session config
+        import urllib.request
+        req = urllib.request.Request(
+            f"{login_url}/api/user/login",
+            data=json.dumps({"username": "installer_user", "password": "secret_123"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req) as resp:
+            session_data = json.loads(resp.read().decode("utf-8"))["data"]
+
         self.config_file.write_text(
             json.dumps({
-                "api_key": "asx-test-fake-gateway-key-00000000",
-                "base_url": url,
+                "login_svr_url": login_url,
+                "token": session_data["token"],
+                "refreshToken": session_data["refreshToken"],
+                "asynx": session_data["asynx"],
+                "user": session_data["user"],
             }),
             encoding="utf-8",
         )

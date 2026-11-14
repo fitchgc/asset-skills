@@ -203,7 +203,7 @@ class TestSharedFoundationAndMigration(unittest.TestCase):
             server.asset_data["task_dl:0"] = asset_bytes
             server.asset_mimes["task_dl:0"] = "image/png"
 
-            client = AsynxClient(base_url, "asx-dummy-key")
+            client = AsynxClient(base_url, "pt_dummy_key")
             dest = Path(self.temp_dir) / "output.png"
 
             # 1. Normal download succeeds with correct sha256 and bytes
@@ -225,7 +225,14 @@ class TestSharedFoundationAndMigration(unittest.TestCase):
 
     def test_doctor_command(self) -> None:
         """Doctor reports credentials, state ledger, pillow, and ffmpeg tools."""
-        save_config("asx-valid-test-key", "https://asynx.llmapi.site/api")
+        save_config(
+            {
+                "login_svr_url": "http://localhost:3006",
+                "token": "pt_valid_test_key",
+                "refreshToken": "rt_valid_test_key",
+                "asynx": {"baseUrl": "https://asynx.llmapi.site/api", "tokenHeader": "X-Asynx-Partner-Token"},
+            }
+        )
         doc = doctor(verify=False, modality="image")
         self.assertTrue(doc["ok"])
         self.assertTrue(doc["config"]["configured"])
@@ -249,7 +256,7 @@ class TestAsynxImageCLIEndToEnd(unittest.TestCase):
             **os.environ,
             "ASYNX_STATE_PATH": str(self.state_db),
             "ASYNX_CONFIG_PATH": str(self.config_file),
-            "ASYNX_API_KEY": "asx-test-key-12345",
+            "ASYNX_PARTNER_TOKEN": "pt_test_key_12345",
         }
         self.server, self.gateway_url, self.thread = run_fake_gateway()
         self.env["ASYNX_BASE_URL"] = self.gateway_url

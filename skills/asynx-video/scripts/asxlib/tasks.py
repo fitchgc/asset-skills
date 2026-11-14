@@ -336,10 +336,26 @@ def _task_identifier_row(connection: sqlite3.Connection, identifier: str) -> dic
     return row
 
 
+def _ensure_partner_quota(client: Any) -> None:
+    partner_fn = getattr(client, "partner_identity", None)
+    if not callable(partner_fn):
+        return
+    identity, _req_id = partner_fn()
+    if isinstance(identity, dict):
+        api_key_info = identity.get("api_key")
+        if isinstance(api_key_info, dict) and api_key_info.get("status") == "quota_exhausted":
+            raise AsxError(
+                "Asynx 账户额度已用尽 (quota_exhausted)，无法提交新任务。",
+                code="quota_exhausted",
+                exit_code=2,
+                details={"partner_identity": identity},
+            )
+
+
 def _local_task_payload(row: dict[str, Any]) -> dict[str, Any]:
     remote = row.get("remote")
     payload: dict[str, Any] = {
-        "ok": row.get("status") not in {"failed", "timeout", "canceled", "orphaned"},
+        "ok": row.get("status") not in {"failed", "timeout", "canceled", "blocked", "orphaned"},
         "schema_version": 2,
         "local_id": row.get("local_id"),
         "task_id": row.get("remote_task_id"),
@@ -364,7 +380,7 @@ def _local_task_payload(row: dict[str, Any]) -> dict[str, Any]:
 def _task_followup(payload: dict[str, Any]) -> None:
     identifier = payload.get("local_id") or payload.get("task_id")
     status = payload.get("status")
-    if not identifier or status in {"failed", "timeout", "canceled", "orphaned"}:
+    if not identifier or status in {"failed", "timeout", "canceled", "blocked", "orphaned"}:
         return
     if status in {"intent", "submitting", "unknown"} and not payload.get("task_id"):
         payload["next_action"] = "task recover"
@@ -417,7 +433,7 @@ def sync_local_task(
             local_id,
             status=local_status,
             remote=task,
-            error=task.get("error") if status in {"failed", "timeout", "canceled"} else None,
+            error=task.get("error") if status in {"failed", "timeout", "canceled", "blocked"} else None,
             billing=task.get("billing"),
             last_polled=utc_now(),
         )
@@ -447,7 +463,7 @@ def sync_local_task(
         return delivered, code
     payload = _local_task_payload(current_row)
     payload["request_id"] = request_id
-    return payload, 0 if status not in {"failed", "timeout", "canceled"} else 4
+    return payload, 0 if status not in {"failed", "timeout", "canceled", "blocked"} else 4
 
 
 def refresh_task(client: AsynxClient, identifier: str) -> tuple[dict[str, Any], int]:
@@ -831,7 +847,7 @@ def _update_local_snapshot(
             local_id,
             status=status,
             remote=task,
-            error=task.get("error") if status in {"failed", "timeout", "canceled"} else None,
+            error=task.get("error") if status in {"failed", "timeout", "canceled", "blocked"} else None,
             billing=task.get("billing"),
             last_polled=utc_now(),
         )
@@ -864,6 +880,8 @@ def run_task_submission(
     start_time = started_at or time.perf_counter()
     initial_delay = initial_poll_delay_seconds() if not detach else 0.0
     operation = task_type.split(".", 1)[-1] if "." in task_type else task_type
+
+    _ensure_partner_quota(client)
 
     local_row = _persist_task_intent(
         client,
