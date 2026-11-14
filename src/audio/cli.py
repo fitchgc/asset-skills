@@ -10,7 +10,7 @@ from .artifacts import recent_payload
 from .audio_tasks import build_audio_task
 from .batches import execute_batch
 from .client import AsynxClient
-from .config import config_status, configure, doctor, legacy_installation_notice, load_credentials
+from .config import config_status, configure, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
 from .errors import AsxError
 from .local_audio import execute_local_audio
@@ -33,8 +33,7 @@ from .tasks import (
 
 
 def _client() -> AsynxClient:
-    api_key, base_url = load_credentials()
-    return AsynxClient(base_url, api_key)
+    return load_client()
 
 
 def _add_local_audio_commands(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:

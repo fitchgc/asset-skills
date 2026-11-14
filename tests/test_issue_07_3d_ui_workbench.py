@@ -66,7 +66,7 @@ class Test3DUIWorkbench(unittest.TestCase):
         self.source_glb.write_bytes(b"FAKE_GLB_DATA")
 
         self.gateway_server, self.gateway_url, self.gateway_thread = run_fake_gateway()
-        self.client = AsynxClient(self.gateway_url, "asx-3d-key")
+        self.client = AsynxClient(self.gateway_url, "pt_3d_key")
         self.static_dir = REPO_ROOT / "src" / "ui" / "3d"
 
     def tearDown(self) -> None:

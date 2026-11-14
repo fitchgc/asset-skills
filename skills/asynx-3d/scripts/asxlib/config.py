@@ -162,37 +162,19 @@ def validate_base_url(value: str) -> str:
     return candidate
 
 
-def validate_api_key(value: str) -> str:
-    key = value.strip()
-    if not key:
-        raise AsxError(
-            "API Key 不能为空，请从 Asynx 控制台获取。",
-            code="missing_api_key",
-        )
-    if not key.startswith("asx-"):
-        raise AsxError(
-            "API Key 格式不正确，应以 asx- 开头。",
-            code="invalid_api_key",
-        )
-    return key
+def load_credentials(*, allow_login_ui: bool = True) -> tuple[str, str]:
+    from .auth import load_auth_session
+
+    session = load_auth_session(allow_login_ui=allow_login_ui)
+    return session.ensure_valid_token(), session.base_url
 
 
-def load_credentials() -> tuple[str, str]:
-    config = read_config()
-    env_key = os.environ.get("ASYNX_API_KEY")
-    key = env_key or config.get("api_key")
-    if not key:
-        raise AsxError(
-            "未配置 Asynx API Key。请在终端执行 configure 命令保存密钥，"
-            "或设置 ASYNX_API_KEY 环境变量。",
-            code="not_configured",
-            exit_code=2,
-        )
-    api_key = validate_api_key(key)
-    env_url = os.environ.get("ASYNX_BASE_URL")
-    configured_url = config.get("base_url")
-    base_url = validate_base_url(env_url or configured_url or DEFAULT_BASE_URL)
-    return api_key, base_url
+def load_client(*, allow_login_ui: bool = True) -> Any:
+    from .auth import load_auth_session
+    from .client import AsynxClient
+
+    session = load_auth_session(allow_login_ui=allow_login_ui)
+    return AsynxClient(session.base_url, session=session)
 
 
 def _write_config(payload: dict[str, Any], path: Path) -> Path:
@@ -230,9 +212,16 @@ def _write_config(payload: dict[str, Any], path: Path) -> Path:
     return path
 
 
-def save_config(api_key: str, base_url: str) -> Path:
+def save_config(payload_or_token: dict[str, Any] | str, base_url: str | None = None) -> Path:
     payload = read_config()
-    payload.update({"api_key": api_key, "base_url": base_url})
+    if isinstance(payload_or_token, dict):
+        payload.update(payload_or_token)
+    else:
+        payload["token"] = payload_or_token
+        if base_url:
+            asynx_cfg = dict(payload.get("asynx")) if isinstance(payload.get("asynx"), dict) else {}
+            asynx_cfg["baseUrl"] = validate_base_url(base_url)
+            payload["asynx"] = asynx_cfg
     return _write_config(payload, config_path())
 
 
@@ -247,47 +236,88 @@ def migrate_legacy_config() -> Path | None:
     return None
 
 
-def _masked_key(value: Any) -> str | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    normalized = value.strip()
-    if normalized.startswith("asx-"):
-        return f"asx-{normalized[4:8]}..." if len(normalized) > 8 else "asx-****"
-    return "<invalid>"
-
-
 def config_status() -> dict[str, Any]:
+    from .auth import decode_jwt, resolve_login_svr_url
+
     config, source = read_config_with_source()
-    env_key = os.environ.get("ASYNX_API_KEY")
-    stored_key = config.get("api_key")
-    key = env_key or stored_key
-    credential_source = "environment" if env_key else "config_file" if stored_key else "none"
-    base_url = os.environ.get("ASYNX_BASE_URL") or config.get("base_url") or DEFAULT_BASE_URL
+    env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
+    stored_token = config.get("token") if isinstance(config.get("token"), str) else None
+    stored_refresh = config.get("refreshToken") if isinstance(config.get("refreshToken"), str) else None
+    token = env_token.strip() if isinstance(env_token, str) and env_token.strip() else stored_token
+
+    credential_source = (
+        "environment"
+        if isinstance(env_token, str) and env_token.strip()
+        else "session_file"
+        if (stored_token or stored_refresh)
+        else "none"
+    )
+
+    asynx_cfg = config.get("asynx") if isinstance(config.get("asynx"), dict) else {}
+    raw_base_url = (
+        os.environ.get("ASYNX_BASE_URL")
+        or asynx_cfg.get("baseUrl")
+        or config.get("base_url")
+    )
     normalized_base_url: str | None = None
     base_url_valid = False
-    if isinstance(base_url, str):
+    if isinstance(raw_base_url, str) and raw_base_url.strip():
         try:
-            normalized_base_url = validate_base_url(base_url)
+            normalized_base_url = validate_base_url(raw_base_url)
             base_url_valid = True
         except AsxError:
             normalized_base_url = "<invalid>"
+
+    try:
+        login_svr_url = resolve_login_svr_url(config)
+    except AsxError:
+        login_svr_url = "<invalid>"
+
+    token_expires_at: int | None = None
+    token_kid: str | None = None
+    if isinstance(token, str) and token.strip():
+        try:
+            hdr, pld = decode_jwt(token.strip())
+            if isinstance(hdr.get("kid"), str):
+                token_kid = hdr["kid"]
+            if pld.get("exp") is not None:
+                token_expires_at = int(pld["exp"])
+        except Exception:
+            pass
+
+    user = config.get("user") if isinstance(config.get("user"), dict) else None
     overrides = [
         name
-        for name in ("ASYNX_API_KEY", "ASYNX_BASE_URL", "ASYNX_CONFIG_PATH")
+        for name in (
+            "ASYNX_LOGIN_SVR_URL",
+            "ASYNX_PARTNER_TOKEN",
+            "ASYNX_BASE_URL",
+            "ASYNX_CONFIG_PATH",
+        )
         if os.environ.get(name)
     ]
     canonical = config_path()
+    configured = bool(
+        (isinstance(env_token, str) and env_token.strip())
+        or (isinstance(stored_token, str) and stored_token.strip())
+        or (isinstance(stored_refresh, str) and stored_refresh.strip())
+    )
     return {
         "ok": True,
-        "configured": isinstance(key, str) and bool(key.strip()),
+        "configured": configured,
         "credential_source": credential_source,
         "config_path": str(canonical),
         "loaded_config_path": str(source) if source else None,
         "config_exists": canonical.exists(),
-        "api_key_prefix": _masked_key(key),
-        "key_prefix_valid": isinstance(key, str) and key.strip().startswith("asx-"),
+        "login_svr_url": login_svr_url,
+        "has_token": bool(isinstance(token, str) and token.strip()),
+        "has_refresh_token": bool(isinstance(stored_refresh, str) and stored_refresh.strip()),
+        "token_expires_at": token_expires_at,
+        "token_kid": token_kid,
         "base_url": normalized_base_url,
         "base_url_valid": base_url_valid,
+        "asynx": asynx_cfg or None,
+        "user": user,
         "skill_version": VERSION,
         "environment_overrides": overrides,
     }
@@ -389,30 +419,32 @@ def doctor(*, verify: bool = False, modality: str | None = None) -> dict[str, An
     issues: list[dict[str, Any]] = []
 
     # 1. Config & credentials check
-    config_ok = status["configured"] and status["key_prefix_valid"] and status["base_url_valid"]
+    config_ok = bool(status["configured"]) and (
+        status["credential_source"] == "session_file" or status["base_url_valid"]
+    )
     checks.append(
         {
             "name": "credentials",
             "ok": config_ok,
-            "message": "API key and base URL configured"
+            "message": "Partner token session configured"
             if config_ok
-            else "API key or base URL missing or invalid",
+            else "Login session or partner token not configured",
         }
     )
     if not status["configured"]:
         issues.append(
             {
                 "level": "error",
-                "code": "not_configured",
-                "message": "Asynx API key is not configured. Run configure command or set ASYNX_API_KEY.",
+                "code": "need_login",
+                "message": "Asynx login session is not configured. Run login/configure or set ASYNX_PARTNER_TOKEN.",
             }
         )
-    elif not status["key_prefix_valid"]:
+    elif not config_ok:
         issues.append(
             {
                 "level": "error",
-                "code": "invalid_api_key_format",
-                "message": "API key format is invalid; expected prefix asx-",
+                "code": "invalid_base_url",
+                "message": "Asynx gateway base URL is invalid.",
             }
         )
 
@@ -492,14 +524,14 @@ def doctor(*, verify: bool = False, modality: str | None = None) -> dict[str, An
 
     if verify:
         try:
-            from .client import AsynxClient
-
-            api_key, base_url = load_credentials()
-            models, request_id = AsynxClient(base_url, api_key).models(modality=modality)
+            client = load_client(allow_login_ui=False)
+            identity, _id_req = client.partner_identity()
+            models, request_id = client.models(modality=modality)
             result["verification"] = {
                 "ok": True,
                 "model_count": len(models),
                 "request_id": request_id,
+                "partner_identity": identity,
             }
             checks.append(
                 {
@@ -549,40 +581,46 @@ def doctor(*, verify: bool = False, modality: str | None = None) -> dict[str, An
     return result
 
 
-def configure(base_url_override: str | None = None) -> dict[str, Any]:
+def configure(
+    base_url_override: str | None = None,
+    *,
+    login_svr_url_override: str | None = None,
+) -> dict[str, Any]:
+    from .auth import login_and_provision, resolve_login_svr_url, validate_login_svr_url
+
     if not sys.stdin.isatty():
         raise AsxError(
-            "请在自己的终端运行配置命令并输入 API Key，不要在对话中发送密钥。",
+            "请在自己的终端运行登录配置命令，或使用交互式登录工作台。",
             code="interactive_terminal_required",
         )
     migrated = migrate_legacy_config()
     current = read_config()
-    configured_url = current.get("base_url") if isinstance(current.get("base_url"), str) else None
-    base_url = validate_base_url(
-        base_url_override or os.environ.get("ASYNX_BASE_URL") or configured_url or DEFAULT_BASE_URL
+    default_login_url = validate_login_svr_url(
+        login_svr_url_override or resolve_login_svr_url(current)
     )
+    if base_url_override:
+        os.environ["ASYNX_BASE_URL"] = validate_base_url(base_url_override)
     log(f"配置文件：{config_path()}")
     if migrated:
         log(f"已将旧配置保存到：{migrated}，原文件已保留。")
-    if base_url != DEFAULT_BASE_URL:
-        log(f"服务地址：{base_url}")
-    if base_url == DEFAULT_BASE_URL:
-        log("还没有 API Key？请前往 https://asynx.llmapi.site/api-keys 创建。")
-    log("输入时不会显示字符，这是正常的。")
-    existing_key = current.get("api_key") if isinstance(current.get("api_key"), str) else ""
-    label = "请输入 API Key（直接回车保留已保存的密钥）：" if existing_key else "请输入 API Key："
     try:
-        entered_key = getpass.getpass(label).strip()
+        entered_url = input(f"Identity Service 地址 [{default_login_url}]：").strip()
+        login_svr_url = validate_login_svr_url(entered_url or default_login_url)
+        username = input("用户名：").strip()
+        password = getpass.getpass("密码：")
     except (EOFError, KeyboardInterrupt):
-        raise AsxError("已取消输入，未保存新密钥。", code="interrupted", exit_code=130) from None
-    api_key = validate_api_key(entered_key or existing_key)
-    path = save_config(api_key, base_url)
-    log("API Key 已保存，尚未验证连接。")
-    if os.environ.get("ASYNX_API_KEY"):
-        log("注意：当前设置了 ASYNX_API_KEY 环境变量，运行时会优先使用它；如需使用刚保存的密钥，请先移除或更新该环境变量。")
+        raise AsxError("已取消登录配置。", code="interrupted", exit_code=130) from None
+
+    session, identity = login_and_provision(username, password, login_svr_url=login_svr_url)
+    log("登录成功，已保存会话并完成 Partner Identity 开通。")
+    if os.environ.get("ASYNX_PARTNER_TOKEN"):
+        log("注意：当前设置了 ASYNX_PARTNER_TOKEN 环境变量，运行时会优先使用它。")
     return {
         "ok": True,
         "configured": True,
-        "base_url": base_url,
-        "config_path": str(path.resolve()),
+        "login_svr_url": session.login_svr_url,
+        "base_url": session.base_url,
+        "user": session.user,
+        "partner_identity": identity,
+        "config_path": str(config_path().resolve()),
     }

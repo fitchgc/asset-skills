@@ -14,7 +14,7 @@ from .config import (
     configure,
     doctor,
     legacy_installation_notice,
-    load_credentials,
+    load_client,
 )
 from .constants import (
     DEFAULT_BATCH_SUBMISSIONS_PER_POLL,
@@ -344,8 +344,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def _client() -> AsynxClient:
-    api_key, base_url = load_credentials()
-    return AsynxClient(base_url, api_key)
+    return load_client()
 
 
 def _ui_static_dir() -> Path:

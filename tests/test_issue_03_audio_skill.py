@@ -47,7 +47,7 @@ class TestAsynxAudioSkill(unittest.TestCase):
             **os.environ,
             "ASYNX_STATE_PATH": str(self.state_db),
             "ASYNX_CONFIG_PATH": str(self.config_file),
-            "ASYNX_API_KEY": "asx-audio-test-key",
+            "ASYNX_PARTNER_TOKEN": "pt_audio_test_key",
         }
         self.server, self.gateway_url, self.thread = run_fake_gateway()
         self.env["ASYNX_BASE_URL"] = self.gateway_url

@@ -50,7 +50,7 @@ from .state import (
 from .state import (
     update_task as update_state_task,
 )
-from .tasks import download_assets, index_downloaded_artifacts
+from .tasks import _ensure_partner_quota, download_assets, index_downloaded_artifacts
 
 
 def utc_now() -> str:
@@ -120,9 +120,9 @@ def batch_summary(connection: sqlite3.Connection, batch: sqlite3.Row) -> dict[st
     counts = {str(row["status"]): int(row["count"]) for row in rows}
     total = sum(counts.values())
     pending_download = _pending_downloads(connection, str(batch["id"]))
-    unsuccessful = sum(counts.get(status, 0) for status in ("failed", "timeout", "canceled"))
+    unsuccessful = sum(counts.get(status, 0) for status in ("failed", "timeout", "canceled", "blocked"))
     finished = (
-        sum(counts.get(status, 0) for status in ("succeeded", "failed", "timeout", "canceled"))
+        sum(counts.get(status, 0) for status in ("succeeded", "failed", "timeout", "canceled", "blocked"))
         - pending_download
     )
     return {
@@ -503,7 +503,7 @@ def _attach_batch_results(
     for row in rows:
         identity = {"sequence": row["sequence"], "task_id": row["task_id"]}
         error = json.loads(row["error_json"]) if row["error_json"] else None
-        if row["status"] in {"failed", "timeout", "canceled"}:
+        if row["status"] in {"failed", "timeout", "canceled", "blocked"}:
             failures.append({**identity, "status": row["status"], "error": error})
         stored_files = json.loads(row["files_json"]) if row["files_json"] else []
         stored_files = list(dict.fromkeys([
@@ -518,7 +518,7 @@ def _attach_batch_results(
                     "message": "图片已生成，但尚未完整下载；刷新或等待此批次即可继续下载，无需重新生成。",
                 },
             })
-        elif error and row["status"] not in {"failed", "timeout", "canceled"}:
+        elif error and row["status"] not in {"failed", "timeout", "canceled", "blocked"}:
             warnings.append({**identity, **error})
         remote = json.loads(row["remote_json"]) if row["remote_json"] else {}
         if remote.get("result_quality") == "degraded":
@@ -601,7 +601,7 @@ def _refresh_batch_status(connection: sqlite3.Connection, batch_id: str) -> None
     unfinished = int(
         connection.execute(
             "SELECT COUNT(*) FROM batch_items WHERE batch_id = ? AND "
-            "status NOT IN ('succeeded', 'failed', 'timeout', 'canceled')",
+            "status NOT IN ('succeeded', 'failed', 'timeout', 'canceled', 'blocked')",
             (batch_id,),
         ).fetchone()[0]
     )
@@ -660,6 +660,8 @@ def poll_batch(
             "ORDER BY sequence LIMIT ?",
             (batch["id"], _refresh_only, submissions_limit),
         ).fetchall()
+        if pending:
+            _ensure_partner_quota(client)
         for item in pending:
             claim = connection.execute(
                 "UPDATE batch_items SET status = 'submitting', error_json = NULL, updated_at = ? "
@@ -697,7 +699,9 @@ def poll_batch(
                 if intent.get("remote_task_id"):
                     task, request_id = client.task(str(intent["remote_task_id"]))
                 else:
-                    task, request_id = client.submit(body, item["idempotency_key"])
+                    task_modality = batch["modality"] if "modality" in batch.keys() else "image"
+                    task_type = body.get("task_type") or f"{task_modality}.{batch['operation']}"
+                    task, request_id = client.submit(task_type, body, item["idempotency_key"])
                     bind_remote_task(
                         connection,
                         local_task_id,
@@ -744,7 +748,7 @@ def poll_batch(
                     status=status if status in LOCAL_ITEM_STATUSES else "submitted",
                     task_id=submitted_task_id,
                     request_id=request_id,
-                    error=task.get("error") if status in {"failed", "timeout", "canceled"} else None,
+                    error=task.get("error") if status in {"failed", "timeout", "canceled", "blocked"} else None,
                 )
                 connection.commit()
                 submitted += 1
@@ -837,7 +841,7 @@ def poll_batch(
                     status=status,
                     remote=task,
                     billing=task.get("billing"),
-                    error=task.get("error") if status in {"failed", "timeout", "canceled"} else None,
+                    error=task.get("error") if status in {"failed", "timeout", "canceled", "blocked"} else None,
                     last_polled=utc_now(),
                 )
                 if previous_state != status:
@@ -862,6 +866,7 @@ def poll_batch(
                             metrics=asset_downloads,
                             local_task_id=batch_local_task_id,
                             completed_files=completed_files,
+                            modality=batch["modality"] if "modality" in batch.keys() else "image",
                         )
                         downloaded += len(files)
                     except AsxError as exc:
@@ -891,7 +896,7 @@ def poll_batch(
                 files=files,
                 error=(
                     task.get("error")
-                    if status in {"failed", "timeout", "canceled"}
+                    if status in {"failed", "timeout", "canceled", "blocked"}
                     else None
                 ),
             )

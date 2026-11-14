@@ -52,7 +52,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
             **os.environ,
             "ASYNX_STATE_PATH": str(self.state_db),
             "ASYNX_CONFIG_PATH": str(self.config_file),
-            "ASYNX_API_KEY": "asx-cross-skill-key",
+            "ASYNX_PARTNER_TOKEN": "pt_cross_skill_key",
             "ASYNX_BASE_URL": self.gateway_url,
         }
 

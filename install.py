@@ -270,31 +270,30 @@ def _installed_targets(home: Path, skills: list[str]) -> list[str]:
 
 
 def _configured(client: ModuleType) -> bool:
-    key = os.environ.get("ASYNX_API_KEY")
-    if isinstance(key, str) and key.strip():
+    token = os.environ.get("ASYNX_PARTNER_TOKEN")
+    if isinstance(token, str) and token.strip():
         return True
     config = client.read_config()
-    configured = config.get("api_key")
-    if not isinstance(configured, str) or not configured.strip():
-        return False
-    try:
-        client.validate_api_key(configured)
-    except client.AsxError:
-        return False
-    return True
+    stored_token = config.get("token")
+    stored_refresh = config.get("refreshToken")
+    return bool(
+        (isinstance(stored_token, str) and stored_token.strip())
+        or (isinstance(stored_refresh, str) and stored_refresh.strip())
+    )
 
 
 def _verify(client: ModuleType) -> int:
     try:
-        api_key, base_url = client.load_credentials()
-        models, _request_id = client.AsynxClient(base_url, api_key).models()
+        api_client = client.load_client(allow_login_ui=False)
+        identity, _id_req = api_client.partner_identity()
+        models, _request_id = api_client.models()
     except client.AsxError as exc:
-        if exc.http_status == 401 or exc.code in {"missing_api_key", "invalid_api_key"}:
-            message = "API Key 未通过验证，请确认密钥完整有效，并在自己的终端重新配置。"
+        if exc.http_status == 401 or exc.code in {"need_login", "invalid_partner_token", "auth_expired"}:
+            message = "登录会话无效或已过期，请重新登录账号。"
         elif exc.http_status == 403:
-            message = "当前密钥无权访问模型目录，请检查密钥权限，或联系服务管理员。"
+            message = "当前账号无权访问模型目录，请检查权限，或联系服务管理员。"
         elif exc.code == "network_error":
-            message = "暂时无法连接 Asynx，请检查网络或服务地址后重试；这不代表密钥有误。"
+            message = "暂时无法连接 Asynx 或 Identity Service，请检查网络或服务地址后重试。"
         elif exc.http_status == 429:
             message = "请求过于频繁，请稍后重新执行连接检查。"
         else:
@@ -312,8 +311,8 @@ def _verify(client: ModuleType) -> int:
         "video.generate",
         "audio.sfx",
         "audio.music",
-        "audio.tts",
-        "model3d.generate",
+        "audio.speech",
+        "3d.generate",
     }
     capable = [
         model
@@ -323,7 +322,11 @@ def _verify(client: ModuleType) -> int:
     if not capable:
         print("Skill 已安装、连接正常，但当前没有可用的多模态模型。请稍后重试或联系服务支持。", file=sys.stderr)
         return 1
-    print(f"连接检查通过，可访问 {len(capable)} 个多模态资产模型。本次未提交生成任务，实际生成权限与余额尚未验证。")
+    api_status = (identity.get("api_key") or {}).get("status", "active") if isinstance(identity, dict) else "active"
+    if api_status == "quota_exhausted":
+        print(f"连接检查通过（可访问 {len(capable)} 个多模态资产模型），但当前账户额度已用尽 (quota_exhausted)。")
+    else:
+        print(f"连接检查通过，可访问 {len(capable)} 个多模态资产模型，账户状态：{api_status}。")
     return 0
 
 
@@ -435,10 +438,10 @@ def run(
 
     if not args.skip_config:
         if _configured(client):
-            if os.environ.get("ASYNX_API_KEY"):
-                print("正在使用 ASYNX_API_KEY 环境变量中的密钥，其优先级高于配置文件；此步骤不会将其写入配置文件。")
+            if os.environ.get("ASYNX_PARTNER_TOKEN"):
+                print("正在使用 ASYNX_PARTNER_TOKEN 环境变量中的 Partner Token，其优先级高于配置文件；此步骤不会将其写入配置文件。")
             else:
-                print("正在使用已保存的 API Key，无需重复输入。")
+                print("正在使用已保存的登录会话，无需重复登录。")
         else:
             client.configure()
         if not args.no_verify:

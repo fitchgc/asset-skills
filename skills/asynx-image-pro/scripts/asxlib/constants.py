@@ -28,6 +28,9 @@ DOWNLOAD_TIMEOUT_BY_MODALITY = {
 }
 
 # Gateway & Defaults
+DEFAULT_LOGIN_SVR_URL = "http://localhost:3006"
+DEFAULT_TOKEN_HEADER = "X-Asynx-Partner-Token"
+PROACTIVE_REFRESH_LEEWAY_SECONDS = 60
 DEFAULT_BASE_URL = "https://asynx.llmapi.site/api"
 DEFAULT_MODEL = "gpt-image-2.5-sunburst"
 DEFAULT_QUALITY = "auto"
@@ -59,7 +62,7 @@ MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
 REFERENCE_WEBP_QUALITY = 82
 
 # Task statuses
-TERMINAL_STATUSES = frozenset({"succeeded", "failed", "timeout", "canceled"})
+TERMINAL_STATUSES = frozenset({"succeeded", "failed", "timeout", "canceled", "blocked"})
 KNOWN_STATUSES = TERMINAL_STATUSES | frozenset({"queued", "running", "delayed", "canceling"})
 TRANSIENT_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
 LOCAL_ITEM_STATUSES = frozenset(
@@ -75,5 +78,6 @@ LOCAL_ITEM_STATUSES = frozenset(
         "failed",
         "timeout",
         "canceled",
+        "blocked",
     }
 )
