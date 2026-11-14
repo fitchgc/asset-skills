@@ -9,7 +9,7 @@ import re
 import secrets
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
@@ -28,11 +28,13 @@ from .constants import (
 from .errors import AsxError
 from .output import log
 from .state import (
+    SCHEMA_VERSION,
     append_event,
     bind_remote_task,
     cancel_blocked_batch_intent,
     create_task_intent,
     list_assets,
+    record_artifact_with_lineage,
     update_task,
     upsert_asset,
     utc_now,
@@ -148,6 +150,24 @@ def _unique_output_path(directory: Path, base_name: str, extension: str) -> Path
     return directory / f"{safe_name}.{extension}"
 
 
+def _stored_lineage_context(
+    connection: sqlite3.Connection, local_task_id: str
+) -> dict[str, Any]:
+    row = connection.execute(
+        "SELECT payload_json FROM task_events "
+        "WHERE local_task_id = ? AND event_type = 'lineage_parents' "
+        "ORDER BY id DESC LIMIT 1",
+        (local_task_id,),
+    ).fetchone()
+    if row is None or not row["payload_json"]:
+        return {}
+    try:
+        parsed = json.loads(str(row["payload_json"]))
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
 def download_assets(
     client: AsynxClient,
     task: dict[str, Any],
@@ -158,6 +178,11 @@ def download_assets(
     local_task_id: str | None = None,
     completed_files: list[str] | None = None,
     modality: str | None = None,
+    parent_paths: Sequence[str | Path] | None = None,
+    operation: str | None = None,
+    category: str | None = None,
+    source_kind: str = "cloud_task",
+    metadata: Mapping[str, Any] | None = None,
 ) -> list[str]:
     task_id = task.get("id")
     result = task.get("result")
@@ -172,24 +197,45 @@ def download_assets(
     directory.mkdir(parents=True, exist_ok=True)
     files: list[str] = completed_files if completed_files is not None else []
     cached_assets: dict[int, dict[str, Any]] = {}
+    task_row: dict[str, Any] | None = None
+    resolved_parents = list(parent_paths) if parent_paths is not None else None
+    resolved_metadata = dict(metadata) if metadata else None
     if local_task_id:
         cache_connection = connect_ledger_db()
         try:
+            task_row = get_ledger_task(cache_connection, local_task_id=local_task_id)
             cached_assets = {
                 int(item["remote_index"]): item
                 for item in list_assets(cache_connection, local_task_id)
             }
+            if resolved_parents is None or resolved_metadata is None:
+                ctx = _stored_lineage_context(cache_connection, local_task_id)
+                if resolved_parents is None and isinstance(ctx.get("parent_paths"), list):
+                    resolved_parents = ctx["parent_paths"]
+                if resolved_metadata is None and isinstance(ctx.get("metadata"), dict):
+                    resolved_metadata = ctx["metadata"]
         finally:
             cache_connection.close()
 
-    # Determine default extension from task modality or output format
+    # Determine default extension and modality from task type or modality
     default_ext = "png"
     task_type = task.get("task_type", "")
-    if task_type.startswith("audio.") or modality == "audio":
+    resolved_modality = modality or (
+        str(task_row["modality"]) if task_row and task_row.get("modality") else None
+    )
+    if not resolved_modality and isinstance(task_type, str) and "." in task_type:
+        resolved_modality = task_type.split(".", 1)[0]
+    resolved_modality = resolved_modality or "image"
+    resolved_operation = (
+        operation
+        or (str(task_row["operation"]) if task_row and task_row.get("operation") else None)
+        or (task_type.split(".", 1)[-1] if isinstance(task_type, str) and "." in task_type else "generate")
+    )
+    if task_type.startswith("audio.") or resolved_modality == "audio":
         default_ext = "mp3"
-    elif task_type.startswith("video.") or modality == "video":
+    elif task_type.startswith("video.") or resolved_modality == "video":
         default_ext = "mp4"
-    elif task_type.startswith("3d.") or modality == "3d":
+    elif task_type.startswith("3d.") or resolved_modality == "3d":
         default_ext = "glb"
 
     for asset in assets:
@@ -230,7 +276,7 @@ def download_assets(
             index,
             dest_path,
             download_url=download_url,
-            modality=modality,
+            modality=resolved_modality,
             metrics=asset_metrics,
         )
         final_path = dl_result["path"]
@@ -244,18 +290,23 @@ def download_assets(
         if local_task_id:
             connection = connect_ledger_db()
             try:
-                upsert_asset(
+                record_artifact_with_lineage(
                     connection,
-                    local_task_id,
-                    index,
-                    path=final_path,
+                    file_path=final_path,
+                    modality=resolved_modality,
+                    operation=resolved_operation,
+                    source_kind=source_kind,
+                    category=category or resolved_modality,
+                    local_task_id=local_task_id,
+                    remote_index=index,
                     remote_url=download_url,
                     mime=actual_mime,
-                    bytes=byte_count,
+                    size_bytes=byte_count,
                     sha256=sha256_digest,
-                    state="available",
+                    metadata=resolved_metadata,
+                    parent_paths=resolved_parents,
+                    task_id=task_id,
                 )
-                connection.commit()
             finally:
                 connection.close()
         files.append(final_path)
@@ -264,7 +315,14 @@ def download_assets(
 
 
 def index_downloaded_artifacts(
-    task: dict[str, Any], files: list[str], *, operation: str | None = None
+    task: dict[str, Any],
+    files: list[str],
+    *,
+    operation: str | None = None,
+    modality: str | None = None,
+    parent_paths: Sequence[str | Path] | None = None,
+    category: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     remote_id = task.get("id")
     if not isinstance(remote_id, str):
@@ -272,13 +330,20 @@ def index_downloaded_artifacts(
     connection = connect_ledger_db()
     try:
         existing = get_ledger_task(connection, remote_task_id=remote_id)
+        task_type = task.get("task_type")
+        resolved_modality = modality or (
+            task_type.split(".", 1)[0]
+            if isinstance(task_type, str) and "." in task_type
+            else (existing.get("modality") if existing else "image")
+        ) or "image"
+        operation_value = operation or (
+            task_type.split(".", 1)[-1]
+            if isinstance(task_type, str) and "." in task_type
+            else "generate"
+        )
         if existing is None:
-            task_type = task.get("task_type")
-            operation_value = operation or (
-                task_type.removeprefix("image.") if isinstance(task_type, str) else "generate"
-            )
             request: dict[str, Any] = {
-                "task_type": task_type or f"image.{operation_value}",
+                "task_type": task_type or f"{resolved_modality}.{operation_value}",
                 "model": task.get("model") or "unknown",
                 "input": task.get("input") if isinstance(task.get("input"), dict) else {},
             }
@@ -291,6 +356,7 @@ def index_downloaded_artifacts(
                 request=request,
                 output_dir=str(Path(files[0]).parent) if files else DEFAULT_OUTPUT_DIR,
                 status="succeeded",
+                modality=resolved_modality,
             )
             bind_remote_task(
                 connection,
@@ -302,19 +368,18 @@ def index_downloaded_artifacts(
             )
         local_id = str(existing["local_id"])
         for index, path in enumerate(files):
-            file_bytes = Path(path).stat().st_size
-            h = hashlib.sha256()
-            with open(path, "rb") as f:
-                while chunk := f.read(64 * 1024):
-                    h.update(chunk)
-            upsert_asset(
+            record_artifact_with_lineage(
                 connection,
-                local_id,
-                index,
-                path=path,
-                bytes=file_bytes,
-                sha256=h.hexdigest(),
-                state="available",
+                file_path=path,
+                modality=resolved_modality,
+                operation=operation_value,
+                source_kind="cloud_task",
+                category=category or resolved_modality,
+                local_task_id=local_id,
+                remote_index=index,
+                metadata=metadata,
+                parent_paths=parent_paths,
+                task_id=remote_id,
             )
         connection.commit()
     except (OSError, sqlite3.Error, AsxError) as exc:
@@ -356,7 +421,7 @@ def _local_task_payload(row: dict[str, Any]) -> dict[str, Any]:
     remote = row.get("remote")
     payload: dict[str, Any] = {
         "ok": row.get("status") not in {"failed", "timeout", "canceled", "blocked", "orphaned"},
-        "schema_version": 2,
+        "schema_version": SCHEMA_VERSION,
         "local_id": row.get("local_id"),
         "task_id": row.get("remote_task_id"),
         "status": row.get("status"),
@@ -535,7 +600,7 @@ def recover_tasks(
             results.append(synced)
         except AsxError as exc:
             results.append({**_local_task_payload(row), "ok": False, "error": exc.payload()["error"]})
-    return {"ok": all(item.get("ok", False) for item in results), "schema_version": 2, "tasks": results}
+    return {"ok": all(item.get("ok", False) for item in results), "schema_version": SCHEMA_VERSION, "tasks": results}
 
 
 def local_tasks_payload(
@@ -544,7 +609,7 @@ def local_tasks_payload(
     connection = connect_ledger_db()
     try:
         rows = list_ledger_tasks(connection, modality=modality, status=status, limit=limit)
-        return {"ok": True, "schema_version": 2, "tasks": [_local_task_payload(row) for row in rows]}
+        return {"ok": True, "schema_version": SCHEMA_VERSION, "tasks": [_local_task_payload(row) for row in rows]}
     finally:
         connection.close()
 
@@ -552,7 +617,7 @@ def local_tasks_payload(
 def local_task_status(identifier: str) -> dict[str, Any]:
     connection = connect_ledger_db()
     try:
-        return {"ok": True, "schema_version": 2, "task": _local_task_payload(_task_identifier_row(connection, identifier))}
+        return {"ok": True, "schema_version": SCHEMA_VERSION, "task": _local_task_payload(_task_identifier_row(connection, identifier))}
     finally:
         connection.close()
 
@@ -563,7 +628,7 @@ def local_asset_payload(identifier: str) -> dict[str, Any]:
         row = _task_identifier_row(connection, identifier)
         return {
             "ok": True,
-            "schema_version": 2,
+            "schema_version": SCHEMA_VERSION,
             "local_id": row["local_id"],
             "task_id": row.get("remote_task_id"),
             "assets": [
@@ -615,7 +680,7 @@ def poll_local_tasks(
                     "error": exc.payload().get("error"),
                 }
             )
-    return {"ok": all(item.get("ok", False) for item in results), "schema_version": 2, "tasks": results}
+    return {"ok": all(item.get("ok", False) for item in results), "schema_version": SCHEMA_VERSION, "tasks": results}
 
 
 def cancel_local_task(client: AsynxClient, identifier: str) -> tuple[dict[str, Any], int]:
@@ -685,7 +750,7 @@ def task_payload(
         "result_quality": task.get("result_quality"),
         "billing": task.get("billing"),
         "request_id": request_id,
-        "schema_version": 2,
+        "schema_version": SCHEMA_VERSION,
         "local_id": local_id,
         "modality": modality,
     }
@@ -711,6 +776,10 @@ def _download_task_result(
     local_id: str | None = None,
     metrics: list[dict[str, Any]] | None = None,
     modality: str = "image",
+    parent_paths: Sequence[str | Path] | None = None,
+    operation: str | None = None,
+    category: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], int]:
     files: list[str] = []
     download_error: dict[str, Any] | None = None
@@ -723,6 +792,10 @@ def _download_task_result(
             metrics=metrics,
             completed_files=files,
             modality=modality,
+            parent_paths=parent_paths,
+            operation=operation,
+            category=category,
+            metadata=metadata,
         )
     except AsxError as exc:
         download_error = exc.payload()["error"]
@@ -753,6 +826,8 @@ def _persist_task_intent(
     idempotency_key: str,
     output_dir: str,
     modality: str = "image",
+    parent_paths: Sequence[str | Path] | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     local_id = f"local_{secrets.token_hex(12)}"
     resolved_output_dir = (
@@ -775,6 +850,16 @@ def _persist_task_intent(
             modality=modality,
         )
         append_event(connection, str(row["local_id"]), "submit_started")
+        if parent_paths or metadata:
+            append_event(
+                connection,
+                str(row["local_id"]),
+                "lineage_parents",
+                {
+                    "parent_paths": [str(p) for p in (parent_paths or [])],
+                    "metadata": dict(metadata) if metadata else None,
+                },
+            )
         connection.commit()
         return row
     finally:
@@ -876,6 +961,9 @@ def run_task_submission(
     input_warnings: list[dict[str, Any]] | None = None,
     catalog_request_id: str | None = None,
     started_at: float | None = None,
+    parent_paths: Sequence[str | Path] | None = None,
+    category: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], int]:
     start_time = started_at or time.perf_counter()
     initial_delay = initial_poll_delay_seconds() if not detach else 0.0
@@ -891,6 +979,8 @@ def run_task_submission(
         idempotency_key=idempotency_key,
         output_dir=output_dir,
         modality=modality,
+        parent_paths=parent_paths,
+        metadata=metadata,
     )
     local_id = str(local_row["local_id"])
     resolved_output_dir = str(local_row.get("output_dir") or output_dir)
@@ -953,6 +1043,10 @@ def run_task_submission(
         metrics=asset_metrics,
         local_id=local_id,
         modality=modality,
+        parent_paths=parent_paths,
+        operation=operation,
+        category=category,
+        metadata=metadata,
     )
     timings["download_seconds"] = round(time.perf_counter() - finished_at, 3)
     timings["asset_downloads"] = asset_metrics
@@ -981,6 +1075,10 @@ def run_submission(
             references = ledger_task_paths(connection, from_task)
         finally:
             connection.close()
+    mask_arg = args.mask if task_type == "image.edit" else None
+    parent_paths: list[str] = [p for p in (references or []) if isinstance(p, str) and p.strip()]
+    if isinstance(mask_arg, str) and mask_arg.strip():
+        parent_paths.append(mask_arg)
     body, model, catalog_request_id = build_task(
         client,
         task_type=task_type,
@@ -992,7 +1090,7 @@ def run_submission(
         count=args.count,
         output_format=args.output_format,
         references=references,
-        mask=args.mask if task_type == "image.edit" else None,
+        mask=mask_arg,
         keep_reference_original=args.keep_reference_original,
     )
     input_warnings = task_input_warnings(body)
@@ -1013,6 +1111,7 @@ def run_submission(
         input_warnings=input_warnings,
         catalog_request_id=catalog_request_id,
         started_at=started_at,
+        parent_paths=parent_paths,
     )
 
 

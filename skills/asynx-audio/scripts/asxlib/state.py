@@ -1,17 +1,20 @@
 """Versioned local task ledger used by the Asynx skills.
 
-Schema version 2 adds multi-modal scoping (image, audio, video, 3d) to tasks and batches,
-with seamless zero-data-loss migration from version 1.
+Schema version 3 adds asset classification/source metadata and directed parent-child
+asset lineage (asset_lineage) across cloud generation tasks, local post-processing,
+and Local UI Workbench exports, with seamless zero-data-loss migration from v1 and v2.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import mimetypes
 import secrets
 import sqlite3
 import stat
-from collections.abc import Mapping
+from collections import deque
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,9 +23,10 @@ from .config import state_path
 from .constants import UTC
 from .errors import AsxError
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DB_TIMEOUT_SECONDS = 30
 DB_BUSY_TIMEOUT_MILLISECONDS = 30_000
+_LOCAL_TASK_BASE_URLS = ("local://process", "local://ui")
 
 _TASK_FIELDS = frozenset(
     {
@@ -80,6 +84,23 @@ _REQUIRED_COLUMNS = {
         "state",
         "created_at",
         "updated_at",
+        "category",
+        "source_kind",
+        "operation",
+        "metadata_json",
+    },
+    "asset_lineage": {
+        "id",
+        "parent_artifact_id",
+        "parent_path",
+        "parent_sha256",
+        "child_artifact_id",
+        "child_path",
+        "child_sha256",
+        "operation",
+        "modality",
+        "task_id",
+        "created_at",
     },
     "task_events": {"id", "local_task_id", "event_type", "payload_json", "created_at"},
 }
@@ -166,8 +187,41 @@ def connect_db(path: Path | str | None = None) -> sqlite3.Connection:
     return connection
 
 
+def compute_file_sha256(path: Path | str) -> str | None:
+    """Return the hex SHA-256 digest of a regular local file, or None if unavailable."""
+    target = Path(path).expanduser()
+    try:
+        if not target.is_file():
+            return None
+        digest = hashlib.sha256()
+        with target.open("rb") as handle:
+            while chunk := handle.read(64 * 1024):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def new_local_task_id(prefix: str = "local_proc") -> str:
+    return f"{prefix}_{secrets.token_hex(12)}"
+
+
+def _canonical_path(value: str | Path) -> str:
+    text = str(value).strip()
+    if text.casefold().startswith(("http://", "https://", "data:")):
+        return text
+    return str(Path(text).expanduser().resolve())
+
+
+def _asset_row_dict(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(zip(row.keys(), tuple(row)))
+    if "metadata_json" in result:
+        result["metadata"] = _decode(result["metadata_json"])
+    return result
+
+
 def init_schema(connection: sqlite3.Connection) -> None:
-    """Create or migrate the schema to SCHEMA_VERSION = 2 with zero data loss."""
+    """Create or migrate the schema to SCHEMA_VERSION = 3 with zero data loss."""
     if connection.row_factory is None:
         connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -177,39 +231,6 @@ def init_schema(connection: sqlite3.Connection) -> None:
             f"State database schema {version} is newer than supported version {SCHEMA_VERSION}",
             code="unsupported_state_schema",
         )
-
-    # Version 1 -> Version 2 migration
-    if version == 1:
-        # Check if tasks table exists and needs modality column
-        task_cols = {
-            str(row[1]) for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
-        }
-        if "modality" not in task_cols:
-            connection.execute("ALTER TABLE tasks ADD COLUMN modality TEXT NOT NULL DEFAULT 'image'")
-        connection.execute(
-            "CREATE INDEX IF NOT EXISTS ix_tasks_modality_updated ON tasks(modality, updated_at DESC)"
-        )
-
-        # Also migrate batches if table exists
-        existing_tables = {
-            str(row[0])
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
-        if "batches" in existing_tables:
-            batch_cols = {
-                str(row[1]) for row in connection.execute("PRAGMA table_info(batches)").fetchall()
-            }
-            if "modality" not in batch_cols:
-                connection.execute("ALTER TABLE batches ADD COLUMN modality TEXT NOT NULL DEFAULT 'image'")
-            connection.execute(
-                "CREATE INDEX IF NOT EXISTS ix_batches_modality_updated ON batches(modality, updated_at DESC)"
-            )
-
-        connection.execute("PRAGMA user_version = 2")
-        connection.commit()
-        return
 
     # Fresh creation (version == 0)
     if version == 0:
@@ -251,12 +272,20 @@ def init_schema(connection: sqlite3.Connection) -> None:
                 state TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
+                category TEXT,
+                source_kind TEXT NOT NULL DEFAULT 'cloud_task',
+                operation TEXT,
+                metadata_json TEXT,
                 UNIQUE(local_task_id, remote_index)
             );
             CREATE INDEX IF NOT EXISTS ix_assets_task_index
                 ON assets(local_task_id, remote_index);
             CREATE INDEX IF NOT EXISTS ix_assets_state_updated
                 ON assets(state, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS ix_assets_path
+                ON assets(path);
+            CREATE INDEX IF NOT EXISTS ix_assets_sha256
+                ON assets(sha256);
             CREATE TABLE IF NOT EXISTS task_events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 local_task_id TEXT NOT NULL REFERENCES tasks(local_id) ON DELETE CASCADE,
@@ -266,7 +295,110 @@ def init_schema(connection: sqlite3.Connection) -> None:
             );
             CREATE INDEX IF NOT EXISTS ix_task_events_task_created
                 ON task_events(local_task_id, created_at, id);
-            PRAGMA user_version = 2;
+            CREATE TABLE IF NOT EXISTS asset_lineage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_artifact_id TEXT,
+                parent_path TEXT NOT NULL,
+                parent_sha256 TEXT,
+                child_artifact_id TEXT NOT NULL REFERENCES assets(artifact_id) ON DELETE CASCADE,
+                child_path TEXT NOT NULL,
+                child_sha256 TEXT,
+                operation TEXT NOT NULL,
+                modality TEXT NOT NULL,
+                task_id TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(parent_path, child_artifact_id, operation)
+            );
+            CREATE INDEX IF NOT EXISTS ix_lineage_child
+                ON asset_lineage(child_artifact_id);
+            CREATE INDEX IF NOT EXISTS ix_lineage_parent_id
+                ON asset_lineage(parent_artifact_id);
+            CREATE INDEX IF NOT EXISTS ix_lineage_parent_path
+                ON asset_lineage(parent_path);
+            CREATE INDEX IF NOT EXISTS ix_lineage_parent_sha
+                ON asset_lineage(parent_sha256);
+            PRAGMA user_version = 3;
+            """
+        )
+        connection.commit()
+        return
+
+    # Version 1 -> Version 2 migration (falls through to v2 -> v3)
+    if version == 1:
+        task_cols = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+        if "modality" not in task_cols:
+            connection.execute("ALTER TABLE tasks ADD COLUMN modality TEXT NOT NULL DEFAULT 'image'")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_tasks_modality_updated ON tasks(modality, updated_at DESC)"
+        )
+
+        existing_tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if "batches" in existing_tables:
+            batch_cols = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(batches)").fetchall()
+            }
+            if "modality" not in batch_cols:
+                connection.execute("ALTER TABLE batches ADD COLUMN modality TEXT NOT NULL DEFAULT 'image'")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS ix_batches_modality_updated ON batches(modality, updated_at DESC)"
+            )
+
+        connection.execute("PRAGMA user_version = 2")
+        connection.commit()
+        version = 2
+
+    # Version 2 -> Version 3 migration
+    if version == 2:
+        asset_cols = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(assets)").fetchall()
+        }
+        if "category" not in asset_cols:
+            connection.execute("ALTER TABLE assets ADD COLUMN category TEXT")
+        if "source_kind" not in asset_cols:
+            connection.execute(
+                "ALTER TABLE assets ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'cloud_task'"
+            )
+        if "operation" not in asset_cols:
+            connection.execute("ALTER TABLE assets ADD COLUMN operation TEXT")
+        if "metadata_json" not in asset_cols:
+            connection.execute("ALTER TABLE assets ADD COLUMN metadata_json TEXT")
+
+        connection.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS ix_assets_path
+                ON assets(path);
+            CREATE INDEX IF NOT EXISTS ix_assets_sha256
+                ON assets(sha256);
+            CREATE TABLE IF NOT EXISTS asset_lineage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_artifact_id TEXT,
+                parent_path TEXT NOT NULL,
+                parent_sha256 TEXT,
+                child_artifact_id TEXT NOT NULL REFERENCES assets(artifact_id) ON DELETE CASCADE,
+                child_path TEXT NOT NULL,
+                child_sha256 TEXT,
+                operation TEXT NOT NULL,
+                modality TEXT NOT NULL,
+                task_id TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(parent_path, child_artifact_id, operation)
+            );
+            CREATE INDEX IF NOT EXISTS ix_lineage_child
+                ON asset_lineage(child_artifact_id);
+            CREATE INDEX IF NOT EXISTS ix_lineage_parent_id
+                ON asset_lineage(parent_artifact_id);
+            CREATE INDEX IF NOT EXISTS ix_lineage_parent_path
+                ON asset_lineage(parent_path);
+            CREATE INDEX IF NOT EXISTS ix_lineage_parent_sha
+                ON asset_lineage(parent_sha256);
+            PRAGMA user_version = 3;
             """
         )
         connection.commit()
@@ -447,10 +579,13 @@ def list_tasks(
     status: str | None = None,
     operation: str | None = None,
     limit: int = 50,
+    include_local: bool = False,
 ) -> list[dict[str, Any]]:
     """List tasks, filtering by modality unless modality is None."""
     clauses: list[str] = []
     values: list[Any] = []
+    if not include_local:
+        clauses.append("base_url NOT IN ('local://process', 'local://ui')")
     if modality is not None:
         clauses.append("modality = ?")
         values.append(modality)
@@ -581,6 +716,11 @@ def upsert_asset(
     state: str = "available",
     artifact_id: str | None = None,
     created_at: str | None = None,
+    category: str | None = None,
+    source_kind: str | None = None,
+    operation: str | None = None,
+    metadata: Mapping[str, Any] | str | None = None,
+    metadata_json: str | None = None,
 ) -> dict[str, Any]:
     if remote_index < 0:
         raise AsxError("Asset index must be non-negative", code="invalid_asset")
@@ -589,15 +729,25 @@ def upsert_asset(
     now = _timestamp(created_at)
     stable_id = artifact_id or _asset_id(local_task_id, remote_index)
     byte_count = size_bytes if size_bytes is not None else bytes
+    resolved_source_kind = source_kind or "cloud_task"
+    if metadata is not None and metadata_json is not None:
+        raise ValueError("provide at most one metadata or metadata_json")
+    serialized_metadata = (
+        _json(metadata) if metadata is not None else (_json(metadata_json) if metadata_json is not None else None)
+    )
     connection.execute(
         "INSERT INTO assets "
         "(artifact_id, local_task_id, remote_index, path, remote_url, mime, bytes, sha256, "
-        "state, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "state, created_at, updated_at, category, source_kind, operation, metadata_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(local_task_id, remote_index) DO UPDATE SET "
         "path = excluded.path, remote_url = excluded.remote_url, mime = excluded.mime, "
         "bytes = excluded.bytes, "
-        "sha256 = excluded.sha256, state = excluded.state, updated_at = excluded.updated_at",
+        "sha256 = excluded.sha256, state = excluded.state, updated_at = excluded.updated_at, "
+        "category = COALESCE(excluded.category, assets.category), "
+        "source_kind = COALESCE(?, assets.source_kind), "
+        "operation = COALESCE(excluded.operation, assets.operation), "
+        "metadata_json = COALESCE(excluded.metadata_json, assets.metadata_json)",
         (
             stable_id,
             local_task_id,
@@ -610,6 +760,11 @@ def upsert_asset(
             state,
             now,
             now,
+            category,
+            resolved_source_kind,
+            operation,
+            serialized_metadata,
+            source_kind,
         ),
     )
     connection.commit()
@@ -619,7 +774,7 @@ def upsert_asset(
     ).fetchone()
     if row is None:
         raise AsxError("Asset was not persisted", code="asset_state_write_failed")
-    return dict(zip(row.keys(), tuple(row)))
+    return _asset_row_dict(row)
 
 
 def list_assets(
@@ -637,7 +792,404 @@ def list_assets(
             "SELECT * FROM assets WHERE local_task_id = ? AND state = ? ORDER BY remote_index",
             (local_task_id, state),
         ).fetchall()
+    return [_asset_row_dict(row) for row in rows]
+
+
+def get_asset_by_id(
+    connection: sqlite3.Connection, artifact_id: str
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        "SELECT * FROM assets WHERE artifact_id = ?", (artifact_id,)
+    ).fetchone()
+    return _asset_row_dict(row) if row is not None else None
+
+
+def get_asset_by_path(
+    connection: sqlite3.Connection, path: str | Path
+) -> dict[str, Any] | None:
+    resolved = _canonical_path(path)
+    row = connection.execute(
+        "SELECT * FROM assets WHERE path = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+        (resolved,),
+    ).fetchone()
+    return _asset_row_dict(row) if row is not None else None
+
+
+def _ensure_synthetic_local_task(
+    connection: sqlite3.Connection,
+    *,
+    local_task_id: str,
+    operation: str,
+    modality: str,
+    source_kind: str,
+    output_dir: str,
+    model: str = "local",
+    request: Mapping[str, Any] | None = None,
+    created_at: str | None = None,
+) -> None:
+    if get_task(connection, local_task_id) is not None:
+        return
+    now = _timestamp(created_at)
+    base_url = "local://ui" if source_kind == "ui_export" else "local://process"
+    idempotency_key = f"asx-{source_kind}-{local_task_id}"
+    payload = _json(
+        request
+        if request is not None
+        else {"source_kind": source_kind, "operation": operation, "modality": modality}
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO tasks "
+        "(local_id, remote_task_id, operation, model, status, idempotency_key, request_json, "
+        "output_dir, remote_json, error_json, billing, created_at, updated_at, "
+        "last_polled, base_url, modality) "
+        "VALUES (?, NULL, ?, ?, 'succeeded', ?, ?, ?, NULL, NULL, NULL, ?, ?, NULL, ?, ?)",
+        (
+            local_task_id,
+            operation,
+            model,
+            idempotency_key,
+            payload,
+            output_dir,
+            now,
+            now,
+            base_url,
+            modality,
+        ),
+    )
+
+
+def _resolve_parent_entry(
+    connection: sqlite3.Connection,
+    *,
+    parent_path: str | Path | None = None,
+    parent_artifact_id: str | None = None,
+) -> tuple[str | None, str, str | None] | None:
+    if parent_artifact_id is not None:
+        row = get_asset_by_id(connection, parent_artifact_id)
+        if row is not None:
+            p_path = str(row["path"])
+            p_sha = row.get("sha256")
+            if p_path and not p_sha and not p_path.startswith(("http://", "https://")):
+                p_sha = compute_file_sha256(p_path)
+            return str(row["artifact_id"]), p_path, p_sha
+        if parent_path is None:
+            return None
+
+    assert parent_path is not None
+    raw = str(parent_path).strip()
+    if not raw or raw.casefold().startswith("data:"):
+        return None
+
+    if raw.casefold().startswith(("http://", "https://")):
+        row = connection.execute(
+            "SELECT * FROM assets WHERE remote_url = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+            (raw,),
+        ).fetchone()
+        if row is not None:
+            return str(row["artifact_id"]), str(row["path"] or raw), row["sha256"]
+        return None, raw, None
+
+    resolved = _canonical_path(raw)
+    computed_sha = compute_file_sha256(resolved)
+    matched = connection.execute(
+        "SELECT * FROM assets WHERE path = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+        (resolved,),
+    ).fetchone()
+    if matched is None and computed_sha:
+        matched = connection.execute(
+            "SELECT * FROM assets WHERE sha256 = ? ORDER BY updated_at DESC, rowid DESC LIMIT 1",
+            (computed_sha,),
+        ).fetchone()
+    if matched is not None:
+        return (
+            str(matched["artifact_id"]),
+            resolved,
+            computed_sha or matched["sha256"],
+        )
+    return None, resolved, computed_sha
+
+
+def record_artifact_with_lineage(
+    connection: sqlite3.Connection,
+    *,
+    file_path: str | Path,
+    modality: str,
+    operation: str,
+    source_kind: str = "cloud_task",
+    category: str | None = None,
+    local_task_id: str | None = None,
+    remote_index: int = 0,
+    remote_url: str | None = None,
+    mime: str | None = None,
+    size_bytes: int | None = None,
+    sha256: str | None = None,
+    metadata: Mapping[str, Any] | None = None,
+    parent_paths: Sequence[str | Path] | None = None,
+    parent_artifact_ids: Sequence[str] | None = None,
+    task_id: str | None = None,
+    model: str = "local",
+    created_at: str | None = None,
+) -> dict[str, Any]:
+    """Register an output asset in `assets` and record parent-child edges in `asset_lineage`."""
+    resolved_child = _canonical_path(file_path)
+    child_path_obj = Path(resolved_child)
+    if size_bytes is None and child_path_obj.is_file():
+        try:
+            size_bytes = child_path_obj.stat().st_size
+        except OSError:
+            size_bytes = None
+    if sha256 is None and child_path_obj.is_file():
+        sha256 = compute_file_sha256(child_path_obj)
+    if mime is None:
+        guessed_mime, _ = mimetypes.guess_type(resolved_child)
+        mime = guessed_mime
+
+    resolved_category = category
+    if not resolved_category:
+        if operation in {"spritesheet", "frame_sequence", "render_sequence"}:
+            resolved_category = "frame_sequence"
+        else:
+            resolved_category = modality
+
+    effective_local_id = local_task_id or new_local_task_id(
+        "local_ui" if source_kind == "ui_export" else "local_proc"
+    )
+    resolved_parents_preview = [
+        _canonical_path(p)
+        for p in (parent_paths or [])
+        if str(p).strip() and not str(p).strip().casefold().startswith("data:")
+    ]
+    _ensure_synthetic_local_task(
+        connection,
+        local_task_id=effective_local_id,
+        operation=operation,
+        modality=modality,
+        source_kind=source_kind,
+        output_dir=str(child_path_obj.parent),
+        model=model,
+        request={
+            "source_kind": source_kind,
+            "operation": operation,
+            "modality": modality,
+            "parents": resolved_parents_preview,
+            "metadata": dict(metadata) if metadata else {},
+        },
+        created_at=created_at,
+    )
+
+    child_asset = upsert_asset(
+        connection,
+        effective_local_id,
+        remote_index,
+        path=resolved_child,
+        remote_url=remote_url,
+        mime=mime,
+        bytes=size_bytes,
+        sha256=sha256,
+        state="available",
+        created_at=created_at,
+        category=resolved_category,
+        source_kind=source_kind,
+        operation=operation,
+        metadata=metadata,
+    )
+    child_artifact_id = str(child_asset["artifact_id"])
+    effective_task_id = task_id or effective_local_id
+    now = _timestamp(created_at)
+
+    resolved_parents: list[tuple[str | None, str, str | None]] = []
+    seen_parent_keys: set[str] = set()
+    for p_id in parent_artifact_ids or []:
+        entry = _resolve_parent_entry(connection, parent_artifact_id=p_id)
+        if entry is not None and entry[1] not in seen_parent_keys:
+            seen_parent_keys.add(entry[1])
+            resolved_parents.append(entry)
+    for p_raw in parent_paths or []:
+        entry = _resolve_parent_entry(connection, parent_path=p_raw)
+        if entry is not None and entry[1] not in seen_parent_keys:
+            seen_parent_keys.add(entry[1])
+            resolved_parents.append(entry)
+
+    lineage_edges: list[dict[str, Any]] = []
+    for p_artifact_id, p_path, p_sha in resolved_parents:
+        connection.execute(
+            "INSERT INTO asset_lineage "
+            "(parent_artifact_id, parent_path, parent_sha256, "
+            "child_artifact_id, child_path, child_sha256, "
+            "operation, modality, task_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(parent_path, child_artifact_id, operation) DO UPDATE SET "
+            "parent_artifact_id = COALESCE(excluded.parent_artifact_id, asset_lineage.parent_artifact_id), "
+            "parent_sha256 = COALESCE(excluded.parent_sha256, asset_lineage.parent_sha256), "
+            "child_path = excluded.child_path, "
+            "child_sha256 = COALESCE(excluded.child_sha256, asset_lineage.child_sha256), "
+            "task_id = COALESCE(excluded.task_id, asset_lineage.task_id)",
+            (
+                p_artifact_id,
+                p_path,
+                p_sha,
+                child_artifact_id,
+                resolved_child,
+                sha256,
+                operation,
+                modality,
+                effective_task_id,
+                now,
+            ),
+        )
+        edge_row = connection.execute(
+            "SELECT * FROM asset_lineage "
+            "WHERE parent_path = ? AND child_artifact_id = ? AND operation = ?",
+            (p_path, child_artifact_id, operation),
+        ).fetchone()
+        if edge_row is not None:
+            lineage_edges.append(dict(zip(edge_row.keys(), tuple(edge_row))))
+
+    connection.commit()
+    child_asset["lineage_parents"] = lineage_edges
+    return child_asset
+
+
+def list_lineage(
+    connection: sqlite3.Connection,
+    *,
+    child_artifact_id: str | None = None,
+    parent_artifact_id: str | None = None,
+    parent_path: str | None = None,
+    child_path: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    clauses: list[str] = []
+    values: list[Any] = []
+    if child_artifact_id is not None:
+        clauses.append("child_artifact_id = ?")
+        values.append(child_artifact_id)
+    if parent_artifact_id is not None:
+        clauses.append("parent_artifact_id = ?")
+        values.append(parent_artifact_id)
+    if parent_path is not None:
+        clauses.append("parent_path = ?")
+        values.append(_canonical_path(parent_path))
+    if child_path is not None:
+        clauses.append("child_path = ?")
+        values.append(_canonical_path(child_path))
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    bounded = max(1, min(int(limit), 2000))
+    rows = connection.execute(
+        f"SELECT * FROM asset_lineage{where} ORDER BY created_at DESC, id DESC LIMIT ?",
+        (*values, bounded),
+    ).fetchall()
     return [dict(zip(row.keys(), tuple(row))) for row in rows]
+
+
+def get_asset_lineage(
+    connection: sqlite3.Connection, identifier: str | Path
+) -> dict[str, Any]:
+    """Return direct parents/children and full upstream/downstream DAG edges for an asset."""
+    raw = str(identifier).strip()
+    asset = get_asset_by_id(connection, raw)
+    if asset is None:
+        resolved_path = _canonical_path(raw)
+        asset = get_asset_by_path(connection, resolved_path)
+    else:
+        resolved_path = str(asset["path"])
+
+    def _direct_parents(target_id: str | None, target_path: str | None) -> list[dict[str, Any]]:
+        if target_id:
+            rows = connection.execute(
+                "SELECT * FROM asset_lineage WHERE child_artifact_id = ? ORDER BY id",
+                (target_id,),
+            ).fetchall()
+        elif target_path:
+            rows = connection.execute(
+                "SELECT * FROM asset_lineage WHERE child_path = ? ORDER BY id",
+                (target_path,),
+            ).fetchall()
+        else:
+            rows = []
+        return [dict(zip(r.keys(), tuple(r))) for r in rows]
+
+    def _direct_children(target_id: str | None, target_path: str | None) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if target_id:
+            clauses.append("parent_artifact_id = ?")
+            params.append(target_id)
+        if target_path:
+            clauses.append("parent_path = ?")
+            params.append(target_path)
+        if not clauses:
+            return []
+        rows = connection.execute(
+            f"SELECT * FROM asset_lineage WHERE {' OR '.join(clauses)} ORDER BY id",
+            tuple(params),
+        ).fetchall()
+        return [dict(zip(r.keys(), tuple(r))) for r in rows]
+
+    root_id = str(asset["artifact_id"]) if asset is not None else None
+    direct_parents = _direct_parents(root_id, resolved_path)
+    direct_children = _direct_children(root_id, resolved_path)
+
+    ancestors: list[dict[str, Any]] = []
+    seen_up_edges: set[int] = set()
+    visited_up: set[tuple[str | None, str | None]] = {(root_id, resolved_path)}
+    up_queue: deque[tuple[str | None, str | None]] = deque()
+    for edge in direct_parents:
+        eid = int(edge["id"])
+        if eid not in seen_up_edges:
+            seen_up_edges.add(eid)
+            ancestors.append(edge)
+        node = (edge.get("parent_artifact_id"), edge.get("parent_path"))
+        if node not in visited_up:
+            visited_up.add(node)
+            up_queue.append(node)
+    while up_queue:
+        p_id, p_path = up_queue.popleft()
+        for edge in _direct_parents(p_id, p_path):
+            eid = int(edge["id"])
+            if eid not in seen_up_edges:
+                seen_up_edges.add(eid)
+                ancestors.append(edge)
+            next_node = (edge.get("parent_artifact_id"), edge.get("parent_path"))
+            if next_node not in visited_up:
+                visited_up.add(next_node)
+                up_queue.append(next_node)
+
+    descendants: list[dict[str, Any]] = []
+    seen_down_edges: set[int] = set()
+    visited_down: set[tuple[str | None, str | None]] = {(root_id, resolved_path)}
+    down_queue: deque[tuple[str | None, str | None]] = deque()
+    for edge in direct_children:
+        eid = int(edge["id"])
+        if eid not in seen_down_edges:
+            seen_down_edges.add(eid)
+            descendants.append(edge)
+        c_id = edge.get("child_artifact_id")
+        c_path = edge.get("child_path")
+        node = (c_id, c_path)
+        if node not in visited_down:
+            visited_down.add(node)
+            down_queue.append(node)
+    while down_queue:
+        c_id, c_path = down_queue.popleft()
+        for edge in _direct_children(c_id, c_path):
+            eid = int(edge["id"])
+            if eid not in seen_down_edges:
+                seen_down_edges.add(eid)
+                descendants.append(edge)
+            next_node = (edge.get("child_artifact_id"), edge.get("child_path"))
+            if next_node not in visited_down:
+                visited_down.add(next_node)
+                down_queue.append(next_node)
+
+    return {
+        "asset": asset,
+        "path": resolved_path,
+        "parents": direct_parents,
+        "children": direct_children,
+        "ancestors": ancestors,
+        "descendants": descendants,
+    }
 
 
 def task_paths(
@@ -681,13 +1233,20 @@ __all__ = [
     "SCHEMA_VERSION",
     "append_event",
     "bind_remote_task",
+    "compute_file_sha256",
     "connect_db",
     "create_task_intent",
     "ensure_batch_schema",
+    "get_asset_by_id",
+    "get_asset_by_path",
+    "get_asset_lineage",
     "get_task",
     "init_schema",
     "list_assets",
+    "list_lineage",
     "list_tasks",
+    "new_local_task_id",
+    "record_artifact_with_lineage",
     "task_paths",
     "update_task",
     "upsert_asset",

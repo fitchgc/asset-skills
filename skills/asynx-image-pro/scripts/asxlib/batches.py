@@ -37,6 +37,7 @@ except ImportError:
         return []
 from .output import log
 from .state import (
+    SCHEMA_VERSION,
     append_event,
     bind_remote_task,
     cancel_blocked_batch_intent,
@@ -126,7 +127,7 @@ def batch_summary(connection: sqlite3.Connection, batch: sqlite3.Row) -> dict[st
         - pending_download
     )
     return {
-        "schema_version": 2,
+        "schema_version": SCHEMA_VERSION,
         "id": batch["id"],
         "name": batch["name"],
         "operation": batch["operation"],
@@ -269,6 +270,11 @@ def create_batch(
         mask=mask,
         keep_reference_original=keep_reference_original,
     )
+    parent_paths = [p for p in references if isinstance(p, str) and p.strip()]
+    if isinstance(mask, str) and mask.strip():
+        parent_paths.append(mask)
+    if parent_paths:
+        body["_asx_parent_paths"] = parent_paths
     batch_id = _new_batch_id()
     now = utc_now()
     resolved_output_dir = str(
@@ -401,6 +407,22 @@ def add_to_batch(
                     keep_reference_original if references is not None else True
                 ),
             )
+            parent_paths = [
+                p
+                for p in (references if references is not None else existing_references)
+                if isinstance(p, str) and p.strip()
+            ]
+            effective_mask = (
+                mask
+                if mask is not None
+                else str(input_value.get("mask"))
+                if batch["operation"] == "edit" and input_value.get("mask")
+                else None
+            )
+            if isinstance(effective_mask, str) and effective_mask.strip():
+                parent_paths.append(effective_mask)
+            if parent_paths:
+                body["_asx_parent_paths"] = parent_paths
         connection.execute("BEGIN IMMEDIATE")
         max_sequence = int(
             connection.execute(
@@ -679,6 +701,10 @@ def poll_batch(
                     template = _template(batch)
                     template["metadata"] = body.get("metadata", {})
                     body = template
+                item_parent_paths = body.pop("_asx_parent_paths", None)
+                if not isinstance(item_parent_paths, list):
+                    template_parents = _template(batch).get("_asx_parent_paths")
+                    item_parent_paths = template_parents if isinstance(template_parents, list) else []
                 local_task_id = f"batchitem_{int(item['id'])}"
                 intent = create_task_intent(
                     connection,
@@ -692,6 +718,13 @@ def poll_batch(
                     status="submitting",
                     modality=batch["modality"] if "modality" in batch.keys() else "image",
                 )
+                if item_parent_paths:
+                    append_event(
+                        connection,
+                        local_task_id,
+                        "lineage_parents",
+                        {"parent_paths": item_parent_paths},
+                    )
                 connection.commit()
                 if cancel_blocked_batch_intent(connection, str(item["idempotency_key"])):
                     connection.commit()
@@ -867,6 +900,7 @@ def poll_batch(
                             local_task_id=batch_local_task_id,
                             completed_files=completed_files,
                             modality=batch["modality"] if "modality" in batch.keys() else "image",
+                            operation=str(batch["operation"]),
                         )
                         downloaded += len(files)
                     except AsxError as exc:

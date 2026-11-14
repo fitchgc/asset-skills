@@ -20,7 +20,7 @@ from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
 from .errors import AsxError
 from .local_video import execute_local_video
 from .output import emit, log
-from .state import connect_db as connect_ledger_db, task_paths as ledger_task_paths
+from .state import SCHEMA_VERSION, connect_db as connect_ledger_db, task_paths as ledger_task_paths
 from .tasks import (
     cancel_local_task,
     history_payload,
@@ -292,7 +292,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         if args.task_command == "status":
             if args.refresh:
                 result, code = refresh_task(_client(), args.task_id)
-                return {"ok": result["ok"], "schema_version": 2, "task": result}, code
+                return {"ok": result["ok"], "schema_version": SCHEMA_VERSION, "task": result}, code
             return local_task_status(args.task_id), 0
         client = _client()
         if args.task_command == "poll":
@@ -337,15 +337,23 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             finally:
                 conn.close()
 
+        end_image = getattr(args, "end_image", None)
+        video_arg = getattr(args, "video", None)
+        reference_arg = getattr(args, "reference", None)
+        parent_paths = [
+            p
+            for p in (image_path, end_image, video_arg, reference_arg)
+            if isinstance(p, str) and p.strip()
+        ]
         body, selected_model = build_video_task(
             client,
             task_type=task_type,
             model_selector=getattr(args, "model", None),
             prompt=getattr(args, "prompt", None),
             image=image_path,
-            end_image=getattr(args, "end_image", None),
-            video=getattr(args, "video", None),
-            reference=getattr(args, "reference", None),
+            end_image=end_image,
+            video=video_arg,
+            reference=reference_arg,
             duration=getattr(args, "duration", None),
             aspect_ratio=getattr(args, "aspect_ratio", None),
             resolution=getattr(args, "resolution", None),
@@ -361,6 +369,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             idempotency_key=args.idempotency_key or f"asx-video-{args.command}-{secrets.token_hex(8)}",
             detach=args.detach,
             modality="video",
+            parent_paths=parent_paths,
         )
 
     raise AssertionError("unreachable")

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AsxError
+from .state import connect_db, new_local_task_id, record_artifact_with_lineage
 
 
 def _parse_glb(data: bytes) -> tuple[dict[str, Any], bytes]:
@@ -347,5 +348,28 @@ def execute_local_model3d(args: argparse.Namespace) -> tuple[dict[str, Any], int
         )
         return res, 0 if res["valid"] else 2
     if cmd == "extract-textures":
-        return {"ok": True, "textures": model3d_extract_textures(args.input, args.output_dir)}, 0
+        res = model3d_extract_textures(args.input, args.output_dir)
+        textures = res.get("textures", [])
+        if textures:
+            conn = connect_db()
+            try:
+                local_task_id = new_local_task_id("local_proc")
+                for idx, tex in enumerate(textures):
+                    record_artifact_with_lineage(
+                        conn,
+                        file_path=tex["path"],
+                        modality="3d",
+                        operation="extract-textures",
+                        source_kind="local_process",
+                        category="image",
+                        local_task_id=local_task_id,
+                        remote_index=idx,
+                        mime=tex.get("mime"),
+                        size_bytes=tex.get("size_bytes"),
+                        metadata={"name": tex.get("name")},
+                        parent_paths=[res["source"]],
+                    )
+            finally:
+                conn.close()
+        return {"ok": True, "textures": res}, 0
     raise AssertionError("unreachable")
