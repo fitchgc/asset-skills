@@ -1,6 +1,6 @@
 # Identity Service Authentication, Asset Lineage, and Asset Manager Specification
 
-Status: ready-for-agent
+Status: implemented
 
 ## Problem Statement
 

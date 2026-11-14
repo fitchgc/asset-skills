@@ -4,11 +4,15 @@
 
 **Blocked by:** 03: State Ledger v3 Migration & End-to-End Asset Lineage Recording
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] `asynx-asset-manager` is built, bundled, and installable as a standalone skill directory alongside `asynx-image-pro`, `asynx-audio`, `asynx-video`, and `asynx-3d`.
-- [ ] Scanning a project workspace classifies discovered files into `image`, `audio`, `frame_sequence`, `video`, and `3d` while excluding non-asset engineering directories (`.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `.scratch`).
-- [ ] Sprite sheet images paired with a valid frame sequence manifest (`manifest.json` containing frame coordinates) are classified under `frame_sequence` and are not duplicated as plain static images under `image`.
-- [ ] Workspace Assets are joined against the `SCHEMA_VERSION = 3` state ledger by path and SHA-256 digest, marking Assets generated or modified by any Asynx Skill with their `managed` flag, `source_kind` (`cloud_task` vs. `local_process`), `model`, `operation`, `prompt`, `task_id`, `parents`, and `children`.
-- [ ] When a skill-generated or modified Asset is moved or renamed within the project directory, scanning matches the file by its SHA-256 digest against the ledger's missing path record and automatically updates `assets.path` and `asset_lineage` path references so its skill-generated badge and parent-child lineage remain intact.
-- [ ] CLI commands (`scan`/`list` with `--category` and `--managed-only` filters, and `lineage <target>`) emit structured JSON and are covered by end-to-end CLI tests including file move/rename scenarios.
+- [x] `asynx-asset-manager` is built, bundled, and installable as a standalone skill directory alongside `asynx-image-pro`, `asynx-audio`, `asynx-video`, and `asynx-3d`.
+- [x] Scanning a project workspace classifies discovered files into `image`, `audio`, `frame_sequence`, `video`, and `3d` while excluding non-asset engineering directories (`.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `.scratch`).
+- [x] Sprite sheet images paired with a valid frame sequence manifest (`manifest.json` containing frame coordinates) are classified under `frame_sequence` and are not duplicated as plain static images under `image`.
+- [x] Workspace Assets are joined against the `SCHEMA_VERSION = 3` state ledger by path and SHA-256 digest, marking Assets generated or modified by any Asynx Skill with their `managed` flag, `source_kind` (`cloud_task` vs. `local_process`), `model`, `operation`, `prompt`, `task_id`, `parents`, and `children`.
+- [x] When a skill-generated or modified Asset is moved or renamed within the project directory, scanning matches the file by its SHA-256 digest against the ledger's missing path record and automatically updates `assets.path` and `asset_lineage` path references so its skill-generated badge and parent-child lineage remain intact.
+- [x] CLI commands (`scan`/`list` with `--category` and `--managed-only` filters, and `lineage <target>`) emit structured JSON and are covered by end-to-end CLI tests including file move/rename scenarios.
+
+## Answer
+
+Created standalone skill `asynx-asset-manager` (`src/asset_manager/`, `skills/asynx-asset-manager/`), registered it in `src/build_skills.py` and `install.py`, implemented five-category scanning (`image`, `audio`, `frame_sequence`, `video`, `3d`) with `(path, mtime_ns, size)` SHA-256 caching, ledger metadata joins, atomic `relink_moved_asset` path & lineage recovery on file move/rename, and `scan`/`list`/`lineage` CLI subcommands verified by `tests/test_ticket_04_asset_manager_cli.py` and `tests/test_installer.py`.

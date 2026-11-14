@@ -4,9 +4,9 @@
 
 **Blocked by:** 01: Identity Service & Asset Gateway Dual-Protocol Client with Auto-Refresh
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] Connecting to an existing `SCHEMA_VERSION = 1` or `2` SQLite state ledger automatically and idempotently migrates to `SCHEMA_VERSION = 3`, adding `asset_lineage` and asset classification/source metadata columns with zero loss of existing tasks, batches, or assets:
+- [x] Connecting to an existing `SCHEMA_VERSION = 1` or `2` SQLite state ledger automatically and idempotently migrates to `SCHEMA_VERSION = 3`, adding `asset_lineage` and asset classification/source metadata columns with zero loss of existing tasks, batches, or assets:
   ```sql
   CREATE TABLE IF NOT EXISTS asset_lineage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -23,7 +23,11 @@
       UNIQUE(parent_path, child_artifact_id, operation)
   );
   ```
-- [ ] Cloud Generation Tasks that consume input assets (`image.generate` with `--reference`, `image.edit`, `audio.speech` with `--reference-audio`, `video.generate` with `--image`/`--end-image`/`--reference`, `video.edit`, `3d.generate` from images, `3d.rig`, `3d.retarget`, `3d.texture`, `3d.convert`, and any task using `--from-task`) automatically link all input source Assets as parents of the downloaded output Asset(s).
-- [ ] Keyless Local Post-Processing commands across `asynx-image-pro`, `asynx-audio`, `asynx-video`, and `asynx-3d` register their output files in the `assets` ledger (`source_kind = 'local_process'`) and record their input file(s) as parent(s) in `asset_lineage` (including multi-parent operations such as `audio concat`, `video mux`, and `image contact-sheet`).
-- [ ] Local UI Workbench submissions (`region_edit`, `image_tools`, `image_annotate`, `video_frame_sequence`, and `model3d_viewer` sequence rendering) register their exported Asset(s) and link the source Asset as the parent in `asset_lineage`.
-- [ ] Automated tests verify v1/v2-to-v3 schema migration as well as single-parent, multi-parent, and multi-hop cross-modal lineage chains across cloud, local CLI, and UI workbench operations.
+- [x] Cloud Generation Tasks that consume input assets (`image.generate` with `--reference`, `image.edit`, `audio.speech` with `--reference-audio`, `video.generate` with `--image`/`--end-image`/`--reference`, `video.edit`, `3d.generate` from images, `3d.rig`, `3d.retarget`, `3d.texture`, `3d.convert`, and any task using `--from-task`) automatically link all input source Assets as parents of the downloaded output Asset(s).
+- [x] Keyless Local Post-Processing commands across `asynx-image-pro`, `asynx-audio`, `asynx-video`, and `asynx-3d` register their output files in the `assets` ledger (`source_kind = 'local_process'`) and record their input file(s) as parent(s) in `asset_lineage` (including multi-parent operations such as `audio concat`, `video mux`, and `image contact-sheet`).
+- [x] Local UI Workbench submissions (`region_edit`, `image_tools`, `image_annotate`, `video_frame_sequence`, and `model3d_viewer` sequence rendering) register their exported Asset(s) and link the source Asset as the parent in `asset_lineage`.
+- [x] Automated tests verify v1/v2-to-v3 schema migration as well as single-parent, multi-parent, and multi-hop cross-modal lineage chains across cloud, local CLI, and UI workbench operations.
+
+## Answer
+
+Upgraded `shared/asxlib/state.py` to `SCHEMA_VERSION = 3` with idempotent `v1 -> v2 -> v3` and `v2 -> v3` migrations, added `asset_lineage` plus `record_artifact_with_lineage` and `get_asset_lineage`, and wired parent-child lineage recording across cloud task/batch runners (`shared/asxlib/{tasks,batches}.py`, `src/*/cli.py`), keyless local post-processing tools (`src/{image,audio,video,model3d}/local_*.py`), and Local UI Workbench exports (`shared/asxlib/ui_server.py`), verified by `tests/test_ticket_03_lineage_ledger.py`.
