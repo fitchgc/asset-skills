@@ -1192,6 +1192,125 @@ def get_asset_lineage(
     }
 
 
+def list_all_assets(
+    connection: sqlite3.Connection,
+    *,
+    state: str | None = "available",
+) -> list[dict[str, Any]]:
+    """List all indexed assets joined with their task metadata."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if state is not None:
+        clauses.append("a.state = ?")
+        params.append(state)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = connection.execute(
+        "SELECT a.*, t.remote_task_id, t.operation AS task_operation, t.model, "
+        "t.modality, t.request_json, t.output_dir, t.base_url "
+        "FROM assets AS a JOIN tasks AS t ON t.local_id = a.local_task_id"
+        f"{where} ORDER BY a.updated_at DESC, a.rowid DESC",
+        tuple(params),
+    ).fetchall()
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        item = _asset_row_dict(row)
+        if "request_json" in item:
+            item["request"] = _decode(item["request_json"])
+        results.append(item)
+    return results
+
+
+def relink_moved_asset(
+    connection: sqlite3.Connection,
+    artifact_id: str,
+    new_path: str | Path,
+    *,
+    sha256: str | None = None,
+    manifest_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Update an asset's path and lineage path references inside an atomic transaction."""
+    resolved_new = _canonical_path(new_path)
+    now = utc_now()
+
+    with connection:
+        existing = connection.execute(
+            "SELECT * FROM assets WHERE artifact_id = ?", (artifact_id,)
+        ).fetchone()
+        if existing is None:
+            raise AsxError(f"Asset not found: {artifact_id}", code="asset_not_found")
+
+        old_path = str(existing["path"])
+        local_task_id = str(existing["local_task_id"])
+        existing_meta = _decode(existing["metadata_json"])
+        updated_meta: dict[str, Any] | None = None
+        if manifest_path is not None:
+            resolved_manifest = _canonical_path(manifest_path)
+            updated_meta = dict(existing_meta) if isinstance(existing_meta, dict) else {}
+            updated_meta["manifest_path"] = resolved_manifest
+
+        if updated_meta is not None:
+            connection.execute(
+                "UPDATE assets SET path = ?, sha256 = COALESCE(?, sha256), "
+                "metadata_json = ?, updated_at = ? WHERE artifact_id = ?",
+                (resolved_new, sha256, _json(updated_meta), now, artifact_id),
+            )
+        else:
+            connection.execute(
+                "UPDATE assets SET path = ?, sha256 = COALESCE(?, sha256), "
+                "updated_at = ? WHERE artifact_id = ?",
+                (resolved_new, sha256, now, artifact_id),
+            )
+
+        connection.execute(
+            "UPDATE asset_lineage SET child_path = ?, child_sha256 = COALESCE(?, child_sha256) "
+            "WHERE child_artifact_id = ?",
+            (resolved_new, sha256, artifact_id),
+        )
+
+        parent_edges = connection.execute(
+            "SELECT id, child_artifact_id, operation FROM asset_lineage "
+            "WHERE parent_artifact_id = ? OR (parent_artifact_id IS NULL AND parent_path = ?)",
+            (artifact_id, old_path),
+        ).fetchall()
+        for edge in parent_edges:
+            edge_id = int(edge["id"])
+            duplicate = connection.execute(
+                "SELECT id FROM asset_lineage "
+                "WHERE parent_path = ? AND child_artifact_id = ? AND operation = ? AND id != ?",
+                (resolved_new, edge["child_artifact_id"], edge["operation"], edge_id),
+            ).fetchone()
+            if duplicate is not None:
+                connection.execute(
+                    "UPDATE asset_lineage SET parent_artifact_id = COALESCE(parent_artifact_id, ?), "
+                    "parent_sha256 = COALESCE(?, parent_sha256) WHERE id = ?",
+                    (artifact_id, sha256, int(duplicate["id"])),
+                )
+                connection.execute("DELETE FROM asset_lineage WHERE id = ?", (edge_id,))
+            else:
+                connection.execute(
+                    "UPDATE asset_lineage SET parent_artifact_id = ?, parent_path = ?, "
+                    "parent_sha256 = COALESCE(?, parent_sha256) WHERE id = ?",
+                    (artifact_id, resolved_new, sha256, edge_id),
+                )
+
+        sibling_rows = connection.execute(
+            "SELECT path FROM assets WHERE local_task_id = ?", (local_task_id,)
+        ).fetchall()
+        new_parent_dir = str(Path(resolved_new).parent)
+        if sibling_rows and all(
+            str(Path(str(r["path"])).parent) == new_parent_dir for r in sibling_rows
+        ):
+            connection.execute(
+                "UPDATE tasks SET output_dir = ?, updated_at = ? WHERE local_id = ?",
+                (new_parent_dir, now, local_task_id),
+            )
+
+    refreshed = get_asset_by_id(connection, artifact_id)
+    if refreshed is None:
+        raise AsxError(f"Asset not found after relink: {artifact_id}", code="asset_not_found")
+    return refreshed
+
+
 def task_paths(
     connection: sqlite3.Connection,
     local_task_id: str,
@@ -1242,11 +1361,13 @@ __all__ = [
     "get_asset_lineage",
     "get_task",
     "init_schema",
+    "list_all_assets",
     "list_assets",
     "list_lineage",
     "list_tasks",
     "new_local_task_id",
     "record_artifact_with_lineage",
+    "relink_moved_asset",
     "task_paths",
     "update_task",
     "upsert_asset",

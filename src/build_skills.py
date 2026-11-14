@@ -37,6 +37,10 @@ MODALITIES = {
         "skill_name": "asynx-3d",
         "src_module": "model3d",
     },
+    "asset_manager": {
+        "skill_name": "asynx-asset-manager",
+        "src_module": "asset_manager",
+    },
 }
 
 
