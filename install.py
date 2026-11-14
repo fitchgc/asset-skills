@@ -32,6 +32,11 @@ SKILL_NAME_ALIASES: dict[str, str] = {
     "3d": "asynx-3d",
     "model3d": "asynx-3d",
     "asynx-3d": "asynx-3d",
+    "asset-manager": "asynx-asset-manager",
+    "asset_manager": "asynx-asset-manager",
+    "manager": "asynx-asset-manager",
+    "assets": "asynx-asset-manager",
+    "asynx-asset-manager": "asynx-asset-manager",
 }
 
 ALL_SKILL_NAMES: list[str] = [
@@ -39,9 +44,10 @@ ALL_SKILL_NAMES: list[str] = [
     "asynx-audio",
     "asynx-video",
     "asynx-3d",
+    "asynx-asset-manager",
 ]
 
-SKILLS_NEEDING_PILLOW = {"asynx-image-pro", "asynx-video", "asynx-3d"}
+SKILLS_NEEDING_PILLOW = {"asynx-image-pro", "asynx-video", "asynx-3d", "asynx-asset-manager"}
 
 
 def _resolve_skill_names(selection: str) -> list[str]:
@@ -71,6 +77,7 @@ def _ensure_skill_built(skill_name: str) -> Path:
                 "asynx-audio": "audio",
                 "asynx-video": "video",
                 "asynx-3d": "3d",
+                "asynx-asset-manager": "asset_manager",
             }
             modality = modality_map.get(skill_name)
             if modality:
@@ -346,7 +353,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skill",
         default="all",
-        help="安装指定技能，默认全部安装 (all)。可选：image, audio, video, 3d 或逗号分隔组合",
+        help="安装指定技能，默认全部安装 (all)。可选：image, audio, video, 3d, asset-manager 或逗号分隔组合",
     )
     parser.add_argument(
         "--skip-config",
@@ -463,6 +470,7 @@ def run(
                 "asynx-audio": "$asynx-audio 生成一段雨声音效",
                 "asynx-video": "$asynx-video 生成一段猫咪玩耍的视频",
                 "asynx-3d": "$asynx-3d 生成一个宝箱 3D 模型",
+                "asynx-asset-manager": "$asynx-asset-manager 扫描当前项目的创作资产并查看血缘关系",
             }.get(skill, f"${skill}")
             print(f"  {example}")
     if "claude" in targets:
@@ -474,6 +482,7 @@ def run(
                 "asynx-audio": "/asynx-audio 生成一段雨声音效",
                 "asynx-video": "/asynx-video 生成一段猫咪玩耍的视频",
                 "asynx-3d": "/asynx-3d 生成一个宝箱 3D 模型",
+                "asynx-asset-manager": "/asynx-asset-manager 扫描当前项目的创作资产并查看血缘关系",
             }.get(skill, f"/{skill}")
             print(f"  {example}")
     return 0

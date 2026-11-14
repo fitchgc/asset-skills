@@ -34,11 +34,20 @@ class TestInstaller(unittest.TestCase):
         all_skills = install._resolve_skill_names("all")
         self.assertEqual(
             all_skills,
-            ["asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d"],
+            [
+                "asynx-image-pro",
+                "asynx-audio",
+                "asynx-video",
+                "asynx-3d",
+                "asynx-asset-manager",
+            ],
         )
 
-        subset = install._resolve_skill_names("image, 3d")
-        self.assertEqual(subset, ["asynx-image-pro", "asynx-3d"])
+        subset = install._resolve_skill_names("image, 3d, asset-manager")
+        self.assertEqual(subset, ["asynx-image-pro", "asynx-3d", "asynx-asset-manager"])
+
+        mgr_aliases = install._resolve_skill_names("manager, assets")
+        self.assertEqual(mgr_aliases, ["asynx-asset-manager"])
 
         audio_subset = install._resolve_skill_names("snd,video")
         self.assertEqual(audio_subset, ["asynx-audio", "asynx-video"])
@@ -71,13 +80,13 @@ class TestInstaller(unittest.TestCase):
     def test_install_and_uninstall_lifecycle(self) -> None:
         (self.temp_home / ".claude").mkdir(parents=True, exist_ok=True)
 
-        # Install audio and image into claude target without network dependencies
+        # Install audio, image, and asset-manager into claude target without network dependencies
         ret = install.run(
             [
                 "--target",
                 "claude",
                 "--skill",
-                "audio,image",
+                "audio,image,asset-manager",
                 "--skip-config",
                 "--no-verify",
             ],
@@ -89,17 +98,23 @@ class TestInstaller(unittest.TestCase):
         claude_skills = self.temp_home / ".claude" / "skills"
         image_dir = claude_skills / "asynx-image-pro"
         audio_dir = claude_skills / "asynx-audio"
+        manager_dir = claude_skills / "asynx-asset-manager"
         video_dir = claude_skills / "asynx-video"
 
         self.assertTrue(image_dir.is_dir())
         self.assertTrue(audio_dir.is_dir())
+        self.assertTrue(manager_dir.is_dir())
         self.assertFalse(video_dir.exists())
 
         # Check installed script permissions and lock
         script = image_dir / "scripts" / "asynx.py"
         self.assertTrue(script.exists())
+        self.assertTrue((manager_dir / "scripts" / "asynx.py").exists())
+        self.assertTrue((manager_dir / "scripts" / "asxlib" / "scanner.py").exists())
+        self.assertTrue((manager_dir / "scripts" / "asxlib" / "ui" / "index.html").exists())
         self.assertTrue((claude_skills / ".asx-runtime.lock").exists())
         self.assertTrue((image_dir / ".asx-install.json").exists())
+        self.assertTrue((manager_dir / ".asx-install.json").exists())
 
         # Uninstall image only
         ret_uninst = install.run(
@@ -116,6 +131,7 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(ret_uninst, 0)
         self.assertFalse(image_dir.exists())
         self.assertTrue(audio_dir.exists())
+        self.assertTrue(manager_dir.exists())
 
         # Uninstall remaining
         ret_uninst_all = install.run(
@@ -124,6 +140,7 @@ class TestInstaller(unittest.TestCase):
         )
         self.assertEqual(ret_uninst_all, 0)
         self.assertFalse(audio_dir.exists())
+        self.assertFalse(manager_dir.exists())
 
     def test_verify_with_fake_gateway(self) -> None:
         from tests.fake_login_server import run_fake_login_server
