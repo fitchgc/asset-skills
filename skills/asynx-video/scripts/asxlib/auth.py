@@ -98,7 +98,13 @@ def validate_login_svr_url(value: str | None) -> str:
     return candidate
 
 
-def resolve_login_svr_url(config: dict[str, Any] | None = None) -> str:
+def resolve_login_svr_url(
+    config: dict[str, Any] | None = None,
+    *,
+    override: str | None = None,
+) -> str:
+    if isinstance(override, str) and override.strip():
+        return validate_login_svr_url(override)
     env_url = os.environ.get("ASYNX_LOGIN_SVR_URL")
     if env_url:
         return validate_login_svr_url(env_url)
@@ -146,7 +152,7 @@ def is_token_usable(
         exp = int(payload.get("exp", 0))
         current = int(time.time() if now is None else now)
         return (exp - current) > leeway_seconds
-    except Exception:
+    except (ValueError, TypeError, KeyError):
         return False
 
 
@@ -174,7 +180,7 @@ def _map_login_svr_error(
 
 class LoginSvrClient:
     def __init__(self, base_url: str | None = None) -> None:
-        self.base_url = validate_login_svr_url(base_url)
+        self.base_url = (base_url or DEFAULT_LOGIN_SVR_URL).strip().rstrip("/")
 
     def _url(self, path: str) -> str:
         return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
@@ -228,7 +234,7 @@ class LoginSvrClient:
                         )
                 except AsxError:
                     raise
-                except Exception:
+                except (UnicodeDecodeError, json.JSONDecodeError):
                     pass
                 raise AsxError(
                     f"Identity Service HTTP {exc.code}",
@@ -319,13 +325,14 @@ class LoginSvrClient:
         )
 
 
-def save_auth_session(session_data: dict[str, Any], *, login_svr_url: str | None = None) -> dict[str, Any]:
-    from .config import _write_config, config_path, read_config
+def _write_auth_session(
+    session_data: dict[str, Any],
+    current: dict[str, Any],
+    *,
+    resolved_login_url: str,
+) -> dict[str, Any]:
+    from .config import _write_config, config_path
 
-    current = read_config()
-    resolved_login_url = validate_login_svr_url(
-        login_svr_url or resolve_login_svr_url(current)
-    )
     current.pop("api_key", None)
     current["login_svr_url"] = resolved_login_url
     if isinstance(session_data.get("token"), str):
@@ -338,6 +345,14 @@ def save_auth_session(session_data: dict[str, Any], *, login_svr_url: str | None
         current["user"] = session_data["user"]
     _write_config(current, config_path())
     return current
+
+
+def save_auth_session(session_data: dict[str, Any], *, login_svr_url: str | None = None) -> dict[str, Any]:
+    from .config import read_config
+
+    current = read_config()
+    resolved_login_url = resolve_login_svr_url(current, override=login_svr_url)
+    return _write_auth_session(session_data, current, resolved_login_url=resolved_login_url)
 
 
 def clear_auth_session(*, keep_login_svr_url: bool = True) -> None:
@@ -367,7 +382,7 @@ class AuthSession:
         headless_env_token: bool = False,
         allow_login_ui: bool = True,
     ) -> None:
-        self.login_svr_url = validate_login_svr_url(login_svr_url)
+        self.login_svr_url = login_svr_url
         self.token = token
         self.refresh_token = refresh_token
         self.asynx = dict(asynx or {})
@@ -398,10 +413,19 @@ class AuthSession:
     def ensure_valid_token(self) -> str:
         if self.headless_env_token:
             return self.token
+        login_reason: tuple[str, int | None, str | None] | None = None
         with self._lock:
             if is_token_usable(self.token, self.asynx):
                 return self.token
-            return self._refresh_locked()
+            token, login_reason = self._refresh_locked()
+            if token is not None:
+                return token
+        assert login_reason is not None
+        return self._trigger_login_or_raise(
+            login_reason[0],
+            login_svr_code=login_reason[1],
+            message=login_reason[2],
+        )
 
     def refresh_session(self) -> str:
         if self.headless_env_token and not self.refresh_token:
@@ -411,28 +435,39 @@ class AuthSession:
                 exit_code=2,
                 http_status=401,
             )
+        login_reason: tuple[str, int | None, str | None] | None = None
         with self._lock:
-            return self._refresh_locked()
+            token, login_reason = self._refresh_locked()
+            if token is not None:
+                return token
+        assert login_reason is not None
+        return self._trigger_login_or_raise(
+            login_reason[0],
+            login_svr_code=login_reason[1],
+            message=login_reason[2],
+        )
 
-    def _refresh_locked(self) -> str:
+    def _refresh_locked(self) -> tuple[str | None, tuple[str, int | None, str | None] | None]:
         if not self.refresh_token:
-            return self._trigger_login_or_raise("missing_refresh_token")
+            return None, ("missing_refresh_token", None, None)
 
         client = LoginSvrClient(self.login_svr_url)
         try:
             refreshed = client.refresh(self.refresh_token)
         except AsxError as exc:
             login_svr_code = exc.details.get("login_svr_code") if isinstance(exc.details, dict) else None
-            if login_svr_code in UNREFRESHABLE_LOGIN_SVR_CODES:
+            if login_svr_code in UNREFRESHABLE_LOGIN_SVR_CODES or exc.http_status == 401:
                 clear_auth_session()
                 self.token = ""
                 self.refresh_token = None
-                return self._trigger_login_or_raise(exc.code, login_svr_code=login_svr_code, message=exc.message)
+                return None, (exc.code, login_svr_code, exc.message)
             raise
 
         self._apply_session_payload(refreshed)
-        save_auth_session(refreshed, login_svr_url=self.login_svr_url)
-        return self.token
+        from .config import read_config
+
+        _write_auth_session(refreshed, read_config(), resolved_login_url=self.login_svr_url)
+        return self.token, None
 
     def _apply_session_payload(self, data: dict[str, Any]) -> None:
         self.token = str(data["token"])
@@ -449,13 +484,21 @@ class AuthSession:
         login_svr_code: int | None = None,
         message: str | None = None,
     ) -> str:
+        login_url = self.login_svr_url
         if is_login_ui_allowed(self.allow_login_ui) and _login_ui_handler is not None:
-            new_data = _login_ui_handler(self.login_svr_url)
+            new_data = _login_ui_handler(login_url)
             if isinstance(new_data, dict) and isinstance(new_data.get("token"), str):
-                if isinstance(new_data.get("login_svr_url"), str) and new_data["login_svr_url"].strip():
-                    self.login_svr_url = validate_login_svr_url(new_data["login_svr_url"])
-                self._apply_session_payload(new_data)
-                return self.token
+                raw_url = new_data.get("login_svr_url")
+                validated_url = (
+                    validate_login_svr_url(raw_url)
+                    if isinstance(raw_url, str) and raw_url.strip()
+                    else None
+                )
+                with self._lock:
+                    if validated_url is not None:
+                        self.login_svr_url = validated_url
+                    self._apply_session_payload(new_data)
+                    return self.token
         raise AsxError(
             message or "登录会话已过期或未登录，请重新登录。",
             code="need_login",
@@ -464,7 +507,7 @@ class AuthSession:
             details={
                 "reason_code": reason_code,
                 **({"login_svr_code": login_svr_code} if login_svr_code is not None else {}),
-                "login_svr_url": self.login_svr_url,
+                "login_svr_url": login_url,
             },
         )
 
@@ -569,20 +612,17 @@ def load_auth_session(*, allow_login_ui: bool = True, sync_config: bool = True) 
     return session
 
 
-def login_and_provision(
-    username: str,
-    password: str,
+def _complete_auth_provision(
+    data: dict[str, Any],
     *,
-    login_svr_url: str | None = None,
+    login_svr_url: str,
 ) -> tuple[AuthSession, dict[str, Any]]:
     from .client import AsynxClient
+    from .config import read_config
 
-    resolved_url = validate_login_svr_url(login_svr_url or resolve_login_svr_url())
-    login_client = LoginSvrClient(resolved_url)
-    data = login_client.login(username, password)
-    save_auth_session(data, login_svr_url=resolved_url)
+    _write_auth_session(data, read_config(), resolved_login_url=login_svr_url)
     session = AuthSession(
-        login_svr_url=resolved_url,
+        login_svr_url=login_svr_url,
         token=data["token"],
         refresh_token=data.get("refreshToken"),
         asynx=data.get("asynx") if isinstance(data.get("asynx"), dict) else {},
@@ -591,6 +631,19 @@ def login_and_provision(
     gateway_client = AsynxClient(session.base_url, session=session)
     identity, _req_id = gateway_client.partner_identity()
     return session, identity
+
+
+def login_and_provision(
+    username: str,
+    password: str,
+    *,
+    login_svr_url: str | None = None,
+) -> tuple[AuthSession, dict[str, Any]]:
+    from .config import read_config
+
+    resolved_url = resolve_login_svr_url(read_config(), override=login_svr_url)
+    data = LoginSvrClient(resolved_url).login(username, password)
+    return _complete_auth_provision(data, login_svr_url=resolved_url)
 
 
 def register_and_provision(
@@ -600,19 +653,8 @@ def register_and_provision(
     *,
     login_svr_url: str | None = None,
 ) -> tuple[AuthSession, dict[str, Any]]:
-    from .client import AsynxClient
+    from .config import read_config
 
-    resolved_url = validate_login_svr_url(login_svr_url or resolve_login_svr_url())
-    login_client = LoginSvrClient(resolved_url)
-    data = login_client.register(username, password, nickname=nickname)
-    save_auth_session(data, login_svr_url=resolved_url)
-    session = AuthSession(
-        login_svr_url=resolved_url,
-        token=data["token"],
-        refresh_token=data.get("refreshToken"),
-        asynx=data.get("asynx") if isinstance(data.get("asynx"), dict) else {},
-        user=data.get("user") if isinstance(data.get("user"), dict) else {},
-    )
-    gateway_client = AsynxClient(session.base_url, session=session)
-    identity, _req_id = gateway_client.partner_identity()
-    return session, identity
+    resolved_url = resolve_login_svr_url(read_config(), override=login_svr_url)
+    data = LoginSvrClient(resolved_url).register(username, password, nickname=nickname)
+    return _complete_auth_provision(data, login_svr_url=resolved_url)

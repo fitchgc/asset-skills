@@ -259,6 +259,8 @@ def config_status() -> dict[str, Any]:
         or asynx_cfg.get("baseUrl")
         or config.get("base_url")
     )
+    if (not isinstance(raw_base_url, str) or not raw_base_url.strip()) and credential_source == "environment":
+        raw_base_url = DEFAULT_BASE_URL
     normalized_base_url: str | None = None
     base_url_valid = False
     if isinstance(raw_base_url, str) and raw_base_url.strip():
@@ -612,9 +614,7 @@ def configure(
         )
     migrated = migrate_legacy_config()
     current = read_config()
-    default_login_url = validate_login_svr_url(
-        login_svr_url_override or resolve_login_svr_url(current)
-    )
+    default_login_url = resolve_login_svr_url(current, override=login_svr_url_override)
     if base_url_override:
         os.environ["ASYNX_BASE_URL"] = validate_base_url(base_url_override)
     log(f"配置文件：{config_path()}")
@@ -622,7 +622,7 @@ def configure(
         log(f"已将旧配置保存到：{migrated}，原文件已保留。")
     try:
         entered_url = input(f"Identity Service 地址 [{default_login_url}]：").strip()
-        login_svr_url = validate_login_svr_url(entered_url or default_login_url)
+        login_svr_url = entered_url or default_login_url
         username = input("用户名：").strip()
         password = getpass.getpass("密码：")
     except (EOFError, KeyboardInterrupt):

@@ -116,6 +116,7 @@ class TestAssetManagerPackagingDeterminism(unittest.TestCase):
             "asynx-asset-manager/scripts/asxlib/ui/index.html",
             "asynx-asset-manager/scripts/asxlib/ui/account-bar.js",
             "asynx-asset-manager/scripts/asxlib/ui/login.html",
+            "asynx-asset-manager/scripts/asxlib/ui/model3d-loader.js",
             "asynx-asset-manager/scripts/asxlib/ui/image/index.html",
             "asynx-asset-manager/scripts/asxlib/ui/video/index.html",
             "asynx-asset-manager/scripts/asxlib/ui/3d/index.html",
@@ -759,10 +760,29 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
         token = m.group(2)
 
         # Verify standalone UI & embedded sub-workbench pages serve cleanly
-        for rel in ("/", "/account-bar.js", "/image/index.html", "/video/index.html", "/3d/index.html"):
+        for rel in ("/", "/account-bar.js", "/model3d-loader.js", "/image/index.html", "/video/index.html", "/3d/index.html"):
             st, body, _ = _http_bytes(f"{base_url}{rel}")
             self.assertEqual(st, 200, f"Standalone failed serving {rel}")
             self.assertGreater(len(body), 100)
+
+        # Malformed numeric action params return HTTP 400 invalid_parameters (not 500)
+        st, bad_num = _http_json(
+            f"{base_url}/api/manager/action",
+            method="POST",
+            token=token,
+            body={"action": "image_grid_slice", "source_path": str(hero), "rows": "not-an-int", "columns": 2},
+        )
+        self.assertEqual(st, 400, bad_num)
+        self.assertEqual(bad_num["error"]["code"], "invalid_parameters")
+
+        st, bad_bool = _http_json(
+            f"{base_url}/api/manager/action",
+            method="POST",
+            token=token,
+            body={"action": "image_grid_slice", "source_path": str(hero), "rows": True, "fps": "nan"},
+        )
+        self.assertEqual(st, 400, bad_bool)
+        self.assertEqual(bad_bool["error"]["code"], "invalid_parameters")
 
         # Offline scan + local grid slice
         st, scan1 = _http_json(f"{base_url}/api/assets", token=token)

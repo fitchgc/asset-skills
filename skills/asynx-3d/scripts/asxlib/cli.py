@@ -30,6 +30,7 @@ from .tasks import (
     local_tasks_payload,
     models_payload,
     poll_local_tasks,
+    quote_task_payload,
     recover_tasks,
     refresh_task,
     run_task_submission,
@@ -84,6 +85,7 @@ def parser() -> argparse.ArgumentParser:
     gen.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     gen.add_argument("--idempotency-key")
     gen.add_argument("--detach", action="store_true")
+    gen.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # Rig check & Rig
     rc = commands.add_parser("rig-check", help="检查 3D 模型是否符合绑定骨骼要求")
@@ -92,6 +94,7 @@ def parser() -> argparse.ArgumentParser:
     rc.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     rc.add_argument("--idempotency-key")
     rc.add_argument("--detach", action="store_true")
+    rc.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     rig = commands.add_parser("rig", help="为 3D 模型自动绑定骨骼与蒙皮权重")
     rig.add_argument("--model-file", help="本地 3D 模型文件")
@@ -101,6 +104,7 @@ def parser() -> argparse.ArgumentParser:
     rig.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     rig.add_argument("--idempotency-key")
     rig.add_argument("--detach", action="store_true")
+    rig.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # Animate
     anim = commands.add_parser("animate", help="为已绑定骨骼的 3D 模型重定向预设动画")
@@ -114,6 +118,7 @@ def parser() -> argparse.ArgumentParser:
     anim.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     anim.add_argument("--idempotency-key")
     anim.add_argument("--detach", action="store_true")
+    anim.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # Texture & Convert
     tex = commands.add_parser("texture", help="为 3D 模型重新生成贴图材质")
@@ -124,6 +129,7 @@ def parser() -> argparse.ArgumentParser:
     tex.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     tex.add_argument("--idempotency-key")
     tex.add_argument("--detach", action="store_true")
+    tex.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     conv = commands.add_parser("convert", help="云端转换 3D 模型格式")
     conv.add_argument("--model-file", help="输入模型文件")
@@ -132,6 +138,7 @@ def parser() -> argparse.ArgumentParser:
     conv.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     conv.add_argument("--idempotency-key")
     conv.add_argument("--detach", action="store_true")
+    conv.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # UI workbenches
     ui = commands.add_parser("ui", help="启动本地 3D 交互工作台")
@@ -210,7 +217,7 @@ def parser() -> argparse.ArgumentParser:
     doctor_cmd.add_argument("--verify", action="store_true")
     doctor_cmd.add_argument("--updates", action="store_true")
 
-    configure_cmd = commands.add_parser("configure", help="配置 Asynx API Key")
+    configure_cmd = commands.add_parser("configure", help="登录并配置 Asynx 会话与 Partner Token")
     configure_cmd.add_argument("--base-url")
 
     config_cmd = commands.add_parser("config", help="查看配置状态")
@@ -219,6 +226,7 @@ def parser() -> argparse.ArgumentParser:
 
     models = commands.add_parser("models", help="列出可用 3D 模型")
     models.add_argument("--operation", choices=("all", "generate", "rig", "animate", "texture", "convert"), default="all")
+    models.add_argument("--guide", help="查看指定模型的参数指南")
 
     update = commands.add_parser("update", help="检查与更新 Skill")
     update_sub = update.add_subparsers(dest="update_command", required=True)
@@ -264,7 +272,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
                 mode="model3d_viewer",
                 source_path=model_file,
                 static_dir=ui_static,
-                client=_client(),
+                client=None,
                 open_browser=open_browser,
             )
         if args.ui_command == "render-sequence":
@@ -273,7 +281,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
                 source_path=model_file,
                 output_dir=args.output_dir,
                 static_dir=ui_static,
-                client=_client(),
+                client=None,
                 open_browser=open_browser,
             )
 
@@ -331,7 +339,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
 
     client = _client()
     if args.command == "models":
-        return models_payload(client, args.operation, modality="3d"), 0
+        return models_payload(client, args.operation, modality="3d", guide=getattr(args, "guide", None)), 0
 
     if args.command == "status":
         task, request_id = client.task(args.task_id)
@@ -396,6 +404,8 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             face_limit=getattr(args, "face_limit", None),
             output_format=getattr(args, "output_format", None),
         )
+        if getattr(args, "quote", False):
+            return quote_task_payload(client, task_type=task_type, body=body, model=selected_model)
         return run_task_submission(
             client,
             task_type=task_type,

@@ -1079,7 +1079,7 @@ def execute_batch(
         refresh_errors: list[dict[str, Any]] = []
         if args.refresh:
             if client is None:
-                raise AsxError("查询批次需要 API Key", code="missing_api_key")
+                raise AsxError("查询批次需要登录会话或 Partner Token", code="need_login")
             # Status reads may download existing results, but never create paid tasks.
             refreshed = poll_batch(client, args.batch_id, _refresh_only=True, _include_results=False)
             refresh_warnings = refreshed["batch"].get("warnings", [])
@@ -1097,7 +1097,7 @@ def execute_batch(
     if action in {"pause", "resume"}:
         return set_batch_paused(args.batch_id, paused=action == "pause"), 0
     if client is None:
-        raise AsxError("此批次操作需要 API Key", code="missing_api_key")
+        raise AsxError("此批次操作需要登录会话或 Partner Token", code="need_login")
     if action == "poll":
         result = poll_batch(client, args.batch_id, submissions_limit=args.limit)
         return result, 0 if result["ok"] else 4

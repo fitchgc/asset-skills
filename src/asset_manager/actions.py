@@ -58,6 +58,51 @@ def _load_cross_module(module_name: str) -> Any:
     return mod
 
 
+def _parse_int(value: Any, name: str, *, default: int | None = None) -> int | None:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        raise AsxError(
+            f"Parameter '{name}' must be an integer",
+            code="invalid_parameters",
+            exit_code=2,
+        )
+    try:
+        return int(value)
+    except (ValueError, TypeError) as exc:
+        raise AsxError(
+            f"Parameter '{name}' must be an integer",
+            code="invalid_parameters",
+            exit_code=2,
+        ) from exc
+
+
+def _parse_float(value: Any, name: str, *, default: float | None = None) -> float | None:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        raise AsxError(
+            f"Parameter '{name}' must be a number",
+            code="invalid_parameters",
+            exit_code=2,
+        )
+    try:
+        parsed = float(value)
+    except (ValueError, TypeError) as exc:
+        raise AsxError(
+            f"Parameter '{name}' must be a number",
+            code="invalid_parameters",
+            exit_code=2,
+        ) from exc
+    if not math.isfinite(parsed):
+        raise AsxError(
+            f"Parameter '{name}' must be a finite number",
+            code="invalid_parameters",
+            exit_code=2,
+        )
+    return parsed
+
+
 def confine_workspace_path(raw_path: str | Path, workspace_root: str | Path) -> Path:
     """Resolve raw_path relative to workspace_root and reject escapes outside workspace_root."""
     root = Path(workspace_root).expanduser().resolve()
@@ -330,7 +375,7 @@ def dispatch_manager_action(
             image_size=body.get("image_size"),
             aspect_ratio=body.get("aspect_ratio"),
             quality=body.get("quality"),
-            count=int(body.get("count") or 1),
+            count=_parse_int(body.get("count") or 1, "count", default=1),
             output_format=body.get("output_format"),
             references=references,
             mask=mask_path,
@@ -370,7 +415,7 @@ def dispatch_manager_action(
 
         if tool == "remove-background":
             res = local_images._remove_background(
-                str(source_path), str(out_file), int(body.get("threshold") or 30), fmt
+                str(source_path), str(out_file), _parse_int(body.get("threshold") or 30, "threshold", default=30), fmt
             )
         elif tool == "trim":
             res = local_images._trim_transparent(str(source_path), str(out_file), fmt)
@@ -378,9 +423,9 @@ def dispatch_manager_action(
             res = local_images._pad(
                 str(source_path),
                 str(out_file),
-                int(body["padding"]) if body.get("padding") is not None else None,
-                int(body["width"]) if body.get("width") is not None else None,
-                int(body["height"]) if body.get("height") is not None else None,
+                _parse_int(body.get("padding"), "padding"),
+                _parse_int(body.get("width"), "width"),
+                _parse_int(body.get("height"), "height"),
                 str(body.get("background") or "transparent"),
                 fmt,
             )
@@ -388,8 +433,8 @@ def dispatch_manager_action(
             res = local_images._resize(
                 str(source_path),
                 str(out_file),
-                int(body["width"]) if body.get("width") is not None else None,
-                int(body["height"]) if body.get("height") is not None else None,
+                _parse_int(body.get("width"), "width"),
+                _parse_int(body.get("height"), "height"),
                 fmt,
             )
         elif tool == "crop":
@@ -424,13 +469,13 @@ def dispatch_manager_action(
         atlas_res = _slice_image_to_frame_sequence(
             source_path,
             seq_dir,
-            rows=int(body.get("rows") or 2),
-            columns=int(body.get("columns") or 2),
-            fps=float(body.get("fps") or 10.0),
-            frame_width=int(body["frame_width"]) if body.get("frame_width") else None,
-            frame_height=int(body["frame_height"]) if body.get("frame_height") else None,
+            rows=_parse_int(body.get("rows") or 2, "rows", default=2),
+            columns=_parse_int(body.get("columns") or 2, "columns", default=2),
+            fps=_parse_float(body.get("fps") or 10.0, "fps", default=10.0),
+            frame_width=_parse_int(body.get("frame_width") or None, "frame_width"),
+            frame_height=_parse_int(body.get("frame_height") or None, "frame_height"),
             remove_background=bool(body.get("remove_background", False)),
-            threshold=int(body.get("threshold") or 30),
+            threshold=_parse_int(body.get("threshold") or 30, "threshold", default=30),
             modality="image",
             operation="frame_sequence",
         )
@@ -444,9 +489,9 @@ def dispatch_manager_action(
 
     if action == "image_ai_spritesheet":
         client = require_client()
-        rows = int(body.get("rows") or 2)
-        columns = int(body.get("columns") or 2)
-        fps = float(body.get("fps") or 10.0)
+        rows = _parse_int(body.get("rows") or 2, "rows", default=2)
+        columns = _parse_int(body.get("columns") or 2, "columns", default=2)
+        fps = _parse_float(body.get("fps") or 10.0, "fps", default=10.0)
         user_prompt = str(body.get("prompt") or "character walk animation cycle").strip()
         grid_prompt = (
             f"{user_prompt}. Generate a clean {columns}x{rows} uniform sprite sheet grid "
@@ -487,10 +532,10 @@ def dispatch_manager_action(
             rows=rows,
             columns=columns,
             fps=fps,
-            frame_width=int(body["frame_width"]) if body.get("frame_width") else None,
-            frame_height=int(body["frame_height"]) if body.get("frame_height") else None,
+            frame_width=_parse_int(body.get("frame_width") or None, "frame_width"),
+            frame_height=_parse_int(body.get("frame_height") or None, "frame_height"),
             remove_background=bool(body.get("remove_background", False)),
-            threshold=int(body.get("threshold") or 30),
+            threshold=_parse_int(body.get("threshold") or 30, "threshold", default=30),
             modality="image",
             operation="frame_sequence",
         )
@@ -517,10 +562,10 @@ def dispatch_manager_action(
             prompt=prompt,
             image=str(source_path),
             end_image=end_image,
-            duration=float(body["duration"]) if body.get("duration") is not None else None,
+            duration=_parse_float(body.get("duration"), "duration"),
             aspect_ratio=body.get("aspect_ratio"),
             resolution=body.get("resolution"),
-            fps=int(body["fps"]) if body.get("fps") is not None else None,
+            fps=_parse_int(body.get("fps"), "fps"),
             generate_audio=body.get("generate_audio"),
         )
         out_dir = _resolve_output_dir(root, body)
@@ -554,7 +599,7 @@ def dispatch_manager_action(
             image=str(source_path),
             pbr=body.get("pbr", True),
             texture=body.get("texture", True),
-            face_limit=int(body["face_limit"]) if body.get("face_limit") is not None else None,
+            face_limit=_parse_int(body.get("face_limit"), "face_limit"),
             output_format=str(body.get("output_format") or "glb"),
         )
         out_dir = _resolve_output_dir(root, body)
@@ -583,12 +628,13 @@ def dispatch_manager_action(
         manifest_meta: dict[str, Any] = {}
         if manifest_file:
             try:
-                manifest_meta = json.loads(manifest_file.read_text(encoding="utf-8")).get("meta") or {}
-            except Exception:
+                parsed_manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+                manifest_meta = (parsed_manifest.get("meta") if isinstance(parsed_manifest, dict) else None) or {}
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                 manifest_meta = {}
-        rows = int(body.get("rows") or manifest_meta.get("rows") or 2)
-        columns = int(body.get("columns") or manifest_meta.get("columns") or 2)
-        fps = float(body.get("fps") or manifest_meta.get("fps") or 10.0)
+        rows = _parse_int(body.get("rows") or manifest_meta.get("rows") or 2, "rows", default=2)
+        columns = _parse_int(body.get("columns") or manifest_meta.get("columns") or 2, "columns", default=2)
+        fps = _parse_float(body.get("fps") or manifest_meta.get("fps") or 10.0, "fps", default=10.0)
         seq_dir = _resolve_sequence_dir(root, body, stem=f"{source_path.stem}_repacked")
         atlas_res = _slice_image_to_frame_sequence(
             source_path,
@@ -596,10 +642,10 @@ def dispatch_manager_action(
             rows=rows,
             columns=columns,
             fps=fps,
-            frame_width=int(body["frame_width"]) if body.get("frame_width") else None,
-            frame_height=int(body["frame_height"]) if body.get("frame_height") else None,
+            frame_width=_parse_int(body.get("frame_width") or None, "frame_width"),
+            frame_height=_parse_int(body.get("frame_height") or None, "frame_height"),
             remove_background=bool(body.get("remove_background", False)),
-            threshold=int(body.get("threshold") or 30),
+            threshold=_parse_int(body.get("threshold") or 30, "threshold", default=30),
             modality="image",
             operation="frame_sequence",
         )
@@ -615,7 +661,12 @@ def dispatch_manager_action(
         manifest_file = _find_companion_manifest(source_path, body, root)
         if not manifest_file:
             raise AsxError("Companion manifest.json not found for frame sequence", code="manifest_not_found")
-        manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+        try:
+            manifest_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AsxError(f"Invalid manifest.json: {exc}", code="invalid_manifest") from exc
+        if not isinstance(manifest_data, dict):
+            raise AsxError("Manifest must be a JSON object", code="invalid_manifest")
         frames_obj = manifest_data.get("frames")
         if not isinstance(frames_obj, (dict, list)) or not frames_obj:
             raise AsxError("Manifest contains no frames", code="empty_manifest")
@@ -630,7 +681,16 @@ def dispatch_manager_action(
         saved: list[dict[str, Any]] = []
         for idx, (fname, info) in enumerate(entries):
             rect = info.get("frame", info) if isinstance(info, dict) else {}
-            x, y, w, h = int(rect["x"]), int(rect["y"]), int(rect["w"]), int(rect["h"])
+            if not isinstance(rect, dict) or not all(k in rect for k in ("x", "y", "w", "h")):
+                raise AsxError(
+                    f"Manifest frame '{fname}' has invalid rect",
+                    code="invalid_parameters",
+                    exit_code=2,
+                )
+            x = _parse_int(rect["x"], "frame.x")
+            y = _parse_int(rect["y"], "frame.y")
+            w = _parse_int(rect["w"], "frame.w")
+            h = _parse_int(rect["h"], "frame.h")
             tile = img.crop((x, y, x + w, y + h))
             safe_name = Path(fname).stem or f"frame-{idx:04d}"
             out_path = dest_dir / f"{safe_name}.png"
@@ -665,10 +725,10 @@ def dispatch_manager_action(
             model_selector=body.get("model"),
             prompt=prompt,
             video=str(source_path),
-            duration=float(body["duration"]) if body.get("duration") is not None else None,
+            duration=_parse_float(body.get("duration"), "duration"),
             aspect_ratio=body.get("aspect_ratio"),
             resolution=body.get("resolution"),
-            fps=int(body["fps"]) if body.get("fps") is not None else None,
+            fps=_parse_int(body.get("fps"), "fps"),
         )
         out_dir = _resolve_output_dir(root, body)
         res = _run_cloud_task_and_attach(
@@ -699,9 +759,9 @@ def dispatch_manager_action(
         res = local_video.video_trim(
             source_path,
             out_file,
-            start=float(body.get("start") or 0.0),
-            end=float(body["end"]) if body.get("end") is not None else None,
-            duration=float(body["duration"]) if body.get("duration") is not None else None,
+            start=_parse_float(body.get("start") or 0.0, "start", default=0.0),
+            end=_parse_float(body.get("end"), "end"),
+            duration=_parse_float(body.get("duration"), "duration"),
         )
         local_video._record_local_video_outputs(
             [res["path"]],
@@ -771,10 +831,10 @@ def dispatch_manager_action(
         res = local_video.video_spritesheet(
             source_path,
             seq_dir,
-            fps=float(body.get("fps") or 10.0),
-            columns=int(body["columns"]) if body.get("columns") else None,
-            frame_width=int(body["width"]) if body.get("width") else None,
-            frame_height=int(body["height"]) if body.get("height") else None,
+            fps=_parse_float(body.get("fps") or 10.0, "fps", default=10.0),
+            columns=_parse_int(body.get("columns") or None, "columns"),
+            frame_width=_parse_int(body.get("width") or None, "width"),
+            frame_height=_parse_int(body.get("height") or None, "height"),
         )
         local_video._record_local_video_outputs(
             [res["atlas_path"]],
@@ -864,9 +924,9 @@ def dispatch_manager_action(
         local_model3d = _load_cross_module("local_model3d")
         val = local_model3d.model3d_validate(
             source_path,
-            max_faces=int(body["max_faces"]) if body.get("max_faces") is not None else None,
+            max_faces=_parse_int(body.get("max_faces"), "max_faces"),
             require_pbr=bool(body.get("require_pbr", False)),
-            max_materials=int(body["max_materials"]) if body.get("max_materials") is not None else None,
+            max_materials=_parse_int(body.get("max_materials"), "max_materials"),
             require_animations=bool(body.get("require_animations", False)),
         )
         return {
@@ -929,7 +989,7 @@ def dispatch_manager_action(
             text=text,
             voice=body.get("voice"),
             reference_audio=str(source_path),
-            speed=float(body["speed"]) if body.get("speed") is not None else None,
+            speed=_parse_float(body.get("speed"), "speed"),
             emotion=body.get("emotion"),
             output_format=body.get("output_format"),
         )
@@ -971,9 +1031,9 @@ def dispatch_manager_action(
         res = local_audio.audio_trim(
             source_path,
             out_file,
-            start=float(body.get("start") or 0.0),
-            end=float(body["end"]) if body.get("end") is not None else None,
-            duration=float(body["duration"]) if body.get("duration") is not None else None,
+            start=_parse_float(body.get("start") or 0.0, "start", default=0.0),
+            end=_parse_float(body.get("end"), "end"),
+            duration=_parse_float(body.get("duration"), "duration"),
         )
         local_audio._record_local_audio(res, operation="trim", parents=[str(source_path)])
         return {
@@ -994,8 +1054,8 @@ def dispatch_manager_action(
         res = local_audio.audio_fade(
             source_path,
             out_file,
-            fade_in=float(body.get("fade_in") or 0.0),
-            fade_out=float(body.get("fade_out") or 0.0),
+            fade_in=_parse_float(body.get("fade_in") or 0.0, "fade_in", default=0.0),
+            fade_out=_parse_float(body.get("fade_out") or 0.0, "fade_out", default=0.0),
         )
         local_audio._record_local_audio(res, operation="fade", parents=[str(source_path)])
         return {
@@ -1016,7 +1076,7 @@ def dispatch_manager_action(
         res = local_audio.audio_normalize(
             source_path,
             out_file,
-            target_lufs=float(body.get("target_lufs") if body.get("target_lufs") is not None else -14.0),
+            target_lufs=_parse_float(body.get("target_lufs"), "target_lufs", default=-14.0),
         )
         local_audio._record_local_audio(res, operation="normalize", parents=[str(source_path)])
         return {

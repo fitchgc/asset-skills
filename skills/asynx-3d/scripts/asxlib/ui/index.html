@@ -125,6 +125,7 @@
   </div>
 
   <script src="/account-bar.js"></script>
+  <script src="/model3d-loader.js"></script>
   <script>
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token') || window.location.hash.replace('#token=', '');
@@ -208,15 +209,55 @@
         prevMouse = { x: e.clientX, y: e.clientY };
       };
 
-      // Default demo mesh (knight cube)
-      const geom = new THREE.BoxGeometry(1, 1.5, 0.6);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.3, metalness: 0.8 });
-      modelRoot = new THREE.Mesh(geom, mat);
+      // Placeholder proxy while model loads (replaced once real geometry resolves)
+      const proxy = window.AsxModel3DLoader
+        ? window.AsxModel3DLoader.createFallbackProxy(THREE, 'Loading...')
+        : { root: new THREE.Group(), stats: { vertices: 0, faces: 0, format: 'PROXY', isFallback: true } };
+      modelRoot = proxy.root;
       scene.add(modelRoot);
 
-      document.getElementById('model-stats').textContent = `Vertices: 24 | Faces: 12 | Format: GLB (PBR enabled)`;
+      document.getElementById('anim-play-btn').onclick = () => {
+        isPlayingAnim = !isPlayingAnim;
+        document.getElementById('anim-play-btn').textContent = isPlayingAnim ? 'Pause' : 'Play';
+      };
+      document.getElementById('anim-reset-btn').onclick = () => {
+        if (modelRoot) modelRoot.rotation.set(0, 0, 0);
+      };
 
       animate();
+    }
+
+    async function loadSessionModel() {
+      if (!window.AsxModel3DLoader || !session) return;
+      const sourceUrl = session.source_url;
+      const sourceName = session.source_name || session.source_path || '';
+      const loaded = await window.AsxModel3DLoader.loadModelFromUrl(
+        THREE,
+        sourceUrl,
+        sourceName,
+        { headers: { 'X-Asx-Session-Token': token } }
+      );
+      if (modelRoot) {
+        scene.remove(modelRoot);
+        window.AsxModel3DLoader.disposeObject3D(modelRoot);
+      }
+      modelRoot = loaded.root;
+      scene.add(modelRoot);
+
+      const st = loaded.stats || {};
+      const label = session.source_name ? `${session.source_name} | ` : '';
+      const suffix = st.isFallback
+        ? `Fallback Proxy (${st.fallbackReason || 'preview unavailable'})`
+        : `Format: ${st.format} | Vertices: ${st.vertices} | Faces: ${st.faces}${st.hasTextures ? ' | Textured' : ''}`;
+      document.getElementById('model-stats').textContent = `${label}${suffix}`;
+
+      const clipSelect = document.getElementById('clip-select');
+      const anims = Array.isArray(st.animations) ? st.animations : [];
+      if (anims.length > 0) {
+        clipSelect.innerHTML = anims.map((name, i) => `<option value="${i}">${name}</option>`).join('');
+      } else {
+        clipSelect.innerHTML = '<option value="">No animation</option>';
+      }
     }
 
     function animate() {
@@ -244,9 +285,7 @@
       document.getElementById('mode-badge').textContent = session.mode;
 
       initThree();
-      if (session.source_name) {
-        document.getElementById('model-stats').textContent = `Model: ${session.source_name} | Format: ${session.source_name.split('.').pop().toUpperCase()} (PBR ready)`;
-      }
+      await loadSessionModel();
     }
 
     document.getElementById('render-btn').onclick = async () => {
@@ -273,6 +312,8 @@
       offRenderer.setClearColor(0x000000, 0);
 
       const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20);
+      const savedRotX = modelRoot ? modelRoot.rotation.x : 0;
+      const savedRotY = modelRoot ? modelRoot.rotation.y : 0;
 
       let frameCounter = 0;
       for (const dir of directions) {
@@ -289,8 +330,9 @@
 
         for (let f = 0; f < framesPerDir; f++) {
           if (frameCounter >= 240) break;
-          // Step animation slightly
-          modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
+          if (modelRoot) {
+            modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
+          }
           offRenderer.render(scene, orthoCamera);
 
           const c = frameCounter % grid.columns;
@@ -311,6 +353,12 @@
           frameCounter++;
         }
       }
+
+      if (modelRoot) {
+        modelRoot.rotation.x = savedRotX;
+        modelRoot.rotation.y = savedRotY;
+      }
+      offRenderer.dispose();
 
       const atlasDataUrl = atlasCanvas.toDataURL('image/png');
       const manifest = {

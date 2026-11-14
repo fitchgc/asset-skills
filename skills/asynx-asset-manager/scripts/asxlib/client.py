@@ -544,11 +544,16 @@ class AsynxClient:
 
         for auth_attempt in range(2):
             token = self._current_token()
-            url = (
-                self._url(f"/v1/tasks/{quote(task_id, safe='')}/assets/{index}")
-                if download_url is None
-                else _validate_asset_url(download_url, allow_local=allow_local)
-            )
+            if download_url is None:
+                url = self._url(f"/v1/tasks/{quote(task_id, safe='')}/assets/{index}")
+            else:
+                parsed_dl = urlsplit(download_url)
+                resolved_dl = (
+                    urljoin(self.base_url.rstrip("/") + "/", download_url)
+                    if not parsed_dl.scheme and not parsed_dl.netloc
+                    else download_url
+                )
+                url = _validate_asset_url(resolved_dl, allow_local=allow_local)
             opener = build_opener(_NoRedirect())
             retry_auth = False
 

@@ -30,6 +30,7 @@ from .tasks import (
     local_tasks_payload,
     models_payload,
     poll_local_tasks,
+    quote_task_payload,
     recover_tasks,
     refresh_task,
     run_task_submission,
@@ -94,6 +95,7 @@ def parser() -> argparse.ArgumentParser:
     sfx.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     sfx.add_argument("--idempotency-key")
     sfx.add_argument("--detach", action="store_true")
+    sfx.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     music = commands.add_parser("music", help="生成背景音乐与配乐")
     music.add_argument("--prompt", required=True, help="音乐风格、乐器与情绪描述")
@@ -105,6 +107,7 @@ def parser() -> argparse.ArgumentParser:
     music.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     music.add_argument("--idempotency-key")
     music.add_argument("--detach", action="store_true")
+    music.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     speech = commands.add_parser("speech", help="合成角色台词与语音")
     speech.add_argument("--text", required=True, help="朗读文本")
@@ -118,6 +121,7 @@ def parser() -> argparse.ArgumentParser:
     speech.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     speech.add_argument("--idempotency-key")
     speech.add_argument("--detach", action="store_true")
+    speech.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # Common task lifecycle commands
     status = commands.add_parser("status", help="查询任务进度")
@@ -184,7 +188,7 @@ def parser() -> argparse.ArgumentParser:
     doctor_cmd.add_argument("--verify", action="store_true")
     doctor_cmd.add_argument("--updates", action="store_true")
 
-    configure_cmd = commands.add_parser("configure", help="配置 Asynx API Key")
+    configure_cmd = commands.add_parser("configure", help="登录并配置 Asynx 会话与 Partner Token")
     configure_cmd.add_argument("--base-url")
 
     config_cmd = commands.add_parser("config", help="查看配置状态")
@@ -193,6 +197,7 @@ def parser() -> argparse.ArgumentParser:
 
     models = commands.add_parser("models", help="列出可用音频模型")
     models.add_argument("--operation", choices=("all", "sfx", "music", "speech"), default="all")
+    models.add_argument("--guide", help="查看指定模型的参数指南")
 
     # Updates
     update = commands.add_parser("update", help="检查与更新 Skill")
@@ -271,7 +276,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
 
     client = _client()
     if args.command == "models":
-        return models_payload(client, args.operation, modality="audio"), 0
+        return models_payload(client, args.operation, modality="audio", guide=getattr(args, "guide", None)), 0
 
     if args.command == "status":
         task, request_id = client.task(args.task_id)
@@ -311,6 +316,8 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             emotion=getattr(args, "emotion", None),
             output_format=getattr(args, "output_format", None),
         )
+        if getattr(args, "quote", False):
+            return quote_task_payload(client, task_type=task_type, body=body, model=selected_model)
         parent_paths = [ref_audio] if isinstance(ref_audio, str) and ref_audio.strip() else []
         return run_task_submission(
             client,

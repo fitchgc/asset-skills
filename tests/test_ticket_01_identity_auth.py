@@ -198,6 +198,24 @@ class TestAssetGatewayProtocol(unittest.TestCase):
         self.assertNotIn("x-asynx-partner-token", st_headers)
         self.assertNotIn("authorization", st_headers)
 
+    def test_relative_download_url_resolved_against_base_url(self) -> None:
+        self.gateway_server.asset_data["task_rel:0"] = b"RELATIVE_URL_PNG"
+        self.gateway_server.asset_mimes["task_rel:0"] = "image/png"
+
+        dest1 = Path(self.temp_dir) / "rel_leading_slash.png"
+        info1 = self.client.download_asset_to_file(
+            "task_rel", 0, dest1, download_url="/v1/tasks/task_rel/assets/0"
+        )
+        self.assertEqual(dest1.read_bytes(), b"RELATIVE_URL_PNG")
+        self.assertEqual(info1["bytes"], len(b"RELATIVE_URL_PNG"))
+
+        dest2 = Path(self.temp_dir) / "rel_no_slash.png"
+        info2 = self.client.download_asset_to_file(
+            "task_rel", 0, dest2, download_url="v1/tasks/task_rel/assets/0"
+        )
+        self.assertEqual(dest2.read_bytes(), b"RELATIVE_URL_PNG")
+        self.assertEqual(info2["bytes"], len(b"RELATIVE_URL_PNG"))
+
     def test_blocked_is_terminal_status_and_error_captures_http_status_and_request_id(self) -> None:
         self.assertIn("blocked", TERMINAL_STATUSES)
         self.gateway_server.expired_tokens.add("pt_bad")
@@ -275,6 +293,181 @@ class TestTwoTierRefreshAndProvisioning(unittest.TestCase):
         doc = doctor(verify=True, modality="image")
         self.assertTrue(doc["ok"])
         self.assertTrue(doc["verification"]["ok"])
+
+    def test_headless_partner_token_without_base_url_falls_back_to_default(self) -> None:
+        from shared.asxlib.constants import DEFAULT_BASE_URL
+
+        os.environ["ASYNX_PARTNER_TOKEN"] = "pt_headless_no_url"
+        os.environ.pop("ASYNX_BASE_URL", None)
+        status = config_status()
+        self.assertTrue(status["configured"])
+        self.assertEqual(status["credential_source"], "environment")
+        self.assertEqual(status["base_url"], DEFAULT_BASE_URL)
+        self.assertTrue(status["base_url_valid"])
+
+        doc = doctor(verify=False, modality="image")
+        self.assertTrue(doc["ok"], doc)
+        self.assertFalse(any(i.get("code") == "invalid_base_url" for i in doc["issues"]))
+
+    def test_non_json_401_on_refresh_clears_credentials_and_releases_lock_before_login_ui(self) -> None:
+        self.login_server.seed_user("alice_01", "secret_123", "Alice")
+        bad_jwt = make_test_jwt(exp=int(time.time()) - 10)
+        save_auth_session(
+            {
+                "token": bad_jwt,
+                "refreshToken": "rt_triggers_non_json_401",
+                "asynx": dict(self.login_server.asynx_config),
+                "user": {"id": "u1", "username": "alice_01"},
+            },
+            login_svr_url=self.login_url,
+        )
+
+        orig_do_post = self.login_server.RequestHandlerClass.do_POST
+
+        def _non_json_401_refresh(handler: Any) -> None:
+            if handler.path == "/api/user/refresh":
+                body = b"Unauthorized"
+                handler.send_response(401)
+                handler.send_header("Content-Type", "text/plain")
+                handler.send_header("Content-Length", str(len(body)))
+                handler.end_headers()
+                handler.wfile.write(body)
+                return
+            orig_do_post(handler)
+
+        # 1. Without login UI handler: clears session & raises need_login
+        with unittest.mock.patch.object(self.login_server.RequestHandlerClass, "do_POST", _non_json_401_refresh):
+            with self.assertRaises(AsxError) as ctx:
+                load_auth_session(allow_login_ui=False)
+        self.assertEqual(ctx.exception.code, "need_login")
+        saved = json.loads(self.config_file.read_text(encoding="utf-8"))
+        self.assertNotIn("token", saved)
+        self.assertNotIn("refreshToken", saved)
+
+        # 2. With login UI handler: releases AuthSession._lock before calling _login_ui_handler
+        save_auth_session(
+            {
+                "token": bad_jwt,
+                "refreshToken": "rt_triggers_non_json_401",
+                "asynx": dict(self.login_server.asynx_config),
+                "user": {"id": "u1", "username": "alice_01"},
+            },
+            login_svr_url=self.login_url,
+        )
+        lock_free_inside_handler: list[bool] = []
+        session_holder: list[Any] = []
+
+        from shared.asxlib.auth import AuthSession
+
+        orig_trigger = AuthSession._trigger_login_or_raise
+
+        def _capture_session(self_sess: Any, *args: Any, **kwargs: Any) -> str:
+            session_holder.append(self_sess)
+            return orig_trigger(self_sess, *args, **kwargs)
+
+        def _fake_login_ui(login_svr_url: str) -> dict[str, Any]:
+            if session_holder:
+                acquired = session_holder[0]._lock.acquire(blocking=False)
+                lock_free_inside_handler.append(acquired)
+                if acquired:
+                    session_holder[0]._lock.release()
+            res = LoginSvrClient(login_svr_url).login("alice_01", "secret_123")
+            save_auth_session(res, login_svr_url=login_svr_url)
+            return res
+
+        register_login_ui_handler(_fake_login_ui)
+        self.addCleanup(register_login_ui_handler, None)
+        with (
+            unittest.mock.patch.object(self.login_server.RequestHandlerClass, "do_POST", _non_json_401_refresh),
+            unittest.mock.patch.object(AuthSession, "_trigger_login_or_raise", _capture_session),
+        ):
+            recovered = load_auth_session(allow_login_ui=True)
+        self.assertTrue(recovered.token)
+        self.assertEqual(lock_free_inside_handler, [True])
+
+    def test_models_guide_and_quote_dry_run_and_offline_ui_commands(self) -> None:
+        from src.build_skills import build_skill
+
+        for mod in ("image", "audio", "video", "3d"):
+            build_skill(mod)
+
+        self.login_server.seed_user("cli_guide", "secret_123", "Guide")
+        login_and_provision("cli_guide", "secret_123", login_svr_url=self.login_url)
+
+        env = {
+            **os.environ,
+            "ASYNX_CONFIG_PATH": str(self.config_file),
+            "ASYNX_STATE_PATH": str(self.state_db),
+            "ASYNX_CACHE_PATH": str(self.cache_file),
+            "ASYNX_LOGIN_SVR_URL": self.login_url,
+            "ASYNX_NO_OPEN_BROWSER": "1",
+        }
+
+        # 1. models --guide across skill CLI
+        img_py = REPO_ROOT / "skills" / "asynx-image-pro" / "scripts" / "asynx.py"
+        g_proc = subprocess.run(
+            [sys.executable, str(img_py), "models", "--guide", "gpt-image-2.5-sunburst"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertEqual(g_proc.returncode, 0, g_proc.stderr + g_proc.stdout)
+        guide_payload = json.loads(g_proc.stdout)
+        self.assertTrue(guide_payload["ok"])
+        self.assertEqual(guide_payload["guide"]["model"], "gpt-image-2.5-sunburst")
+
+        # 2. --quote dry-run does NOT submit /v1/tasks across all 4 generation skills
+        before_subs = len(self.gateway_server.submissions)
+        for skill_name, argv in (
+            ("asynx-image-pro", ["generate", "--prompt", "a dragon", "--quote"]),
+            ("asynx-audio", ["sfx", "--prompt", "sword clash", "--quote"]),
+            ("asynx-video", ["generate", "--prompt", "waves crashing", "--quote"]),
+            ("asynx-3d", ["generate", "--prompt", "lowpoly chest", "--quote"]),
+        ):
+            cli_py = REPO_ROOT / "skills" / skill_name / "scripts" / "asynx.py"
+            q_proc = subprocess.run(
+                [sys.executable, str(cli_py), *argv],
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            self.assertEqual(q_proc.returncode, 0, f"{skill_name}: {q_proc.stderr}{q_proc.stdout}")
+            q_payload = json.loads(q_proc.stdout)
+            self.assertTrue(q_payload["ok"])
+            self.assertTrue(q_payload["quoted"])
+            self.assertEqual(q_payload["quote"]["currency"], "USD")
+        self.assertEqual(len(self.gateway_server.submissions), before_subs)
+
+        # 3. Offline UI commands in video & model3d pass client=None without requiring credentials
+        offline_env = {**env}
+        offline_env.pop("ASYNX_PARTNER_TOKEN", None)
+        self.config_file.unlink(missing_ok=True)
+        for skill_name, submod, argv in (
+            ("asynx-video", "video", ["ui", "frame-sequence", "--no-open"]),
+            ("asynx-video", "video", ["ui", "preview-sequence", "--atlas", "a.png", "--manifest", "m.json", "--no-open"]),
+            ("asynx-3d", "3d", ["ui", "viewer", "--no-open"]),
+            ("asynx-3d", "3d", ["ui", "render-sequence", "--no-open"]),
+        ):
+            scripts_dir = str(REPO_ROOT / "skills" / skill_name / "scripts")
+            sys.path.insert(0, scripts_dir)
+            try:
+                import asxlib.cli as built_cli
+                import importlib
+                built_cli = importlib.reload(built_cli)
+                seen_clients: list[Any] = []
+                with unittest.mock.patch(
+                    "asxlib.ui_server.launch_workbench",
+                    side_effect=lambda **kw: (seen_clients.append(kw.get("client")) or ({"ok": True}, 0)),
+                ):
+                    parsed = built_cli.parser().parse_args([*argv, "--no-login-ui"])
+                    payload, code = built_cli.execute(parsed)
+                    self.assertEqual(code, 0, f"{skill_name} {submod}: {payload}")
+                    self.assertEqual(seen_clients, [None])
+            finally:
+                if scripts_dir in sys.path:
+                    sys.path.remove(scripts_dir)
+                for mod_name in [m for m in list(sys.modules) if m == "asxlib" or m.startswith("asxlib.")]:
+                    sys.modules.pop(mod_name, None)
 
     def test_proactive_refresh_on_near_expiry_and_config_mismatch(self) -> None:
         self.login_server.seed_user("alice_01", "secret_123", "Alice")

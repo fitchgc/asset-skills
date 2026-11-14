@@ -573,6 +573,7 @@
   </div>
 
   <script src="/account-bar.js"></script>
+  <script src="/model3d-loader.js"></script>
   <script>
     const token = new URLSearchParams(window.location.search).get('token') || window.location.hash.replace('#token=', '');
     const state = {
@@ -911,7 +912,7 @@
       }
 
       if (asset.category === '3d') {
-        stage.innerHTML = `<canvas id="three-preview-canvas" width="420" height="220" style="width:100%; height:220px; border-radius:6px;"></canvas>`;
+        stage.innerHTML = `<canvas id="three-preview-canvas" width="420" height="220" style="width:100%; height:220px; border-radius:6px;"></canvas><div id="three-preview-meta" style="font-size:11px; color:var(--text-muted); margin-top:6px;">正在加载 3D 几何体...</div>`;
         initThreePreview(asset);
       }
     }
@@ -1055,6 +1056,7 @@
 
     function initThreePreview(asset) {
       const canvas = document.getElementById('three-preview-canvas');
+      const metaEl = document.getElementById('three-preview-meta');
       if (!canvas) return;
       if (!window.THREE) {
         const ctx = canvas.getContext('2d');
@@ -1063,6 +1065,7 @@
         ctx.fillStyle = '#a1a1aa';
         ctx.font = '13px sans-serif';
         ctx.fillText(`3D Asset: ${asset.name} (${asset.ext})`, 20, 105);
+        if (metaEl) metaEl.textContent = `3D Asset: ${asset.name} (${asset.ext})`;
         return;
       }
       try {
@@ -1076,28 +1079,54 @@
         const dir = new THREE.DirectionalLight(0xffffff, 1.0);
         dir.position.set(2, 4, 3);
         scene.add(dir);
-        const mesh = new THREE.Mesh(
-          new THREE.BoxGeometry(1.1, 1.4, 0.8),
-          new THREE.MeshStandardMaterial({ color: 0x3b82f6, roughness: 0.35, metalness: 0.6 })
-        );
-        scene.add(mesh);
+
+        let meshRoot = null;
+        let disposed = false;
         let rafId = 0;
         let dragging = false, prevX = 0;
         canvas.onpointerdown = (e) => { dragging = true; prevX = e.clientX; };
-        window.addEventListener('pointerup', () => { dragging = false; });
+        const onPointerUp = () => { dragging = false; };
+        window.addEventListener('pointerup', onPointerUp);
         canvas.onpointermove = (e) => {
-          if (!dragging) return;
-          mesh.rotation.y += (e.clientX - prevX) * 0.012;
+          if (!dragging || !meshRoot) return;
+          meshRoot.rotation.y += (e.clientX - prevX) * 0.012;
           prevX = e.clientX;
         };
+
+        const loader = window.AsxModel3DLoader;
+        if (loader) {
+          loader.loadModelFromUrl(
+            THREE,
+            fileUrl(asset.path),
+            asset.name,
+            { headers: { 'X-Asx-Session-Token': token } }
+          ).then((loaded) => {
+            if (disposed) {
+              loader.disposeObject3D(loaded.root);
+              return;
+            }
+            meshRoot = loaded.root;
+            scene.add(meshRoot);
+            if (metaEl) {
+              const st = loaded.stats || {};
+              metaEl.textContent = st.isFallback
+                ? `${asset.ext || '3D'} 代理预览 (${st.fallbackReason || '暂不支持直接网格解析'})`
+                : `${st.format} · ${st.vertices} 顶点 · ${st.faces} 面${st.animations && st.animations.length ? ` · ${st.animations.length} 段动画` : ''}`;
+            }
+          });
+        }
+
         function loop() {
           rafId = requestAnimationFrame(loop);
-          if (!dragging) mesh.rotation.y += 0.006;
+          if (!dragging && meshRoot) meshRoot.rotation.y += 0.006;
           renderer.render(scene, camera);
         }
         loop();
         state.threeCleanup = () => {
+          disposed = true;
           cancelAnimationFrame(rafId);
+          window.removeEventListener('pointerup', onPointerUp);
+          if (meshRoot && loader) loader.disposeObject3D(meshRoot);
           renderer.dispose();
         };
       } catch (_) {}

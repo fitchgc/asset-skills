@@ -29,6 +29,7 @@ from .tasks import (
     local_tasks_payload,
     models_payload,
     poll_local_tasks,
+    quote_task_payload,
     recover_tasks,
     refresh_task,
     run_task_submission,
@@ -96,6 +97,7 @@ def _add_video_generation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--idempotency-key")
     parser.add_argument("--detach", action="store_true")
+    parser.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -191,7 +193,7 @@ def parser() -> argparse.ArgumentParser:
     doctor_cmd.add_argument("--verify", action="store_true")
     doctor_cmd.add_argument("--updates", action="store_true")
 
-    configure_cmd = commands.add_parser("configure", help="配置 Asynx API Key")
+    configure_cmd = commands.add_parser("configure", help="登录并配置 Asynx 会话与 Partner Token")
     configure_cmd.add_argument("--base-url")
 
     config_cmd = commands.add_parser("config", help="查看配置状态")
@@ -200,6 +202,7 @@ def parser() -> argparse.ArgumentParser:
 
     models = commands.add_parser("models", help="列出可用视频模型")
     models.add_argument("--operation", choices=("all", "generate", "edit"), default="all")
+    models.add_argument("--guide", help="查看指定模型的参数指南")
 
     update = commands.add_parser("update", help="检查与更新 Skill")
     update_sub = update.add_subparsers(dest="update_command", required=True)
@@ -246,7 +249,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
                 source_path=video_path,
                 output_dir=args.output_dir,
                 static_dir=ui_static,
-                client=_client(),
+                client=None,
                 open_browser=open_browser,
             )
         if args.ui_command == "preview-sequence":
@@ -255,7 +258,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
                 source_path=args.atlas,
                 metadata={"manifest_path": args.manifest},
                 static_dir=ui_static,
-                client=_client(),
+                client=None,
                 open_browser=open_browser,
             )
 
@@ -313,7 +316,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
 
     client = _client()
     if args.command == "models":
-        return models_payload(client, args.operation, modality="video"), 0
+        return models_payload(client, args.operation, modality="video", guide=getattr(args, "guide", None)), 0
 
     if args.command == "status":
         task, request_id = client.task(args.task_id)
@@ -360,6 +363,8 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             fps=getattr(args, "fps", None),
             generate_audio=getattr(args, "generate_audio", None),
         )
+        if getattr(args, "quote", False):
+            return quote_task_payload(client, task_type=task_type, body=body, model=selected_model)
         return run_task_submission(
             client,
             task_type=task_type,

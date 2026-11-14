@@ -60,6 +60,7 @@ def _add_image_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--idempotency-key")
     parser.add_argument("--detach", action="store_true")
+    parser.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
     parser.add_argument("--ui", action="store_true", help="启动交互式 Web 视觉工作台")
     parser.add_argument("--no-open", action="store_true", help="不自动在浏览器中打开工作台")
     parser.add_argument(
@@ -219,7 +220,7 @@ def parser() -> argparse.ArgumentParser:
     _add_local_image_commands(commands)
     add_auth_commands(result, commands)
 
-    configure_command = commands.add_parser("configure", help="安全保存 Asynx API Key")
+    configure_command = commands.add_parser("configure", help="登录并配置 Asynx 会话与 Partner Token")
     configure_command.add_argument(
         "--base-url",
         help="使用自托管 Asynx 服务地址；使用公共服务时无需设置",
@@ -235,7 +236,7 @@ def parser() -> argparse.ArgumentParser:
     update_commands.add_parser("rollback", help="恢复最近一次更新的全部副本，或恢复中断的更新")
     config = commands.add_parser("config", help="查看本机 Asynx 配置")
     config_commands = config.add_subparsers(dest="config_command", required=True)
-    config_commands.add_parser("status", help="安全查看配置状态，不显示完整 API Key")
+    config_commands.add_parser("status", help="安全查看配置状态，不显示完整 Token")
 
     doctor_command = commands.add_parser("doctor", help="诊断配置和 Skill 安装状态")
     doctor_command.add_argument(
@@ -246,6 +247,7 @@ def parser() -> argparse.ArgumentParser:
     doctor_command.add_argument("--updates", action="store_true", help="同时检查 Skill 更新，使用 6 小时缓存")
     models = commands.add_parser("models", help="列出可用图片模型")
     models.add_argument("--operation", choices=("all", "generate", "edit"), default="all")
+    models.add_argument("--guide", help="查看指定模型的参数指南")
 
     ui = commands.add_parser("ui", help="启动本地视觉交互工作台")
     ui_commands = ui.add_subparsers(dest="ui_command", required=True)
@@ -456,7 +458,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         return execute_batch(None, args)
     client = _client()
     if args.command == "models":
-        return models_payload(client, args.operation), 0
+        return models_payload(client, args.operation, guide=getattr(args, "guide", None)), 0
     if args.command == "generate":
         return run_submission(client, args, "image.generate")
     if args.command == "edit":

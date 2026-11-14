@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import socket
+import subprocess
 import threading
 import time
 import webbrowser
@@ -233,8 +234,9 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     )
                     return
                 try:
-                    resolved_url = validate_login_svr_url(
-                        login_svr_override or self.server.metadata.get("login_svr_url") or resolve_login_svr_url(read_config())
+                    resolved_url = resolve_login_svr_url(
+                        read_config(),
+                        override=login_svr_override or self.server.metadata.get("login_svr_url"),
                     )
                     data = LoginSvrClient(resolved_url).check_username(username)
                     self._send_json(
@@ -611,14 +613,14 @@ class WorkbenchServer(ThreadingHTTPServer):
                 modality_filter = "image" if mode.startswith("image") or mode == "region_edit" else None
                 models, _ = self.client.models(modality=modality_filter)
                 self.models = models
-            except Exception:
+            except (AsxError, OSError, ValueError):
                 self.models = []
 
     def get_auth_status(self) -> dict[str, Any]:
         config = read_config()
         try:
-            login_svr_url = validate_login_svr_url(
-                self.metadata.get("login_svr_url") or resolve_login_svr_url(config)
+            login_svr_url = resolve_login_svr_url(
+                config, override=self.metadata.get("login_svr_url")
             )
         except AsxError:
             login_svr_url = str(self.metadata.get("login_svr_url") or "")
@@ -700,13 +702,10 @@ class WorkbenchServer(ThreadingHTTPServer):
             login_svr_url = None
         if not username or not password:
             raise AsxError("请输入用户名和密码", code="invalid_credentials_format")
-        resolved_login_url = validate_login_svr_url(
-            login_svr_url or self.metadata.get("login_svr_url") or resolve_login_svr_url(read_config())
-        )
         session, identity = login_and_provision(
             username,
             password,
-            login_svr_url=resolved_login_url,
+            login_svr_url=login_svr_url or self.metadata.get("login_svr_url"),
         )
         return self._finish_auth_success(session=session, identity=identity)
 
@@ -729,14 +728,11 @@ class WorkbenchServer(ThreadingHTTPServer):
                 "密码长度需为 6–64 位字符",
                 code="invalid_credentials_format",
             )
-        resolved_login_url = validate_login_svr_url(
-            login_svr_url or self.metadata.get("login_svr_url") or resolve_login_svr_url(read_config())
-        )
         session, identity = register_and_provision(
             username,
             password,
             nickname=nickname,
-            login_svr_url=resolved_login_url,
+            login_svr_url=login_svr_url or self.metadata.get("login_svr_url"),
         )
         return self._finish_auth_success(session=session, identity=identity)
 
@@ -790,13 +786,13 @@ class WorkbenchServer(ThreadingHTTPServer):
         if client is None:
             try:
                 client = self.require_client()
-            except Exception:
+            except (AsxError, OSError, ValueError):
                 return []
         try:
             models, _ = client.models()
             self.models = models
             return models
-        except Exception:
+        except (AsxError, OSError, ValueError):
             return []
 
     def _resolve_submit_context(self, body: dict[str, Any]) -> tuple[str | None, Path, Path | None]:
@@ -1056,7 +1052,6 @@ class WorkbenchServer(ThreadingHTTPServer):
 
 def _safe_open_browser(url: str) -> bool:
     """尝试在系统浏览器中打开 URL，静默捕获无桌面环境或 AppleScript 权限错误，避免 stderr 污染终端。"""
-    import subprocess
     import sys
 
     if sys.platform == "darwin":
@@ -1069,7 +1064,7 @@ def _safe_open_browser(url: str) -> bool:
             )
             if res.returncode == 0:
                 return True
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             pass
         # 在 macOS 上如果 open 失败（例如无 GUI 权限的后台守护进程），webbrowser 会尝试多个 AppleScript 方案并在 stderr 抛错，此处直接静默返回
         return False
@@ -1084,7 +1079,7 @@ def _safe_open_browser(url: str) -> bool:
             os.dup2(old_stderr, 2)
             os.close(old_stderr)
             os.close(devnull_fd)
-    except Exception:
+    except (OSError, webbrowser.Error):
         return False
 
 
@@ -1164,7 +1159,7 @@ def launch_login_workbench_session(
     login_svr_url: str | None = None,
     open_browser: bool = True,
 ) -> tuple[dict[str, Any], int, dict[str, Any] | None]:
-    resolved_url = validate_login_svr_url(login_svr_url or resolve_login_svr_url(read_config()))
+    resolved_url = resolve_login_svr_url(read_config(), override=login_svr_url)
     effective_open = open_browser and os.environ.get("ASYNX_NO_OPEN_BROWSER", "").strip().lower() not in {
         "1",
         "true",

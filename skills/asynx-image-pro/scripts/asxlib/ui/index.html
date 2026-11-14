@@ -668,6 +668,15 @@
     const toolsPanel = document.getElementById('tools-panel');
 
     // 辅助几何函数
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     function clamp(val, min, max) {
       return Math.min(Math.max(val, min), max);
     }
@@ -1620,7 +1629,7 @@
         const outFiles = taskRes.files || (taskRes.image && taskRes.image.path ? [taskRes.image.path] : []);
         const outPath = outFiles[0] || '';
         document.getElementById('loading-text').innerHTML = outPath
-          ? `✅ 修改完成！图片已保存至：<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${outPath}</code>`
+          ? `✅ 修改完成！图片已保存至：<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${escapeHtml(outPath)}</code>`
           : '✅ 修改完成！正在返回...';
         if (isEmbedded && window.parent !== window) {
           window.parent.postMessage({ type: 'asx-workbench-complete', result: taskRes }, '*');
@@ -1739,7 +1748,7 @@
           return;
         }
         document.getElementById('loading-text').innerHTML = savedPath
-          ? `✅ 修改已成功保存！<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${savedPath}</code>`
+          ? `✅ 修改已成功保存！<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#f4f4f5;border-radius:6px;font-size:12px;user-select:all;">${escapeHtml(savedPath)}</code>`
           : '✅ 修改已成功保存！';
 
         // 同步将底图更新为当前已编辑图像，方便后续继续微调或局部重绘
@@ -1761,21 +1770,33 @@
         document.getElementById('loading-overlay').style.display = 'flex';
         document.getElementById('loading-text').textContent = '正在完成并保存...';
         try {
-          await fetch('/api/submit', {
+          const payload = {
+            mode: 'tools',
+            ...(paramSourcePath ? { source_path: paramSourcePath } : {}),
+            image_data: currentImageCanvas.toDataURL('image/png'),
+            recipe: 'custom',
+            keep_alive: isEmbedded ? true : false,
+          };
+          const res = await fetch('/api/submit', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-Asx-Session-Token': token,
             },
-            body: JSON.stringify({
-              mode: 'tools',
-              image_data: currentImageCanvas.toDataURL('image/png'),
-              recipe: 'custom',
-              keep_alive: false,
-            }),
+            body: JSON.stringify(payload),
           });
-        } catch (_) {}
-        setTimeout(() => window.close(), 600);
+          const result = await res.json();
+          if (!res.ok || !result.ok) throw new Error(result.error?.message || '保存失败');
+          if (isEmbedded && window.parent !== window) {
+            document.getElementById('loading-overlay').style.display = 'none';
+            window.parent.postMessage({ type: 'asx-workbench-complete', result: result.result }, '*');
+            return;
+          }
+          setTimeout(() => window.close(), 600);
+        } catch (err) {
+          document.getElementById('loading-overlay').style.display = 'none';
+          alert('保存失败: ' + err.message);
+        }
       };
     }
 

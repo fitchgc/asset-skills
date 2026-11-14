@@ -1056,6 +1056,26 @@ def run_task_submission(
     return payload, code
 
 
+def quote_task_payload(
+    client: AsynxClient,
+    *,
+    task_type: str,
+    body: dict[str, Any],
+    model: str,
+) -> tuple[dict[str, Any], int]:
+    quote_data, request_id = client.quote(task_type, body)
+    payload: dict[str, Any] = {
+        "ok": True,
+        "quoted": True,
+        "task_type": task_type,
+        "model": model,
+        "quote": quote_data,
+    }
+    if request_id:
+        payload["request_id"] = request_id
+    return payload, 0
+
+
 def run_submission(
     client: AsynxClient, args: argparse.Namespace, task_type: str
 ) -> tuple[dict[str, Any], int]:
@@ -1093,6 +1113,8 @@ def run_submission(
         mask=mask_arg,
         keep_reference_original=args.keep_reference_original,
     )
+    if getattr(args, "quote", False):
+        return quote_task_payload(client, task_type=task_type, body=body, model=model)
     input_warnings = task_input_warnings(body)
     for warning in input_warnings:
         log(f"提示：{warning['message']}")
@@ -1116,8 +1138,18 @@ def run_submission(
 
 
 def models_payload(
-    client: AsynxClient, operation: str, *, modality: str | None = None
+    client: AsynxClient,
+    operation: str,
+    *,
+    modality: str | None = None,
+    guide: str | None = None,
 ) -> dict[str, Any]:
+    if guide:
+        guide_data, request_id = client.model_guide(guide)
+        payload: dict[str, Any] = {"ok": True, "guide": guide_data}
+        if request_id:
+            payload["request_id"] = request_id
+        return payload
     models, request_id = client.models(modality=modality)
     target_modality = modality or "image"
     task_type = None if operation == "all" else f"{target_modality}.{operation}"

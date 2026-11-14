@@ -314,6 +314,15 @@ class TestLocalUIWorkbench(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_image_ui_html_escapes_paths_and_handles_embedded_finish(self) -> None:
+        html = (REPO_ROOT / "src" / "ui" / "image" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("function escapeHtml(str)", html)
+        self.assertIn("${escapeHtml(outPath)}", html)
+        self.assertIn("${escapeHtml(savedPath)}", html)
+        self.assertIn("keep_alive: isEmbedded ? true : false", html)
+        self.assertIn("...(paramSourcePath ? { source_path: paramSourcePath } : {})", html)
+        self.assertIn("window.parent.postMessage({ type: 'asx-workbench-complete', result: result.result }, '*')", html)
+
 
 if __name__ == "__main__":
     unittest.main()
