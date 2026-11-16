@@ -25,7 +25,7 @@
     "scripts/asxlib/state.py": "e3e80e1faf6b2c1a30f3238e279334face9dc401c549556f69b02b48a7eabbee",
     "scripts/asxlib/tasks.py": "6dd486dec24490f2b66a0c286138fc12f162d75cb9b6184b56c0c91107c0b284",
     "scripts/asxlib/ui/account-bar.js": "e1cf88bbca661070c75af8b9878f0d7044b40ac531cbd3e0e5b580f77cd47d67",
-    "scripts/asxlib/ui/index.html": "2b889b69220011f1243ec76298d1bdc9fcbd5310f9b25cfddbbebd558e1ea6ae",
+    "scripts/asxlib/ui/index.html": "603c6eec824498bf6a95e23de685a51ff0a7243f5d6ae95117d5569cc6c66b05",
     "scripts/asxlib/ui/login.html": "ec00011318ae22509b120b1489750602e8027db39a4cf89f96db463934f8ca2d",
     "scripts/asxlib/ui/model3d-loader.js": "63f85fc1e950a268bb2e58905452f584a7690c0e05da6716a9a3b6897babc64d",
     "scripts/asxlib/ui_server.py": "f796327f998132125dafa21bba9eca6b3464e1d25d7c4a580223b89877a95ca9",
