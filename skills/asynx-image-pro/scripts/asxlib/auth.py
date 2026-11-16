@@ -23,7 +23,8 @@ from .constants import (
     TRANSIENT_HTTP_STATUSES,
     VERSION,
 )
-from .errors import AsxError
+from .request_log import log_failed_request
+from .errors import AsxError, describe_response
 
 _LOGIN_SVR_ERROR_MAP: dict[int, tuple[str, str]] = {
     10: ("need_login", "未登录或缺少登录凭证"),
@@ -217,9 +218,25 @@ class LoginSvrClient:
                             code="response_too_large",
                             http_status=status,
                         )
-                    return self._parse_envelope(raw, status=status)
+                    return self._parse_envelope(
+                        raw,
+                        status=status,
+                        method=method,
+                        url=url,
+                        content_type=response.headers.get("Content-Type"),
+                    )
             except HTTPError as exc:
                 raw = exc.read(MAX_API_RESPONSE_BYTES)
+                log_failed_request(
+                    method=method,
+                    url=url,
+                    request_headers=headers,
+                    request_body=payload,
+                    status=exc.code,
+                    response_headers=exc.headers,
+                    response_body=raw,
+                    attempt=attempt + 1,
+                )
                 if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
                     time.sleep(min(0.5 * (2**attempt), 5.0))
                     continue
@@ -243,6 +260,14 @@ class LoginSvrClient:
                     http_status=exc.code,
                 ) from exc
             except (URLError, TimeoutError) as exc:
+                log_failed_request(
+                    method=method,
+                    url=url,
+                    request_headers=headers,
+                    request_body=payload,
+                    error=str(exc),
+                    attempt=attempt + 1,
+                )
                 if attempt < MAX_HTTP_ATTEMPTS - 1:
                     time.sleep(min(0.5 * (2**attempt), 5.0))
                     continue
@@ -254,7 +279,14 @@ class LoginSvrClient:
         raise AsxError("Identity Service 请求失败", code="network_error", exit_code=2)
 
     @staticmethod
-    def _parse_envelope(raw: bytes, *, status: int) -> dict[str, Any]:
+    def _parse_envelope(
+        raw: bytes,
+        *,
+        status: int,
+        method: str | None = None,
+        url: str | None = None,
+        content_type: str | None = None,
+    ) -> dict[str, Any]:
         if status != 200:
             raise AsxError(
                 f"Identity Service 返回异常 HTTP 状态 {status}",
@@ -269,6 +301,10 @@ class LoginSvrClient:
                 "Identity Service 响应不是合法的 JSON",
                 code="invalid_login_svr_response",
                 exit_code=2,
+                http_status=status,
+                details=describe_response(
+                    raw, method=method, url=url, status=status, content_type=content_type
+                ),
             ) from exc
         if not isinstance(parsed, dict):
             raise AsxError(

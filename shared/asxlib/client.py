@@ -30,7 +30,8 @@ from .constants import (
     TRANSIENT_HTTP_STATUSES,
     VERSION,
 )
-from .errors import AsxError
+from .errors import AsxError, describe_response
+from .request_log import log_failed_request
 
 if TYPE_CHECKING:
     from .auth import AuthSession
@@ -49,13 +50,25 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def _decode_json(raw: bytes, *, context: str) -> dict[str, Any]:
+def _decode_json(
+    raw: bytes,
+    *,
+    context: str,
+    method: str | None = None,
+    url: str | None = None,
+    status: int | None = None,
+    content_type: str | None = None,
+) -> dict[str, Any]:
     try:
         data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise AsxError(
             f"{context} 响应不是合法的 JSON 数据",
             code="invalid_api_response",
+            http_status=status,
+            details=describe_response(
+                raw, method=method, url=url, status=status, content_type=content_type
+            ),
         ) from exc
     if not isinstance(data, dict):
         raise AsxError(f"{context} 响应格式不正确，应为 JSON 对象", code="invalid_api_response")
@@ -322,7 +335,28 @@ class AsynxClient:
                             raw = response.read(MAX_API_RESPONSE_BYTES + 1)
                             if len(raw) > MAX_API_RESPONSE_BYTES:
                                 raise AsxError("API 响应体超出限制", code="response_too_large")
-                            decoded = _decode_json(raw, context="API")
+                            try:
+                                decoded = _decode_json(
+                                    raw,
+                                    context="API",
+                                    method=method,
+                                    url=url,
+                                    status=status,
+                                    content_type=response.headers.get("Content-Type"),
+                                )
+                            except AsxError as decode_err:
+                                log_failed_request(
+                                    method=method,
+                                    url=url,
+                                    request_headers=headers,
+                                    request_body=payload,
+                                    status=status,
+                                    response_headers=response.headers,
+                                    response_body=raw,
+                                    error=decode_err.message,
+                                    attempt=attempt + 1,
+                                )
+                                raise
                             req_id = _extract_request_id(response.headers, decoded)
                             return status, decoded, req_id
                     except HTTPError as exc:
@@ -336,6 +370,16 @@ class AsynxClient:
                             redirected = True
                             break
                         raw = exc.read(MAX_API_RESPONSE_BYTES)
+                        log_failed_request(
+                            method=method,
+                            url=url,
+                            request_headers=headers,
+                            request_body=payload,
+                            status=exc.code,
+                            response_headers=exc.headers,
+                            response_body=raw,
+                            attempt=attempt + 1,
+                        )
                         if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
                             time.sleep(_retry_after(exc.headers, attempt))
                             continue
@@ -345,6 +389,14 @@ class AsynxClient:
                             break
                         raise err from exc
                     except (URLError, TimeoutError) as exc:
+                        log_failed_request(
+                            method=method,
+                            url=url,
+                            request_headers=headers,
+                            request_body=payload,
+                            error=str(exc),
+                            attempt=attempt + 1,
+                        )
                         if attempt < MAX_HTTP_ATTEMPTS - 1:
                             time.sleep(_retry_after(None, attempt))
                             continue
@@ -377,7 +429,23 @@ class AsynxClient:
             timeout=timeout,
             idempotency_key=idempotency_key,
         )
-        data = _validate_gateway_envelope(decoded, status=status, req_id=req_id)
+        try:
+            data = _validate_gateway_envelope(decoded, status=status, req_id=req_id)
+        except AsxError as envelope_err:
+            log_failed_request(
+                method=method,
+                url=self._url(path),
+                request_headers={
+                    self.token_header: self.partner_token,
+                    **({"Content-Type": "application/json"} if payload is not None else {}),
+                    **({"Idempotency-Key": idempotency_key} if idempotency_key else {}),
+                },
+                request_body=payload,
+                status=status,
+                response_body=json.dumps(decoded, ensure_ascii=False),
+                error=f"{envelope_err.code}: {envelope_err.message}",
+            )
+            raise
         return data, req_id
 
     def partner_identity(self) -> tuple[dict[str, Any], str | None]:
@@ -644,6 +712,16 @@ class AsynxClient:
                             redirected = True
                             break
                         raw = exc.read(MAX_API_RESPONSE_BYTES)
+                        log_failed_request(
+                            method="GET",
+                            url=url,
+                            request_headers=headers,
+                            request_body=None,
+                            status=exc.code,
+                            response_headers=exc.headers,
+                            response_body=raw,
+                            attempt=attempt + 1,
+                        )
                         if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
                             time.sleep(_retry_after(exc.headers, attempt))
                             continue
@@ -653,6 +731,14 @@ class AsynxClient:
                             break
                         raise err from exc
                     except (URLError, TimeoutError) as exc:
+                        log_failed_request(
+                            method="GET",
+                            url=url,
+                            request_headers=headers,
+                            request_body=None,
+                            error=str(exc),
+                            attempt=attempt + 1,
+                        )
                         if attempt < MAX_HTTP_ATTEMPTS - 1:
                             time.sleep(_retry_after(None, attempt))
                             continue
