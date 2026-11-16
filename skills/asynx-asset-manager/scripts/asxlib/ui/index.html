@@ -1312,9 +1312,14 @@
       const encTok = encodeURIComponent(token);
 
       if (asset.category === 'image') {
+        const imgTabs = [['edit', '图片编辑'], ['sequence', '生成序列帧'], ['video', '生成视频'], ['3d', '生成3D模型']];
+        if (!imgTabs.some(t => t[0] === state.imageActionTab)) state.imageActionTab = 'edit';
         container.innerHTML = `
-          <div class="action-group">
-            <h4>1. Edit Image 图像编辑</h4>
+          <div class="sub-tabs" id="img-action-tabs">
+            ${imgTabs.map(([k, label]) => `<button class="sub-tab${k === state.imageActionTab ? ' active' : ''}" data-imgtab="${k}">${label}</button>`).join('')}
+          </div>
+          <div class="action-group" data-imgpane="edit">
+            <h4>Edit Image 图像编辑</h4>
             <div class="btn-row" style="margin-bottom:8px;">
               <button class="sm" id="btn-emb-region">局部重绘 Workbench</button>
               <button class="sm" id="btn-emb-tools">本地图片工具 Workbench</button>
@@ -1346,8 +1351,8 @@
             <button class="sm" id="btn-img-local-tool">执行本地图片处理</button>
           </div>
 
-          <div class="action-group">
-            <h4>2. Generate Frame Sequence 生成序列帧</h4>
+          <div class="action-group" data-imgpane="sequence">
+            <h4>Generate Frame Sequence 生成序列帧</h4>
             <div class="sub-tabs">
               <button class="sub-tab active" data-fstype="ai">AI 精灵图生成</button>
               <button class="sub-tab" data-fstype="slice">确定性网格切分</button>
@@ -1367,8 +1372,8 @@
             <button class="primary sm" id="btn-fs-generate">生成 Frame Sequence Atlas</button>
           </div>
 
-          <div class="action-group">
-            <h4>3. Generate Video 图生视频 (video.generate)</h4>
+          <div class="action-group" data-imgpane="video">
+            <h4>Generate Video 图生视频 (video.generate)</h4>
             <div class="field-full">
               <label class="fl">视频动态描述 (首帧已自动绑定当前图片)</label>
               <input class="fi" id="act-vid-prompt" placeholder="例如：角色缓慢拔剑，披风随风飘动" />
@@ -1380,8 +1385,8 @@
             <button class="primary sm" id="btn-img-to-vid">生成视频</button>
           </div>
 
-          <div class="action-group">
-            <h4>4. Generate 3D Model 图生 3D (3d.generate)</h4>
+          <div class="action-group" data-imgpane="3d">
+            <h4>Generate 3D Model 图生 3D (3d.generate)</h4>
             <div class="field-grid">
               <div><label class="fl">输出格式</label><select class="fi" id="act-3d-fmt"><option value="glb">GLB</option><option value="fbx">FBX</option><option value="obj">OBJ</option></select></div>
               <div><label class="fl">附加描述 (可选)</label><input class="fi" id="act-3d-prompt" placeholder="可选" /></div>
@@ -1389,6 +1394,14 @@
             <button class="primary sm" id="btn-img-to-3d">生成 3D 模型</button>
           </div>
         `;
+
+        const showImgTab = (k) => {
+          state.imageActionTab = k;
+          container.querySelectorAll('[data-imgtab]').forEach(b => b.classList.toggle('active', b.dataset.imgtab === k));
+          container.querySelectorAll('[data-imgpane]').forEach(p => { p.style.display = p.dataset.imgpane === k ? '' : 'none'; });
+        };
+        container.querySelectorAll('[data-imgtab]').forEach(b => { b.onclick = () => showImgTab(b.dataset.imgtab); });
+        showImgTab(state.imageActionTab);
 
         document.getElementById('btn-emb-region').onclick = () =>
           openEmbeddedWorkbench('图像局部重绘 Workbench', `/image/index.html?embedded=1&mode=region_edit&token=${encTok}&source_path=${encSrc}`);
