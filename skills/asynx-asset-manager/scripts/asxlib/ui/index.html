@@ -241,6 +241,20 @@
       max-height: 100%;
       object-fit: contain;
     }
+    .card-thumb img.thumb-img {
+      position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none;
+      object-fit: contain; background: #09090b;
+    }
+    .cache-menu { position: relative; }
+    .cache-pop {
+      display: none; position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: 240px;
+      background: var(--card); border: 1px solid var(--border-strong); border-radius: 8px;
+      padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); font-size: 12px;
+    }
+    .cache-pop.open { display: block; }
+    .cache-pop .row { display: flex; justify-content: space-between; margin-bottom: 6px; color: var(--text-muted); }
+    .cache-pop .row b { color: var(--text); font-weight: 600; }
+    .cache-pop .dir { word-break: break-all; font-size: 10px; color: var(--text-dim); margin-bottom: 10px; }
     .thumb-glyph {
       display: flex;
       flex-direction: column;
@@ -558,7 +572,18 @@
       </select>
       <button id="rescan-btn" title="强制刷新扫描">↻ 刷新扫描</button>
     </div>
-    <div id="account-bar-slot"></div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <div class="cache-menu">
+        <button id="cache-btn" title="缩略图缓存">🗂 缓存</button>
+        <div class="cache-pop" id="cache-pop">
+          <div class="row"><span>缩略图数量</span><b id="cache-count">--</b></div>
+          <div class="row"><span>占用空间</span><b id="cache-size">--</b></div>
+          <div class="dir" id="cache-dir"></div>
+          <button id="cache-clear-btn" style="width:100%;">清除缓存</button>
+        </div>
+      </div>
+      <div id="account-bar-slot"></div>
+    </div>
   </header>
 
   <div class="tabs-bar">
@@ -809,6 +834,157 @@
       return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15 10 9"/></svg>`;
     }
 
+    function glyphHtml(asset) {
+      return `<div class="thumb-glyph">${glyphSvg(asset.category)}<span>${escapeHtml(asset.ext || asset.category)}</span></div>`;
+    }
+
+    // ---- Thumbnail cache (video / 3D): browser renders once, server stores JPEG outside the project ----
+    function thumbUrl(path) {
+      return '/api/thumb?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(path);
+    }
+
+    function thumbImgHtml(asset) {
+      return `<img class="thumb-img" loading="lazy" alt="" data-cat="${asset.category}" data-path="${escapeHtml(asset.path)}" src="${thumbUrl(asset.path)}" onerror="asxThumbMiss(this)" />`;
+    }
+
+    const thumbQueue = { items: [], running: false, renderer: null };
+
+    window.asxThumbMiss = function (img) {
+      img.onerror = null;
+      img.style.display = 'none';
+      thumbQueue.items.push(img);
+      pumpThumbQueue();
+    };
+
+    async function pumpThumbQueue() {
+      if (thumbQueue.running) return;
+      thumbQueue.running = true;
+      try {
+        while (thumbQueue.items.length) {
+          const img = thumbQueue.items.shift();
+          if (!img.isConnected) continue;
+          const path = img.dataset.path;
+          try {
+            const dataUrl = img.dataset.cat === 'video' ? await renderVideoThumb(path) : await renderModelThumb(path);
+            if (!dataUrl) continue;
+            await fetch('/api/thumb', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Asx-Session-Token': token },
+              body: JSON.stringify({ path, image_data: dataUrl }),
+            });
+            img.onerror = null;
+            img.src = thumbUrl(path) + '&t=' + Date.now();
+            img.style.display = '';
+          } catch (_) { /* keep glyph */ }
+        }
+      } finally {
+        thumbQueue.running = false;
+        refreshCacheStats();
+      }
+    }
+
+    function renderVideoThumb(path) {
+      return new Promise((resolve) => {
+        const v = document.createElement('video');
+        v.muted = true; v.preload = 'auto'; v.playsInline = true;
+        const done = (val) => { clearTimeout(timer); v.removeAttribute('src'); v.load(); resolve(val); };
+        const timer = setTimeout(() => done(null), 10000);
+        v.onerror = () => done(null);
+        v.onloadedmetadata = () => {
+          const d = isFinite(v.duration) ? v.duration : 0;
+          v.currentTime = Math.min(Math.max(d * 0.1, 0.1), Math.max(d - 0.05, 0));
+        };
+        v.onseeked = () => {
+          try {
+            const scale = Math.min(1, 320 / (v.videoWidth || 320));
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round((v.videoWidth || 320) * scale));
+            c.height = Math.max(1, Math.round((v.videoHeight || 180) * scale));
+            c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+            done(c.toDataURL('image/jpeg', 0.8));
+          } catch (_) { done(null); }
+        };
+        v.src = fileUrl(path);
+      });
+    }
+
+    async function renderModelThumb(path) {
+      const loader = window.AsxModel3DLoader;
+      if (!window.THREE || !loader) return null;
+      const SIZE = 256;
+      if (!thumbQueue.renderer) {
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE; canvas.height = SIZE;
+        thumbQueue.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+        thumbQueue.renderer.setSize(SIZE, SIZE, false);
+      }
+      const renderer = thumbQueue.renderer;
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x09090b);
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+      camera.position.set(0, 0.9, 3.2);
+      camera.lookAt(0, 0, 0);
+      const envTex = loader.setupStudioLighting(THREE, renderer, scene);
+      let loaded = null;
+      try {
+        const name = path.split('/').pop();
+        loaded = await Promise.race([
+          loader.loadModelFromUrl(THREE, fileUrl(path), name, { headers: { 'X-Asx-Session-Token': token } }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 20000)),
+        ]);
+        if (loaded.stats && loaded.stats.isFallback) return null; // don't cache placeholder proxies
+        loaded.root.rotation.y = -0.6;
+        scene.add(loaded.root);
+        renderer.render(scene, camera);
+        return renderer.domElement.toDataURL('image/jpeg', 0.85);
+      } catch (_) {
+        return null;
+      } finally {
+        if (loaded) loader.disposeObject3D(loaded.root);
+        if (envTex && envTex.dispose) envTex.dispose();
+      }
+    }
+
+    function formatCacheBytes(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    async function refreshCacheStats() {
+      try {
+        const st = await apiGet('/api/thumb-cache');
+        document.getElementById('cache-count').textContent = st.count;
+        document.getElementById('cache-size').textContent = formatCacheBytes(st.bytes) + ' / ' + formatCacheBytes(st.limit_bytes);
+        document.getElementById('cache-dir').textContent = st.dir;
+      } catch (_) {}
+    }
+
+    function initCacheMenu() {
+      const pop = document.getElementById('cache-pop');
+      document.getElementById('cache-btn').onclick = (e) => {
+        e.stopPropagation();
+        pop.classList.toggle('open');
+        if (pop.classList.contains('open')) refreshCacheStats();
+      };
+      pop.onclick = (e) => e.stopPropagation();
+      document.addEventListener('click', () => pop.classList.remove('open'));
+      document.getElementById('cache-clear-btn').onclick = async () => {
+        try {
+          const res = await fetch('/api/thumb-cache/clear', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Asx-Session-Token': token },
+            body: '{}',
+          });
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error('clear failed');
+          showToast('已清除 ' + data.removed + ' 张缩略图缓存');
+          refreshCacheStats();
+          renderGrid();
+        } catch (err) { showToast(err.message || '清除失败', 'error'); }
+      };
+    }
+
     function renderGrid() {
       const grid = document.getElementById('asset-grid');
       if (!state.assets.length) {
@@ -825,9 +1001,9 @@
         if (asset.category === 'image' || asset.category === 'frame_sequence') {
           thumbHtml = `<img src="${fileUrl(asset.path)}" loading="lazy" alt="${escapeHtml(asset.name)}" />`;
         } else if (asset.category === 'video') {
-          thumbHtml = `<video src="${fileUrl(asset.path)}" muted preload="none"></video>`;
+          thumbHtml = glyphHtml(asset) + thumbImgHtml(asset);
         } else {
-          thumbHtml = `<div class="thumb-glyph">${glyphSvg(asset.category)}<span>${escapeHtml(asset.ext || asset.category)}</span></div>`;
+          thumbHtml = glyphHtml(asset) + (asset.category === '3d' ? thumbImgHtml(asset) : '');
         }
         const tag = asset.model || asset.operation || asset.category;
         const frameTag = asset.category === 'frame_sequence' && asset.metadata && asset.metadata.frame_count
@@ -1789,6 +1965,7 @@
     }
 
     async function init() {
+      initCacheMenu();
       if (window.AsxAccountBar) {
         window.AsxAccountBar.mount('#account-bar-slot', {
           token,

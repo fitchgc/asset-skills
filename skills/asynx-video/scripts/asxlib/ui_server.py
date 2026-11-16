@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+from . import thumb_cache
 from .auth import (
     LoginSvrClient,
     clear_auth_session,
@@ -284,6 +285,35 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
                 return
 
+            if path == "/api/thumb":
+                raw_target = (parse_qs(parsed.query).get("path") or [""])[0]
+                try:
+                    source = self._confine_if_needed(raw_target) if raw_target else None
+                    hit = thumb_cache.read_thumb(source) if source and source.is_file() else None
+                except (AsxError, OSError):
+                    hit = None
+                if hit is None:
+                    self._send_json({"ok": False, "error": {"code": "not_found", "message": "No cached thumbnail"}}, status=404)
+                    return
+                data, etag = hit
+                if self.headers.get("If-None-Match") == f'"{etag}"':
+                    self.send_response(304)
+                    self.send_header("ETag", f'"{etag}"')
+                    self.end_headers()
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("ETag", f'"{etag}"')
+                self.send_header("Cache-Control", "private, max-age=0, must-revalidate")
+                self.end_headers()
+                self.wfile.write(data)
+                return
+
+            if path == "/api/thumb-cache":
+                self._send_json({"ok": True, **thumb_cache.stats()})
+                return
+
             if path == "/api/lineage" or path.startswith("/api/lineage/"):
                 qs = parse_qs(parsed.query)
                 target = (
@@ -517,6 +547,24 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             }
             self.server.exit_code = 130
             self.server.shutdown_event.set()
+            return
+
+        if path == "/api/thumb":
+            try:
+                source = self._confine_if_needed(str(body.get("path") or ""))
+                if not source.is_file():
+                    raise AsxError("Source file not found", code="not_found")
+                data, _mime = _decode_data_url(str(body.get("image_data") or ""))
+                thumb_cache.write_thumb(source, data)
+                self._send_json({"ok": True})
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
+            except (ValueError, OSError) as exc:
+                self._send_json({"ok": False, "error": {"code": "invalid_thumbnail", "message": str(exc)}}, status=400)
+            return
+
+        if path == "/api/thumb-cache/clear":
+            self._send_json({"ok": True, **thumb_cache.clear()})
             return
 
         if path == "/api/manager/action":
