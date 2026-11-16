@@ -222,6 +222,9 @@
       text-align: left;
       line-height: 1.65;
     }
+    .env-group { display: flex; gap: 18px; }
+    .env-group label { display: flex; align-items: center; gap: 6px; font-weight: 400; cursor: pointer; }
+    .env-group input { width: auto; }
   </style>
 </head>
 <body>
@@ -251,13 +254,13 @@
           <label for="login-password">密码</label>
           <input id="login-password" type="password" autocomplete="current-password" placeholder="请输入密码" required />
         </div>
-        <details class="advanced" id="adv-login-svr">
-          <summary>高级设置：Identity Service 地址 (LOGIN_SVR_URL)</summary>
-          <div class="field">
-            <label for="login-svr-url-input">服务地址</label>
-            <input id="login-svr-url-input" type="url" placeholder="http://localhost:3006" />
+        <div class="field">
+          <label>环境</label>
+          <div class="env-group">
+            <label><input type="radio" name="login-env" value="test" checked /> 测试</label>
+            <label><input type="radio" name="login-env" value="prod" /> 正式</label>
           </div>
-        </details>
+        </div>
         <div class="actions">
           <button type="button" class="btn" id="cancel-btn-login" onclick="handleCancel()">取消</button>
           <button type="submit" class="btn primary" id="login-submit-btn">登录并继续</button>
@@ -285,13 +288,13 @@
           <label for="reg-nickname">昵称（可选）</label>
           <input id="reg-nickname" type="text" placeholder="显示名称，默认同用户名" />
         </div>
-        <details class="advanced" id="adv-reg-svr">
-          <summary>高级设置：Identity Service 地址 (LOGIN_SVR_URL)</summary>
-          <div class="field">
-            <label for="reg-svr-url-input">服务地址</label>
-            <input id="reg-svr-url-input" type="url" placeholder="http://localhost:3006" />
+        <div class="field">
+          <label>环境</label>
+          <div class="env-group">
+            <label><input type="radio" name="reg-env" value="test" checked /> 测试</label>
+            <label><input type="radio" name="reg-env" value="prod" /> 正式</label>
           </div>
-        </details>
+        </div>
         <div class="actions">
           <button type="button" class="btn" id="cancel-btn-reg" onclick="handleCancel()">取消</button>
           <button type="submit" class="btn primary" id="reg-submit-btn">注册并登录</button>
@@ -360,14 +363,15 @@
       document.getElementById('register-form').style.display = isLogin ? 'none' : 'block';
     }
 
-    function syncSvrUrlInputs(value) {
-      document.getElementById('login-svr-url-input').value = value || '';
-      document.getElementById('reg-svr-url-input').value = value || '';
-    }
+    const ENV_URLS = {
+      test: 'http://8.153.90.66:3006',
+      prod: 'http://8.153.90.66:3006',
+    };
 
     function activeLoginSvrUrl(isRegister) {
-      const id = isRegister ? 'reg-svr-url-input' : 'login-svr-url-input';
-      return (document.getElementById(id).value || '').trim();
+      const name = (isRegister ? 'reg' : 'login') + '-env';
+      const el = document.querySelector(`input[name="${name}"]:checked`);
+      return ENV_URLS[el ? el.value : 'test'];
     }
 
     function onRegUsernameInput() {
@@ -576,10 +580,7 @@
           document.getElementById('mode-badge').textContent = currentMode;
         }
         if (authRes.ok) {
-          const auth = await authRes.json();
-          if (auth.login_svr_url) {
-            syncSvrUrlInputs(auth.login_svr_url);
-          }
+          await authRes.json();
         }
       } catch (_) {}
     }

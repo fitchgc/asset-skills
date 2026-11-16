@@ -106,12 +106,6 @@ def resolve_login_svr_url(
 ) -> str:
     if isinstance(override, str) and override.strip():
         return validate_login_svr_url(override)
-    env_url = os.environ.get("ASYNX_LOGIN_SVR_URL")
-    if env_url:
-        return validate_login_svr_url(env_url)
-    stored = config.get("login_svr_url") if isinstance(config, dict) else None
-    if isinstance(stored, str) and stored.strip():
-        return validate_login_svr_url(stored)
     return DEFAULT_LOGIN_SVR_URL
 
 

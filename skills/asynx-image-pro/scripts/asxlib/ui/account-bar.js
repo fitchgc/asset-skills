@@ -421,7 +421,11 @@
 
   function openSwitchAccountModal(initialTab) {
     let tab = initialTab || 'login';
-    const currentUrl = (_state.auth && _state.auth.login_svr_url) || '';
+    const ENV_URLS = { test: 'http://8.153.90.66:3006', prod: 'http://8.153.90.66:3006' };
+    const envUrl = () => {
+      const el = backdrop.querySelector('input[name="asx-sw-env"]:checked');
+      return ENV_URLS[el ? el.value : 'test'];
+    };
     const backdrop = document.createElement('div');
     backdrop.className = 'asx-acct-modal-backdrop';
     backdrop.innerHTML = `
@@ -440,10 +444,11 @@
           <label>昵称（可选）</label>
           <input type="text" id="asx-sw-nick" placeholder="显示名称" />
         </div>
-        <details style="margin: 4px 0 10px; font-size: 12px;">
-          <summary style="cursor: pointer; opacity: 0.75;">Identity Service 地址设置</summary>
-          <input type="url" id="asx-sw-svr" value="${escapeHtml(currentUrl)}" placeholder="http://localhost:3006" style="margin-top: 6px;" />
-        </details>
+        <label>环境</label>
+        <div style="display: flex; gap: 18px; margin: 0 0 10px; font-size: 13px;">
+          <label style="display: flex; align-items: center; gap: 6px;"><input type="radio" name="asx-sw-env" value="test" checked style="width: auto; margin: 0;" /> 测试</label>
+          <label style="display: flex; align-items: center; gap: 6px;"><input type="radio" name="asx-sw-env" value="prod" style="width: auto; margin: 0;" /> 正式</label>
+        </div>
         <div class="asx-acct-modal-err" id="asx-sw-err"></div>
         <div class="asx-acct-modal-actions">
           <button type="button" class="asx-acct-btn" id="asx-sw-cancel">取消</button>
@@ -482,7 +487,7 @@
       clearTimeout(checkTimer);
       checkTimer = setTimeout(async () => {
         try {
-          const svr = backdrop.querySelector('#asx-sw-svr').value.trim();
+          const svr = envUrl();
           const qs = new URLSearchParams({ username: u });
           if (svr) qs.set('login_svr_url', svr);
           const d = await apiJson('/api/auth/check-username?' + qs.toString(), 'GET');
@@ -498,7 +503,7 @@
       const username = backdrop.querySelector('#asx-sw-user').value.trim().toLowerCase();
       const password = backdrop.querySelector('#asx-sw-pass').value;
       const nickname = backdrop.querySelector('#asx-sw-nick').value.trim();
-      const login_svr_url = backdrop.querySelector('#asx-sw-svr').value.trim();
+      const login_svr_url = envUrl();
       const errEl = backdrop.querySelector('#asx-sw-err');
       errEl.textContent = '';
       try {

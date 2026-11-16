@@ -291,7 +291,6 @@ def config_status() -> dict[str, Any]:
     overrides = [
         name
         for name in (
-            "ASYNX_LOGIN_SVR_URL",
             "ASYNX_PARTNER_TOKEN",
             "ASYNX_BASE_URL",
             "ASYNX_CONFIG_PATH",
