@@ -277,6 +277,7 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                         source=source,
                         query=query_text,
                         use_cache=not no_cache,
+                        lazy_sha=True,
                     )
                     self._send_json(payload)
                 except AsxError as exc:

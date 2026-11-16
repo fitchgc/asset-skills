@@ -179,6 +179,8 @@
       gap: 12px;
     }
     .asset-card {
+      content-visibility: auto;
+      contain-intrinsic-size: 195px 220px;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 10px;
@@ -667,18 +669,35 @@
       }
     }
 
-    async function loadAssets(opts) {
-      const qs = new URLSearchParams();
-      if (state.category !== 'all') qs.set('category', state.category);
-      if (state.source !== 'all') qs.set('source', state.source);
-      if (state.query.trim()) qs.set('query', state.query.trim());
-      if (opts && opts.noCache) qs.set('no_cache', '1');
+    // 全量数据只拉取一次，切换 tab / 筛选 / 搜索在前端内存中完成，避免每次重新扫描工作区。
+    function applyLocalFilter() {
+      const q = state.query.trim().toLowerCase();
+      return (state.allAssets || []).filter(a => {
+        if (state.category !== 'all' && a.category !== state.category) return false;
+        if (state.source === 'managed' && !a.managed) return false;
+        if (state.source === 'external' && a.managed) return false;
+        if (q) {
+          if (a._hay === undefined) {
+            a._hay = [a.name, a.relative_path, a.path, a.prompt, a.model, a.operation,
+              a.task_id, a.artifact_id, a.category].filter(Boolean).join(' ').toLowerCase();
+          }
+          if (!a._hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
 
+    async function loadAssets(opts) {
       try {
-        const data = await apiGet('/api/assets?' + qs.toString());
-        state.assets = data.assets || [];
-        state.counts = data.counts || {};
-        updateCounts();
+        if ((opts && (opts.noCache || opts.refetch)) || !state.allAssets) {
+          const qs = new URLSearchParams();
+          if (opts && opts.noCache) qs.set('no_cache', '1');
+          const data = await apiGet('/api/assets?' + qs.toString());
+          state.allAssets = data.assets || [];
+          state.counts = data.counts || {};
+          updateCounts();
+        }
+        state.assets = applyLocalFilter();
         renderGrid();
         if (state.selectedPath) {
           const stillThere = state.assets.find(a => a.path === state.selectedPath);
@@ -720,7 +739,9 @@
         grid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; padding: 48px; color: var(--text-dim);">当前筛选条件下没有匹配的创作资产</div>`;
         return;
       }
-      grid.innerHTML = state.assets.map(asset => {
+      if (state.gridObserver) { state.gridObserver.disconnect(); state.gridObserver = null; }
+      const CHUNK = 120;
+      const renderCard = (asset) => {
         const badge = badgeInfo(asset);
         const isSel = asset.path === state.selectedPath;
         const checker = asset.category === 'image' || asset.category === 'frame_sequence';
@@ -728,7 +749,7 @@
         if (asset.category === 'image' || asset.category === 'frame_sequence') {
           thumbHtml = `<img src="${fileUrl(asset.path)}" loading="lazy" alt="${escapeHtml(asset.name)}" />`;
         } else if (asset.category === 'video') {
-          thumbHtml = `<video src="${fileUrl(asset.path)}" muted preload="metadata"></video>`;
+          thumbHtml = `<video src="${fileUrl(asset.path)}" muted preload="none"></video>`;
         } else {
           thumbHtml = `<div class="thumb-glyph">${glyphSvg(asset.category)}<span>${escapeHtml(asset.ext || asset.category)}</span></div>`;
         }
@@ -755,11 +776,34 @@
             </div>
           </div>
         `;
-      }).join('');
+      };
 
-      grid.querySelectorAll('.asset-card').forEach(card => {
-        card.onclick = () => selectAsset(card.dataset.path);
-      });
+      let rendered = 0;
+      const sentinel = document.createElement('div');
+      sentinel.style.cssText = 'grid-column: 1 / -1; height: 1px;';
+      const appendChunk = () => {
+        const end = Math.min(rendered + CHUNK, state.assets.length);
+        const html = state.assets.slice(rendered, end).map(renderCard).join('');
+        sentinel.insertAdjacentHTML('beforebegin', html);
+        rendered = end;
+        if (rendered >= state.assets.length) {
+          sentinel.remove();
+          if (state.gridObserver) { state.gridObserver.disconnect(); state.gridObserver = null; }
+        }
+      };
+      grid.innerHTML = '';
+      grid.appendChild(sentinel);
+      appendChunk();
+      if (rendered < state.assets.length) {
+        state.gridObserver = new IntersectionObserver((entries) => {
+          if (entries.some(e => e.isIntersecting)) appendChunk();
+        }, { root: grid.closest('.grid-pane'), rootMargin: '800px' });
+        state.gridObserver.observe(sentinel);
+      }
+      grid.onclick = (ev) => {
+        const card = ev.target.closest('.asset-card');
+        if (card && grid.contains(card)) selectAsset(card.dataset.path);
+      };
     }
 
     async function selectAsset(pathOrTarget, opts) {
@@ -776,7 +820,7 @@
             document.getElementById('source-filter').value = 'all';
             document.querySelectorAll('.cat-tab').forEach(b => b.classList.toggle('active', b.dataset.cat === 'all'));
             state.selectedPath = lin.path;
-            await loadAssets();
+            await loadAssets({ refetch: true });
             return;
           }
         } catch (err) {
@@ -1072,13 +1116,11 @@
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x09090b);
         const camera = new THREE.PerspectiveCamera(45, canvas.width / canvas.height, 0.1, 100);
-        camera.position.set(0, 1.4, 3.2);
+        camera.position.set(0, 0.9, 3.2);
+        camera.lookAt(0, 0, 0);
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
         renderer.setSize(canvas.width, canvas.height, false);
-        scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-        const dir = new THREE.DirectionalLight(0xffffff, 1.0);
-        dir.position.set(2, 4, 3);
-        scene.add(dir);
+        if (window.AsxModel3DLoader) window.AsxModel3DLoader.setupStudioLighting(THREE, renderer, scene);
 
         let meshRoot = null;
         let disposed = false;
@@ -1700,6 +1742,12 @@
 
       document.getElementById('rescan-btn').onclick = () => loadAssets({ noCache: true });
       document.getElementById('embedded-close-btn').onclick = closeEmbeddedWorkbench;
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Escape') return;
+        if (document.querySelector('.asx-acct-modal-backdrop')) return; // account-bar handles its own
+        const modal = document.getElementById('embedded-modal');
+        if (modal && modal.classList.contains('open')) closeEmbeddedWorkbench();
+      });
 
       window.addEventListener('message', async (ev) => {
         if (!ev.data || typeof ev.data !== 'object') return;

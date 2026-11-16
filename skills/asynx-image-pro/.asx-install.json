@@ -28,7 +28,7 @@
     "scripts/asxlib/ui/index.html": "b61c8d76164c2781d70896cca0dbbb27e822a2c51aa1cde2634d65b3c0bda73a",
     "scripts/asxlib/ui/login.html": "ec00011318ae22509b120b1489750602e8027db39a4cf89f96db463934f8ca2d",
     "scripts/asxlib/ui/model3d-loader.js": "63f85fc1e950a268bb2e58905452f584a7690c0e05da6716a9a3b6897babc64d",
-    "scripts/asxlib/ui_server.py": "f796327f998132125dafa21bba9eca6b3464e1d25d7c4a580223b89877a95ca9",
+    "scripts/asxlib/ui_server.py": "71560820dc6fd4260ff54e45582018a647e596fa195e543eb260dcd3898de8ed",
     "scripts/asxlib/update_files.py": "0d9e47431a58886afed112a3d731fbbd212db59ff07be390aec7a27fbd7d3c31",
     "scripts/asxlib/updates.py": "d9721bba3a4cd9554f639e3c60874cb7f798f376273aeb2b7c2577a2b91d308b",
     "scripts/asynx.py": "d841a1c9eaa50b40e4ad8d83b725144b4cc5a2a650b942ef5c04476a1528cfd7",

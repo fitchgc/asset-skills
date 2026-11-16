@@ -95,6 +95,12 @@ class _Sha256DigestCache:
         except (OSError, json.JSONDecodeError):
             return
 
+    def peek(self, file_path: Path, mtime_ns: int, size: int) -> str | None:
+        cached = self._entries.get(str(file_path))
+        if cached is not None and cached[0] == mtime_ns and cached[1] == size:
+            return cached[2]
+        return None
+
     def get_or_compute(self, file_path: Path, mtime_ns: int, size: int) -> str | None:
         key = str(file_path)
         if self.use_cache:
@@ -223,8 +229,14 @@ def _extract_prompt(ledger_row: dict[str, Any]) -> str | None:
     return None
 
 
+_DISCOVER_EXTENSIONS = (
+    IMAGE_EXTENSIONS | AUDIO_EXTENSIONS | VIDEO_EXTENSIONS | MODEL3D_EXTENSIONS
+)
+
+
 def _discover_workspace_files(
     root_path: Path,
+    extra_paths: frozenset[str] = frozenset(),
 ) -> tuple[list[Path], dict[str, dict[str, Any]]]:
     """Walk workspace root, skip excluded dirs, and pair frame sequence atlases."""
     discovered_files: list[Path] = []
@@ -237,11 +249,22 @@ def _discover_workspace_files(
         manifest_candidates: list[Path] = []
 
         for fname in sorted(filenames):
-            fpath = (current_dir / fname).resolve()
+            # 只处理资产扩展名 / manifest / 账本已登记的文件，避免对无关文件 resolve+stat
+            suffix = os.path.splitext(fname)[1].lower()
+            is_manifest = fname == "manifest.json" or fname.endswith(".manifest.json")
+            if (
+                suffix not in _DISCOVER_EXTENSIONS
+                and not is_manifest
+                and os.path.join(dirpath, fname) not in extra_paths
+            ):
+                continue
+            fpath = current_dir / fname
+            if os.path.islink(fpath):
+                fpath = fpath.resolve()
             if not fpath.is_file():
                 continue
             dir_file_map[fname] = fpath
-            if fname == "manifest.json" or fname.endswith(".manifest.json"):
+            if is_manifest:
                 manifest_candidates.append(fpath)
 
         for manifest_path in manifest_candidates:
@@ -257,10 +280,8 @@ def _discover_workspace_files(
                     manifest_path, manifest_data
                 )
 
-        for fname in sorted(filenames):
-            fpath = dir_file_map.get(fname)
-            if fpath is not None:
-                discovered_files.append(fpath)
+        for fname in sorted(dir_file_map):
+            discovered_files.append(dir_file_map[fname])
 
     return discovered_files, claimed_atlases
 
@@ -320,7 +341,7 @@ def _relink_if_moved(
     claimed_artifact_ids: set[str],
     manifest_path: str | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
-    resolved = str(file_path.resolve())
+    resolved = str(file_path)
     direct = by_path.get(resolved)
     if direct is not None:
         claimed_artifact_ids.add(str(direct["artifact_id"]))
@@ -371,6 +392,7 @@ def scan_workspace(
     query: str | None = None,
     connection: sqlite3.Connection | None = None,
     use_cache: bool = True,
+    lazy_sha: bool = False,
 ) -> dict[str, Any]:
     """Scan a workspace directory, classify 5 asset categories, join ledger, and relink moved files."""
     if category != "all" and category not in ASSET_CATEGORIES:
@@ -393,13 +415,16 @@ def scan_workspace(
             details={"root": str(root_path)},
         )
 
-    discovered_files, claimed_atlases = _discover_workspace_files(root_path)
     sha_cache = _Sha256DigestCache(use_cache=use_cache)
 
     owns_conn = connection is None
     conn = connect_db() if connection is None else connection
     try:
         ledger_rows = list_all_assets(conn, state="available")
+        discovered_files, claimed_atlases = _discover_workspace_files(
+            root_path,
+            frozenset(str(r.get("path")) for r in ledger_rows if r.get("path")),
+        )
         by_path: dict[str, dict[str, Any]] = {}
         by_sha_missing: dict[str, list[dict[str, Any]]] = {}
         for row in ledger_rows:
@@ -415,7 +440,7 @@ def scan_workspace(
         candidates: list[dict[str, Any]] = []
 
         for fpath in discovered_files:
-            resolved_str = str(fpath.resolve())
+            resolved_str = str(fpath)
             atlas_info = claimed_atlases.get(resolved_str)
             ext_category = "frame_sequence" if atlas_info is not None else _classify_extension(fpath.suffix)
             if ext_category is None:
@@ -431,7 +456,13 @@ def scan_workspace(
             except OSError:
                 continue
 
-            file_sha = sha_cache.get_or_compute(fpath, st.st_mtime_ns, st.st_size)
+            if lazy_sha and (resolved_str in by_path or not by_sha_missing):
+                # 无需 sha 即可确定账本归属：仅使用已缓存/账本中的值，不读文件内容
+                file_sha = sha_cache.peek(fpath, st.st_mtime_ns, st.st_size) or (
+                    (by_path.get(resolved_str) or {}).get("sha256")
+                )
+            else:
+                file_sha = sha_cache.get_or_compute(fpath, st.st_mtime_ns, st.st_size)
             manifest_path_for_relink = atlas_info["manifest_path"] if atlas_info else None
 
             ledger_row, relinked_from = _relink_if_moved(

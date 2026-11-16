@@ -375,6 +375,12 @@
     };
   }
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const open = document.querySelectorAll('.asx-acct-modal-backdrop');
+    if (open.length) open[open.length - 1].remove();
+  });
+
   function openChangePasswordModal() {
     const backdrop = document.createElement('div');
     backdrop.className = 'asx-acct-modal-backdrop';

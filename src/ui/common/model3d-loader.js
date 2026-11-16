@@ -181,6 +181,7 @@
     if (!srcUrl) return null;
     const texture = new THREE.Texture();
     texture.flipY = false;
+    if (THREE.sRGBEncoding !== undefined) texture.encoding = THREE.sRGBEncoding;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = function () {
@@ -336,7 +337,7 @@
       throw new Error('glTF contains no renderable mesh primitives');
     }
 
-    centerAndScaleObject(THREE, root, 1.6);
+    centerAndScaleObject(THREE, root, 1.8);
     const animNames = Array.isArray(gltf.animations)
       ? gltf.animations.map((a, idx) => (a && a.name) || `clip_${idx + 1}`)
       : [];
@@ -500,7 +501,7 @@
     });
     const root = new THREE.Group();
     root.add(new THREE.Mesh(geom, mat));
-    centerAndScaleObject(THREE, root, 1.6);
+    centerAndScaleObject(THREE, root, 1.8);
 
     return {
       root,
@@ -517,11 +518,183 @@
     };
   }
 
-  async function loadModelFromUrl(THREE, url, filenameOrExt, fetchOpts) {
+  const CDN = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/';
+  let gltfLoaderPromise = null;
+
+  function loadScriptOnce(src) {
+    return new Promise((resolve) => {
+      if (typeof document === 'undefined') return resolve(false);
+      const el = document.createElement('script');
+      el.src = src;
+      el.onload = () => resolve(true);
+      el.onerror = () => resolve(false);
+      document.head.appendChild(el);
+    });
+  }
+
+  // Lazily load three's official GLTFLoader (+ Draco / Meshopt decoders).
+  function ensureOfficialGltfLoader(THREE) {
+    if (THREE && THREE.GLTFLoader) return Promise.resolve(true);
+    if (typeof document === 'undefined') return Promise.resolve(false);
+    if (!gltfLoaderPromise) {
+      gltfLoaderPromise = (async () => {
+        const ok = await loadScriptOnce(CDN + 'loaders/GLTFLoader.js');
+        if (!ok) return false;
+        await loadScriptOnce(CDN + 'loaders/DRACOLoader.js');
+        await loadScriptOnce(CDN + 'libs/meshopt_decoder.js');
+        return Boolean(THREE.GLTFLoader);
+      })();
+    }
+    return gltfLoaderPromise;
+  }
+
+  async function parseWithOfficialLoader(THREE, buf, baseUrl) {
+    if (!(await ensureOfficialGltfLoader(THREE))) throw new Error('GLTFLoader unavailable');
+    const loader = new THREE.GLTFLoader();
+    if (THREE.DRACOLoader) {
+      const draco = new THREE.DRACOLoader();
+      draco.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.4.1/');
+      loader.setDRACOLoader(draco);
+    }
+    if (typeof window !== 'undefined' && window.MeshoptDecoder && loader.setMeshoptDecoder) {
+      loader.setMeshoptDecoder(window.MeshoptDecoder);
+    }
+    const base = baseUrl ? baseUrl.replace(/[^/]*$/, '') : '';
+    const gltf = await new Promise((resolve, reject) => loader.parse(buf, base, resolve, reject));
+    const root = new THREE.Group();
+    root.add(gltf.scene);
+    let vertices = 0, faces = 0, meshes = 0, hasTextures = false;
+    const materials = [];
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      meshes += 1;
+      const pos = o.geometry.getAttribute('position');
+      if (pos) vertices += pos.count;
+      faces += Math.floor((o.geometry.index ? o.geometry.index.count : (pos ? pos.count : 0)) / 3);
+      const ms = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of ms) {
+        if (!m) continue;
+        if (m.map) hasTextures = true;
+        if (m.name && materials.indexOf(m.name) === -1) materials.push(m.name);
+      }
+    });
+    if (meshes === 0) throw new Error('glTF contains no renderable mesh primitives');
+    root.updateMatrixWorld(true);
+    centerAndScaleObject(THREE, root, 1.8);
+    return {
+      root,
+      stats: {
+        vertices, faces, meshes, materials,
+        animations: (gltf.animations || []).map((a, i) => a.name || `clip_${i + 1}`),
+        hasTextures, format: 'GLB', isFallback: false, clips: gltf.animations || [],
+      },
+    };
+  }
+
+  let fbxLoaderPromise = null;
+  function ensureFbxLoader(THREE) {
+    if (THREE && THREE.FBXLoader && typeof fflate !== 'undefined') return Promise.resolve(true);
+    if (typeof document === 'undefined') return Promise.resolve(false);
+    if (!fbxLoaderPromise) {
+      fbxLoaderPromise = (async () => {
+        await loadScriptOnce(CDN + 'libs/fflate.min.js');
+        await loadScriptOnce(CDN + 'curves/NURBSUtils.js');
+        await loadScriptOnce(CDN + 'curves/NURBSCurve.js');
+        const ok = await loadScriptOnce(CDN + 'loaders/FBXLoader.js');
+        return ok && Boolean(THREE.FBXLoader);
+      })();
+    }
+    return fbxLoaderPromise;
+  }
+
+  async function parseFbxBuffer(THREE, buf, baseUrl) {
+    if (!(await ensureFbxLoader(THREE))) throw new Error('FBXLoader unavailable');
+    const base = baseUrl ? baseUrl.replace(/[^/]*$/, '') : '';
+    const manager = new THREE.LoadingManager();
+    // Sibling textures live next to the model in the workspace; route them through the
+    // same file endpoint (/api/workspace-file?path=<dir>/<name>) instead of a bogus relative URL.
+    let modelDir = null, origin = null, tokenQ = '';
+    try {
+      const u = new URL(baseUrl);
+      const p = u.searchParams.get('path');
+      if (p) {
+        modelDir = p.replace(/\\/g, '/').replace(/[^/]*$/, '');
+        origin = u.origin + u.pathname;
+        tokenQ = u.searchParams.get('token') ? '&token=' + encodeURIComponent(u.searchParams.get('token')) : '';
+      }
+    } catch (_) { /* ignore */ }
+    if (modelDir !== null) {
+      manager.setURLModifier((url) => {
+        if (/^(data:|blob:)/.test(url)) return url;
+        const tail = url.replace(/\\/g, '/').split('/').pop().split('?')[0];
+        const name = decodeURIComponent(tail);
+        return origin + '?path=' + encodeURIComponent(modelDir + name) + tokenQ;
+      });
+    }
+    const obj = new THREE.FBXLoader(manager).parse(buf, base);
+    // A texture without a decoded image samples as black. Keep such maps detached
+    // (base color shows instead) and attach each one once its image is actually ready.
+    const pending = [];
+    obj.traverse((o) => {
+      const ms = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+      for (const m of ms) {
+        if (m.map && !(m.map.image && (m.map.image.width || m.map.image.videoWidth))) {
+          pending.push({ m, map: m.map });
+          m.map = null;
+          m.needsUpdate = true;
+        }
+      }
+    });
+    if (pending.length && typeof setInterval === 'function') {
+      let ticks = 0;
+      const timer = setInterval(() => {
+        ticks += 1;
+        for (let i = pending.length - 1; i >= 0; i--) {
+          const it = pending[i];
+          if (it.map.image && it.map.image.width) {
+            it.m.map = it.map;
+            it.m.needsUpdate = true;
+            pending.splice(i, 1);
+          }
+        }
+        if (!pending.length || ticks > 40) clearInterval(timer);
+      }, 250);
+    }
+    const root = new THREE.Group();
+    root.add(obj);
+    let vertices = 0, faces = 0, meshes = 0, hasTextures = false;
+    const materials = [];
+    obj.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return;
+      meshes += 1;
+      const pos = o.geometry.getAttribute('position');
+      if (pos) vertices += pos.count;
+      faces += Math.floor((o.geometry.index ? o.geometry.index.count : (pos ? pos.count : 0)) / 3);
+      const ms = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of ms) {
+        if (!m) continue;
+        if (m.map) hasTextures = true;
+        if (m.name && materials.indexOf(m.name) === -1) materials.push(m.name);
+      }
+    });
+    if (meshes === 0) throw new Error('FBX contains no renderable meshes');
+    root.updateMatrixWorld(true);
+    centerAndScaleObject(THREE, root, 1.8);
+    return {
+      root,
+      stats: {
+        vertices, faces, meshes, materials,
+        animations: (obj.animations || []).map((a, i) => a.name || `clip_${i + 1}`),
+        hasTextures, format: 'FBX', isFallback: false, clips: obj.animations || [],
+      },
+    };
+  }
+
+  async function loadModelFromUrlRaw(THREE, url, filenameOrExt, fetchOpts) {
     const extRaw = String(filenameOrExt || url || '').split('?')[0].split('#')[0];
     const ext = extRaw.includes('.') ? '.' + extRaw.split('.').pop().toLowerCase() : extRaw.toLowerCase();
 
-    if (!url || ext === '.fbx' || ext === '.usdz') {
+    if (!url || ext === '.usdz') {
       const reason = !url ? 'No model URL provided' : `${ext.toUpperCase()} uses bounding-box preview proxy`;
       return createFallbackProxy(THREE, reason);
     }
@@ -531,21 +704,105 @@
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
+      if (ext === '.fbx') {
+        const fbxBuf = await res.arrayBuffer();
+        return await parseFbxBuffer(THREE, fbxBuf, typeof window !== 'undefined' ? new URL(url, window.location.href).href : url);
+      }
       if (ext === '.obj') {
         const text = await res.text();
         return parseObjText(THREE, text);
       }
+      const absUrl = typeof window !== 'undefined' ? new URL(url, window.location.href).href : url;
       if (ext === '.gltf') {
         const text = await res.text();
-        return await parseGltfJson(THREE, text, new URL(url, window.location.href).href, fetchOpts);
+        try {
+          return await parseGltfJson(THREE, text, absUrl, fetchOpts);
+        } catch (e) {
+          return await parseWithOfficialLoader(THREE, text, absUrl);
+        }
       }
-      // Default to .glb
+      // Default to .glb: built-in parser first, official GLTFLoader for Draco/Meshopt etc.
       const buf = await res.arrayBuffer();
-      const absUrl = typeof window !== 'undefined' ? new URL(url, window.location.href).href : url;
-      return parseGlbBuffer(THREE, buf, absUrl);
+      try {
+        return parseGlbBuffer(THREE, buf.slice(0), absUrl);
+      } catch (e) {
+        return await parseWithOfficialLoader(THREE, buf, absUrl);
+      }
     } catch (err) {
       return createFallbackProxy(THREE, err && err.message ? err.message : 'Model load failed');
     }
+  }
+
+  // Wrap in a pivot group so rotating the result spins around the model's own center.
+  async function loadModelFromUrl(THREE, url, filenameOrExt, fetchOpts) {
+    const loaded = await loadModelFromUrlRaw(THREE, url, filenameOrExt, fetchOpts);
+    const pivot = new THREE.Group();
+    pivot.add(loaded.root);
+    loaded.root = pivot;
+    return loaded;
+  }
+
+  // Studio lighting similar to Blender's Material Preview / 3ds Max studio viewport:
+  // a procedural softbox environment (image based lighting) + sRGB output + filmic tone mapping.
+  function buildStudioEnvScene(THREE) {
+    const env = new THREE.Scene();
+    const geo = new THREE.SphereGeometry(10, 32, 16);
+    const colors = [];
+    const pos = geo.getAttribute('position');
+    const top = new THREE.Color(0.75, 0.8, 0.9);
+    const mid = new THREE.Color(0.42, 0.42, 0.44);
+    const bot = new THREE.Color(0.12, 0.12, 0.13);
+    for (let i = 0; i < pos.count; i++) {
+      const t = pos.getY(i) / 10;
+      const c = t >= 0 ? mid.clone().lerp(top, t) : mid.clone().lerp(bot, -t);
+      colors.push(c.r, c.g, c.b);
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    env.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    function softbox(w, h, x, y, z, intensity) {
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ color: new THREE.Color(intensity, intensity, intensity), side: THREE.DoubleSide })
+      );
+      m.position.set(x, y, z);
+      m.lookAt(0, 0, 0);
+      env.add(m);
+    }
+    softbox(8, 5, 0, 8, 2, 6);
+    softbox(4, 6, 8, 2, 4, 4);
+    softbox(4, 6, -8, 2, 3, 3);
+    softbox(6, 3, 0, 3, -8, 3);
+    return env;
+  }
+
+  // Returns a texture for scene.environment tied to this renderer's GL context.
+  function createStudioEnvironment(THREE, renderer) {
+    if (!THREE.PMREMGenerator) return null;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envScene = buildStudioEnvScene(THREE);
+    const rt = pmrem.fromScene(envScene, 0.02);
+    pmrem.dispose();
+    envScene.traverse((o) => {
+      if (o.geometry) o.geometry.dispose();
+      if (o.material) o.material.dispose();
+    });
+    return rt.texture;
+  }
+
+  function setupStudioLighting(THREE, renderer, scene) {
+    if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
+    if (THREE.ACESFilmicToneMapping !== undefined) {
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+    }
+    const envTex = createStudioEnvironment(THREE, renderer);
+    if (envTex) scene.environment = envTex;
+    // Light non-PBR materials (e.g. FBX Phong) that ignore scene.environment.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x555560, 0.5));
+    const key = new THREE.DirectionalLight(0xffffff, 0.9);
+    key.position.set(2, 4, 3);
+    scene.add(key);
+    return envTex;
   }
 
   function disposeObject3D(root) {
@@ -569,6 +826,8 @@
     loadModelFromUrl,
     createFallbackProxy,
     disposeObject3D,
+    setupStudioLighting,
+    createStudioEnvironment,
   };
 
   if (typeof window !== 'undefined') {

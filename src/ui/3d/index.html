@@ -184,17 +184,14 @@
       scene.background = new THREE.Color(0x09090b);
 
       camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
-      camera.position.set(0, 1.5, 3.5);
+      camera.position.set(0, 1.0, 3.5);
+      camera.lookAt(0, 0, 0);
 
       renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
       renderer.setSize(container.clientWidth, container.clientHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
 
-      const ambLight = new THREE.AmbientLight(0xffffff, 0.8);
-      scene.add(ambLight);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      dirLight.position.set(2, 4, 3);
-      scene.add(dirLight);
+      window.AsxModel3DLoader.setupStudioLighting(THREE, renderer, scene);
 
       // Simple mouse rotation
       let isDragging = false;
@@ -222,6 +219,7 @@
       };
       document.getElementById('anim-reset-btn').onclick = () => {
         if (modelRoot) modelRoot.rotation.set(0, 0, 0);
+        if (currentAction) currentAction.reset();
       };
 
       animate();
@@ -258,7 +256,30 @@
       } else {
         clipSelect.innerHTML = '<option value="">No animation</option>';
       }
+      setupMixer(Array.isArray(st.clips) ? st.clips : []);
     }
+
+    let clipActions = [];
+    let currentAction = null;
+    function setupMixer(clips) {
+      if (mixer) { mixer.stopAllAction(); mixer = null; }
+      clipActions = [];
+      currentAction = null;
+      if (!clips.length || !modelRoot) return;
+      mixer = new THREE.AnimationMixer(modelRoot);
+      clipActions = clips.map((c) => mixer.clipAction(c));
+      selectClip(0);
+    }
+    function selectClip(idx) {
+      if (!mixer || !clipActions.length) return;
+      if (currentAction) currentAction.stop();
+      currentAction = clipActions[idx] || clipActions[0];
+      currentAction.reset().play();
+    }
+    document.getElementById('clip-select').onchange = (e) => {
+      const i = parseInt(e.target.value, 10);
+      if (!Number.isNaN(i)) selectClip(i);
+    };
 
     function animate() {
       requestAnimationFrame(animate);
@@ -310,6 +331,10 @@
       const offRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
       offRenderer.setSize(frameW, frameH);
       offRenderer.setClearColor(0x000000, 0);
+      if (THREE.sRGBEncoding !== undefined) offRenderer.outputEncoding = THREE.sRGBEncoding;
+      if (THREE.ACESFilmicToneMapping !== undefined) offRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const mainEnv = scene.environment;
+      scene.environment = window.AsxModel3DLoader.createStudioEnvironment(THREE, offRenderer);
 
       const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20);
       const savedRotX = modelRoot ? modelRoot.rotation.x : 0;
@@ -330,7 +355,12 @@
 
         for (let f = 0; f < framesPerDir; f++) {
           if (frameCounter >= 240) break;
-          if (modelRoot) {
+          if (mixer && currentAction) {
+            const dur = currentAction.getClip().duration || 1;
+            currentAction.paused = true;
+            currentAction.time = (f / framesPerDir) * dur;
+            mixer.update(0);
+          } else if (modelRoot) {
             modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
           }
           offRenderer.render(scene, orthoCamera);
@@ -358,6 +388,9 @@
         modelRoot.rotation.x = savedRotX;
         modelRoot.rotation.y = savedRotY;
       }
+      if (currentAction) currentAction.paused = false;
+      if (scene.environment && scene.environment !== mainEnv) scene.environment.dispose();
+      scene.environment = mainEnv;
       offRenderer.dispose();
 
       const atlasDataUrl = atlasCanvas.toDataURL('image/png');
@@ -402,6 +435,11 @@
         document.getElementById('loading-overlay').style.display = 'none';
       }
     };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !isEmbedded || window.parent === window) return;
+      window.parent.postMessage({ type: 'asx-workbench-cancel' }, '*');
+    });
 
     document.getElementById('cancel-btn').onclick = async () => {
       if (isEmbedded && window.parent !== window) {
