@@ -5,8 +5,9 @@
 python3 "<skill-dir>/scripts/asynx.py" models
 ```
 
-主要模型能力：
-- `3d.generate`: 文生 3D、图生 3D。
-- `3d.rig_check` / `3d.rig`: 拓扑结构检测与骨骼权重蒙皮绑定。
-- `3d.retarget`: 角色骨骼动画重定向。
-- `3d.texture`: 表面纹理绘制与烘焙。
+当前由 Tripo 提供，均按次计价，提交时必须带 `model`（CLI 自动从目录选取）：
+- `tripo-h3.1`: `model.generate`，文生 / 图生 3D，输出 GLB。
+- `tripo-rig-check`: `model.rig_check`，绑定检查，只返回结论。
+- `tripo-rig`: `model.rig`，骨骼绑定，GLB 或 FBX。
+- `tripo-animate`: `model.retarget`，预设动画，GLB 或 FBX。
+- `tripo-convert`: `model.convert`，格式转换。

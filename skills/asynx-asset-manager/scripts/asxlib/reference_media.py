@@ -295,6 +295,21 @@ def prepare_image(value: str, *, keep_original: bool = False) -> PreparedImage:
     )
 
 
+def _mask_target_size(width: int, height: int, source: PreparedImage | None) -> tuple[int, int]:
+    """Downscale an oversized mask to match the normalized source (or the limits)."""
+    if source and source.width and source.height and (width > source.width or height > source.height):
+        if abs(width * source.height - height * source.width) <= max(source.width, source.height):
+            return source.width, source.height
+    scale = min(
+        1.0,
+        MAX_REFERENCE_DIMENSION / max(width, height),
+        math.sqrt(MAX_REFERENCE_PIXELS / (width * height)),
+    )
+    if scale >= 1.0:
+        return width, height
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
 def prepare_mask(value: str, *, source: PreparedImage | None) -> PreparedImage:
     if value.casefold().startswith(("http://", "https://")):
         return PreparedImage(_validated_remote_url(value), None, None, None, None, False)
@@ -304,6 +319,14 @@ def prepare_mask(value: str, *, source: PreparedImage | None) -> PreparedImage:
         if content_type != "image/png":
             raise AsxError("Image edit mask must be PNG", code="invalid_image_mask")
         width, height = image.size
+        target = _mask_target_size(width, height, source)
+        if target != (width, height):
+            image_module, _ops, _unid = _pillow()
+            image = image.convert("RGBA").resize(target, image_module.Resampling.NEAREST)
+            output = io.BytesIO()
+            image.save(output, format="PNG", optimize=True)
+            data = output.getvalue()
+            width, height = target
         if (
             len(data) > MAX_MASK_BYTES
             or max(width, height) > MAX_REFERENCE_DIMENSION

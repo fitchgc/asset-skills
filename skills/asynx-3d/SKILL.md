@@ -1,6 +1,6 @@
 ---
 name: asynx-3d
-description: 通过 Asynx 生成 3D 资产、检查可绑定性 (rig-check)、自动绑定骨骼 (rig)、重定向动画 (animate)、重新贴图 (texture) 与格式转换；支持本地纯 Python 3D 模型元数据检查、规范校验与 PBR 贴图提取；支持浏览器 WebGL 3D 检查与多角度序列帧渲染工作台。
+description: 通过 Asynx 生成 3D 资产、检查可绑定性 (rig-check)、自动绑定骨骼 (rig)、套用预设动画 (animate) 与格式转换；支持本地纯 Python 3D 模型元数据检查、规范校验与 PBR 贴图提取；支持浏览器 WebGL 3D 检查与多角度序列帧渲染工作台。
 ---
 
 # Asynx 3D (3D Models & Animation)
@@ -13,24 +13,29 @@ description: 通过 Asynx 生成 3D 资产、检查可绑定性 (rig-check)、�
 # 文生 3D (Text-to-3D)
 python3 "<skill-dir>/scripts/asynx.py" generate --prompt "中世纪骑士双手大剑，带有符文雕刻，PBR 材质" --output-format glb
 
-# 图生 3D (Image-to-3D)
+# 图生 3D (Image-to-3D，只接受一张图，不能同时填 --prompt)
 python3 "<skill-dir>/scripts/asynx.py" generate --image "/path/to/character.png" --face-limit 15000
 
 # 跨模态图生 3D (使用 asynx-image-pro 产出的概念图任务 ID)
 python3 "<skill-dir>/scripts/asynx.py" generate --from-task "<image-task-id>"
 
-# 骨骼绑定前置检查
-python3 "<skill-dir>/scripts/asynx.py" rig-check --model-file "character.glb"
+# 已有本地模型 (GLB/FBX/OBJ/STL，≤150MB) 可用 --model-file 上传为 file_id，适用于 rig-check / rig / convert
+python3 "<skill-dir>/scripts/asynx.py" rig --model-file "robot.glb"
 
-# 自动骨骼绑定与蒙皮
-python3 "<skill-dir>/scripts/asynx.py" rig --from-task "<gen-task-id>" --rig-type biped
+# 绑定检查 (只返回 data.riggable / recommended_rig_type，不交付文件，当前不收费)
+python3 "<skill-dir>/scripts/asynx.py" rig-check --from-task "<gen-task-id>"
 
-# 动画重定向 (让角色执行预设动作)
-python3 "<skill-dir>/scripts/asynx.py" animate --from-task "<rig-task-id>" --animation "walk" --animate-in-place
+# 自动骨骼绑定 (来源：生成任务)
+python3 "<skill-dir>/scripts/asynx.py" rig --from-task "<gen-task-id>" --rig-type biped --skeleton-profile mixamo
 
-# 重新生成表面材质与贴图
-python3 "<skill-dir>/scripts/asynx.py" texture --model-file "mesh.glb" --prompt "赛博朋克风，哑光碳纤维与霓虹发光线条"
+# 套用一个预设动画 (来源：绑定任务；每个任务只能一个动画)
+python3 "<skill-dir>/scripts/asynx.py" animate --from-task "<rig-task-id>" --animation "walk"
+
+# 格式转换 (来源：生成/绑定/动画任务；fbx|gltf|obj|usdz|stl)
+python3 "<skill-dir>/scripts/asynx.py" convert --from-task "<task-id>" --output-format fbx
 ```
+
+流程：生成 → (绑定检查) → 骨骼绑定 → 动画 → 格式转换，每步是独立计费的 Task，来源必须是当前账户已成功且文件仍在保留期内的 Task。动画只接受 rig 任务（本地模型先 rig 再 animate）；不支持 gltf 文件上传与 texture（重新贴图）。
 
 ## 本地纯 Python 后处理 (Keyless Local Post-Processing)
 

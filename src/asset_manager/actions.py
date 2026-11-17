@@ -33,6 +33,9 @@ _CROSS_MODAL_SOURCE_SUBDIR = {
 }
 
 
+_RIG_CHECK_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
+
+
 def _load_cross_module(module_name: str) -> Any:
     """Import sibling modality module in built skill mode or dev monorepo mode."""
     if __package__ and not __package__.startswith("src."):
@@ -593,25 +596,22 @@ def dispatch_manager_action(
         prompt = str(body.get("prompt")).strip() if body.get("prompt") else None
         req_body, resolved_model = model3d_tasks.build_3d_task(
             client,
-            task_type="3d.generate",
+            task_type="model.generate",
             model_selector=body.get("model"),
-            prompt=prompt,
             image=str(source_path),
-            pbr=body.get("pbr", True),
-            texture=body.get("texture", True),
+            pbr=body.get("pbr"),
+            texture=body.get("texture"),
             face_limit=_parse_int(body.get("face_limit"), "face_limit"),
-            output_format=str(body.get("output_format") or "glb"),
         )
         out_dir = _resolve_output_dir(root, body)
         res = _run_cloud_task_and_attach(
             client,
-            task_type="3d.generate",
+            task_type="model.generate",
             body=req_body,
             model=resolved_model,
             output_dir=out_dir,
             modality="3d",
             parent_paths=[str(source_path)],
-            metadata={"prompt": prompt} if prompt else None,
         )
         return {
             "ok": True,
@@ -861,36 +861,103 @@ def dispatch_manager_action(
     # ------------------------------------------------------------------
     # 3D actions
     # ------------------------------------------------------------------
+    if action == "model3d_animations":
+        model3d_tasks = _load_cross_module("model3d_tasks")
+        return {
+            "ok": True,
+            "action": action,
+            "created_files": [],
+            "result": {"groups": {k: list(v) for k, v in model3d_tasks.ANIMATION_PRESETS.items()}},
+        }
+
+    if action == "model3d_auto_rig":
+        local_model3d = _load_cross_module("local_model3d")
+        info = local_model3d.model3d_info(source_path)
+        if info.get("joint_count"):
+            names = ", ".join(s["name"] for s in info.get("skeletons") or []) or "unknown"
+            raise AsxError(f"模型已绑定骨骼：{names}", code="already_rigged")
+        client = require_client()
+        model3d_tasks = _load_cross_module("model3d_tasks")
+        out_dir = _resolve_output_dir(root, body)
+        st = source_path.stat()
+        cache_key = (str(source_path), st.st_size, st.st_mtime_ns)
+        verdict = _RIG_CHECK_CACHE.get(cache_key)
+        if verdict is None:
+            req_body, resolved_model = model3d_tasks.build_3d_task(
+                client,
+                task_type="model.rig_check",
+                model_selector=None,
+                model_file=str(source_path),
+            )
+            chk = _run_cloud_task_and_attach(
+                client,
+                task_type="model.rig_check",
+                body=req_body,
+                model=resolved_model,
+                output_dir=out_dir,
+                modality="3d",
+                parent_paths=[str(source_path)],
+            )
+            verdict = chk.get("data") or {}
+            _RIG_CHECK_CACHE[cache_key] = verdict
+        if not verdict.get("riggable"):
+            raise AsxError(
+                "该模型无法自动绑定骨骼" + (f"：{verdict['reason']}" if verdict.get("reason") else ""),
+                code="not_riggable",
+                details={"rig_check": verdict},
+            )
+        rig_type = body.get("rig_type")
+        if not rig_type or rig_type == "auto":
+            rig_type = verdict.get("recommended_rig_type")
+        req_body, resolved_model = model3d_tasks.build_3d_task(
+            client,
+            task_type="model.rig",
+            model_file=str(source_path),
+            rig_type=rig_type,
+            skeleton_profile=body.get("skeleton_profile"),
+        )
+        res = _run_cloud_task_and_attach(
+            client,
+            task_type="model.rig",
+            body=req_body,
+            model=resolved_model,
+            output_dir=out_dir,
+            modality="3d",
+            parent_paths=[str(source_path)],
+        )
+        return {
+            "ok": True,
+            "action": action,
+            "created_files": list(res.get("files") or []),
+            "result": {**res, "rig_check": verdict},
+        }
+
     if action in {
         "model3d_rig_check",
         "model3d_rig",
         "model3d_animate",
         "model3d_retarget",
-        "model3d_texture",
         "model3d_convert",
     }:
         client = require_client()
         model3d_tasks = _load_cross_module("model3d_tasks")
         task_map = {
-            "model3d_rig_check": "3d.rig_check",
-            "model3d_rig": "3d.rig",
-            "model3d_animate": "3d.retarget",
-            "model3d_retarget": "3d.retarget",
-            "model3d_texture": "3d.texture",
-            "model3d_convert": "3d.convert",
+            "model3d_rig_check": "model.rig_check",
+            "model3d_rig": "model.rig",
+            "model3d_animate": "model.retarget",
+            "model3d_retarget": "model.retarget",
+            "model3d_convert": "model.convert",
         }
         task_type = task_map[action]
         req_body, resolved_model = model3d_tasks.build_3d_task(
             client,
             task_type=task_type,
             model_selector=body.get("model"),
-            prompt=body.get("prompt"),
             model_file=str(source_path),
             rig_type=body.get("rig_type"),
+            skeleton_profile=body.get("skeleton_profile"),
             animation=body.get("animation"),
-            animations=body.get("animations"),
-            animate_in_place=body.get("animate_in_place"),
-            bake_animation=body.get("bake_animation"),
+            animations=body.get("animations") if isinstance(body.get("animations"), list) else None,
             output_format=body.get("output_format"),
         )
         out_dir = _resolve_output_dir(root, body)
@@ -902,7 +969,6 @@ def dispatch_manager_action(
             output_dir=out_dir,
             modality="3d",
             parent_paths=[str(source_path)],
-            metadata={"prompt": body.get("prompt")} if body.get("prompt") else None,
         )
         return {
             "ok": True,

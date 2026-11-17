@@ -232,8 +232,8 @@ def _matches_modality(model: dict[str, Any], modality: str | None) -> bool:
         return any(t.startswith("video.") for t in task_types) or model_modality == "video"
     if modality in {"3d", "model_3d", "model3d"}:
         return (
-            any(t.startswith("3d.") for t in task_types)
-            or model_modality in {"3d", "model_3d", "model3d"}
+            any(t.startswith(("model.", "3d.")) for t in task_types)
+            or model_modality in {"3d", "model", "model_3d", "model3d"}
         )
     return True
 
@@ -243,9 +243,14 @@ def _encode_multipart(
     filename: str,
     content_type: str,
     data: bytes,
+    fields: dict[str, str] | None = None,
 ) -> tuple[bytes, str]:
     boundary = f"----AsynxBoundary{uuid.uuid4().hex}"
     parts = [
+        b"".join(
+            f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode("utf-8")
+            for k, v in (fields or {}).items()
+        ),
         f"--{boundary}\r\n".encode("ascii"),
         f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode("utf-8"),
         f"Content-Type: {content_type}\r\n\r\n".encode("ascii"),
@@ -514,6 +519,7 @@ class AsynxClient:
         *,
         filename: str | None = None,
         content_type: str | None = None,
+        purpose: str | None = None,
         timeout: float = REQUEST_TIMEOUT_SECONDS,
     ) -> tuple[dict[str, Any], str | None]:
         path = Path(file_path).expanduser().resolve()
@@ -522,7 +528,9 @@ class AsynxClient:
         raw_bytes = path.read_bytes()
         resolved_name = filename or path.name
         guessed_type = content_type or mimetypes.guess_type(resolved_name)[0] or "application/octet-stream"
-        multipart_body, multipart_ct = _encode_multipart("file", resolved_name, guessed_type, raw_bytes)
+        multipart_body, multipart_ct = _encode_multipart(
+            "file", resolved_name, guessed_type, raw_bytes, {"purpose": purpose} if purpose else None
+        )
         status, decoded, req_id = self._execute_gateway_raw(
             "POST",
             "/v1/files",

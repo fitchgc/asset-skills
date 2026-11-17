@@ -296,7 +296,7 @@ python3 skills/asynx-video/scripts/asynx.py ui preview-sequence --atlas "atlas.p
 #### 3D 生成与骨骼动画管线
 ```bash
 # 文生 3D 模型 (Text-to-3D)
-python3 skills/asynx-3d/scripts/asynx.py generate --prompt "中世纪双刃巨斧，暗黑浮雕花纹，PBR贴图" --output-format glb
+python3 skills/asynx-3d/scripts/asynx.py generate --prompt "中世纪双刃巨斧，暗黑浮雕花纹，PBR贴图"
 
 # 本地图生 3D 模型 (Image-to-3D，支持限制面数)
 python3 skills/asynx-3d/scripts/asynx.py generate --image "/path/to/monster.png" --face-limit 15000
@@ -305,16 +305,19 @@ python3 skills/asynx-3d/scripts/asynx.py generate --image "/path/to/monster.png"
 python3 skills/asynx-3d/scripts/asynx.py generate --from-task "<image-task-id>"
 
 # 骨骼绑定前置合规检查
-python3 skills/asynx-3d/scripts/asynx.py rig-check --model-file "character.glb"
+python3 skills/asynx-3d/scripts/asynx.py rig-check --from-task "<gen-task-id>"
+
+# 本地模型 (GLB/FBX/OBJ/STL) 上传为 file_id 后绑定
+python3 skills/asynx-3d/scripts/asynx.py rig --model-file "robot.glb"
 
 # 云端自动骨骼绑定与权重蒙皮 (Rig)
 python3 skills/asynx-3d/scripts/asynx.py rig --from-task "<gen-task-id>" --rig-type biped
 
 # 动作重定向 (Animate：让角色执行标准动画动作)
-python3 skills/asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --animation "walk" --animate-in-place
+python3 skills/asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --animation "walk"
 
-# 材质重新贴图 (Texture)
-python3 skills/asynx-3d/scripts/asynx.py texture --model-file "mesh.glb" --prompt "赛博朋克风格，磨砂金属与青色发光电路"
+# 格式转换 (fbx|gltf|obj|usdz|stl)
+python3 skills/asynx-3d/scripts/asynx.py convert --from-task "<task-id>" --output-format fbx
 ```
 
 #### 本地纯 Python 3D 模型处理 (免 API Key，无需 Blender)
@@ -355,7 +358,7 @@ python3 skills/asynx-3d/scripts/asynx.py generate --from-task "task_img_001" --f
 python3 skills/asynx-3d/scripts/asynx.py rig --from-task "task_3d_002" --rig-type biped
 
 # 步骤 4：为绑定好的角色重定向跑步动作 (asynx-3d) -> 产出带动画的 GLB 模型
-python3 skills/asynx-3d/scripts/asynx.py animate --from-task "task_rig_003" --animation "run" --animate-in-place
+python3 skills/asynx-3d/scripts/asynx.py animate --from-task "task_rig_003" --animation "run"
 
 # 步骤 5：启动多角度渲染工作台，导出 2D 俯视角 RPG 游戏 8 方向奔跑序列帧图集
 python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "generated-model3d/task_rig_003/animated.glb"

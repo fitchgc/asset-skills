@@ -139,6 +139,9 @@ def guess_extension_for_mime(mime: str | None, default: str = "png") -> str:
         "model/gltf-binary": "glb",
         "model/gltf+json": "gltf",
         "model/obj": "obj",
+        "application/vnd.autodesk.fbx": "fbx",
+        "model/vnd.usdz+zip": "usdz",
+        "model/stl": "stl",
         "application/zip": "zip",
         "application/json": "json",
     }
@@ -235,7 +238,7 @@ def download_assets(
         default_ext = "mp3"
     elif task_type.startswith("video.") or resolved_modality == "video":
         default_ext = "mp4"
-    elif task_type.startswith("3d.") or resolved_modality == "3d":
+    elif task_type.startswith(("model.", "3d.")) or resolved_modality == "3d":
         default_ext = "glb"
 
     for asset in assets:
@@ -767,6 +770,17 @@ def task_payload(
     return {key: value for key, value in payload.items() if value is not None}
 
 
+def _is_data_only_task(task: dict[str, Any]) -> bool:
+    """model.rig_check delivers a verdict in result.data and no files."""
+    result = task.get("result")
+    return (
+        task.get("task_type") == "model.rig_check"
+        and isinstance(result, dict)
+        and not result.get("assets")
+        and result.get("data") is not None
+    )
+
+
 def _download_task_result(
     client: AsynxClient,
     task: dict[str, Any],
@@ -781,6 +795,11 @@ def _download_task_result(
     category: str | None = None,
     metadata: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], int]:
+    if _is_data_only_task(task):
+        payload = task_payload(task, request_id, files=[], local_id=local_id, modality=modality)
+        payload["data"] = task["result"]["data"]
+        payload["download_status"] = "not_applicable"
+        return payload, 0
     files: list[str] = []
     download_error: dict[str, Any] | None = None
     try:
@@ -1152,7 +1171,11 @@ def models_payload(
         return payload
     models, request_id = client.models(modality=modality)
     target_modality = modality or "image"
-    task_type = None if operation == "all" else f"{target_modality}.{operation}"
+    if target_modality == "3d":
+        operation = {"animate": "retarget", "check": "rig_check"}.get(operation, operation)
+        task_type = None if operation == "all" else f"model.{operation}"
+    else:
+        task_type = None if operation == "all" else f"{target_modality}.{operation}"
     items = []
     for model in models:
         if not isinstance(model, dict):

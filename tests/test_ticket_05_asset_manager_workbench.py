@@ -489,8 +489,7 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
         for m_act, extra in (
             ("model3d_rig_check", {}),
             ("model3d_rig", {"rig_type": "biped"}),
-            ("model3d_animate", {"animation": "run", "animate_in_place": True}),
-            ("model3d_texture", {"prompt": "rusted steel"}),
+            ("model3d_animate", {"animation": "run"}),
             ("model3d_convert", {"output_format": "obj"}),
         ):
             self._set_next_gateway_assets("model/gltf-binary", self.sample_glb.read_bytes())
@@ -501,7 +500,11 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
                 body={"action": m_act, "source_path": str(derived_glb), **extra},
             )
             self.assertEqual(st, 200, f"3d action {m_act} failed: {m_res}")
-            self.assertTrue(Path(m_res["created_files"][0]).is_file())
+            if m_act == "model3d_rig_check":
+                self.assertEqual(m_res["created_files"], [])
+                self.assertTrue(m_res["result"]["data"]["riggable"])
+            else:
+                self.assertTrue(Path(m_res["created_files"][0]).is_file())
 
         st, m_info = _http_json(
             f"{self.base_url}/api/manager/action",

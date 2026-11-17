@@ -118,6 +118,22 @@
     }
     button:hover { background: var(--card-hover); border-color: var(--border-strong); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.loading { position: relative; pointer-events: none; }
+    button.loading::before {
+      content: ''; width: 11px; height: 11px; border-radius: 50%;
+      border: 2px solid currentColor; border-right-color: transparent;
+      animation: asx-spin 0.7s linear infinite;
+    }
+    @keyframes asx-spin { to { transform: rotate(360deg); } }
+    .combo { position: relative; }
+    .combo-btn { width: 100%; justify-content: space-between; text-align: left; }
+    .combo-pop { display: none; position: absolute; z-index: 60; left: 0; right: 0; top: calc(100% + 4px);
+      background: var(--card); border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px; }
+    .combo.open .combo-pop { display: block; }
+    .combo-list { max-height: 220px; overflow-y: auto; margin-top: 6px; }
+    .combo-group { font-size: 10px; opacity: 0.6; padding: 4px 6px; }
+    .combo-item { padding: 4px 8px; font-size: 12px; border-radius: 5px; cursor: pointer; }
+    .combo-item:hover, .combo-item.sel { background: var(--card-hover); }
     button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
     button.primary:hover { background: var(--primary-hover); }
     button.sm { padding: 4px 9px; font-size: 11px; border-radius: 6px; }
@@ -371,6 +387,10 @@
       position: relative;
       padding: 8px;
     }
+    .anim-overlay { position: absolute; right: 8px; bottom: 8px; display: flex; gap: 6px; align-items: center;
+      background: rgba(9,9,11,.75); padding: 4px 6px; border-radius: 8px; }
+    .anim-overlay select { max-width: 160px; font-size: 11px; background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; padding: 3px 4px; }
     .preview-stage img, .preview-stage video {
       max-width: 100%;
       max-height: 240px;
@@ -761,7 +781,8 @@
         if (state.selectedPath) {
           const stillThere = state.assets.find(a => a.path === state.selectedPath);
           if (stillThere) {
-            await selectAsset(stillThere.path, { skipGridRender: true });
+            if (opts && opts.lineageOnly) await refreshSelectedLineage();
+            else await selectAsset(stillThere.path, { skipGridRender: true });
           }
         }
       } catch (err) {
@@ -1098,6 +1119,20 @@
       renderInspector(asset);
     }
 
+    // 仅刷新当前选中节点的 Asset Lineage，不重绘预览与操作面板
+    async function refreshSelectedLineage() {
+      const asset = state.assets.find(a => a.path === state.selectedPath)
+        || (state.allAssets || []).find(a => a.path === state.selectedPath);
+      if (!asset || !document.getElementById('lineage-body')) return;
+      try {
+        state.lineage = await apiGet('/api/lineage?target=' + encodeURIComponent(asset.artifact_id || asset.path));
+      } catch (_) {
+        return;
+      }
+      if (state.selectedPath !== asset.path) return;
+      renderLineageSection(asset, state.lineage || { parents: [], children: [], ancestors: [], descendants: [] });
+    }
+
     function renderInspector(asset) {
       stopPreviewTimers();
       document.getElementById('inspector-empty').style.display = 'none';
@@ -1209,7 +1244,7 @@
       }
 
       if (asset.category === '3d') {
-        stage.innerHTML = `<canvas id="three-preview-canvas" width="420" height="220" style="width:100%; height:220px; border-radius:6px;"></canvas><div id="three-preview-meta" style="font-size:11px; color:var(--text-muted); margin-top:6px;">正在加载 3D 几何体...</div>`;
+        stage.innerHTML = `<div style="position:relative; width:100%;"><canvas id="three-preview-canvas" width="420" height="220" style="width:100%; height:220px; border-radius:6px; display:block;"></canvas><div class="anim-overlay" id="three-anim-overlay" style="display:none;"><select id="three-anim-select"></select><button type="button" class="sm" id="three-anim-toggle">⏸</button></div></div><div id="three-preview-meta" style="font-size:11px; color:var(--text-muted); margin-top:6px;">正在加载 3D 几何体...</div>`;
         initThreePreview(asset);
       }
     }
@@ -1376,6 +1411,10 @@
         if (window.AsxModel3DLoader) window.AsxModel3DLoader.setupStudioLighting(THREE, renderer, scene);
 
         let meshRoot = null;
+        let mixer = null;
+        let curAction = null;
+        let paused = false;
+        const clock = new THREE.Clock();
         let disposed = false;
         let rafId = 0;
         let dragging = false, prevX = 0;
@@ -1402,6 +1441,28 @@
             }
             meshRoot = loaded.root;
             scene.add(meshRoot);
+            const clips = (loaded.stats && loaded.stats.clips) || [];
+            if (clips.length) {
+              mixer = new THREE.AnimationMixer(meshRoot);
+              const overlay = document.getElementById('three-anim-overlay');
+              const sel = document.getElementById('three-anim-select');
+              const tog = document.getElementById('three-anim-toggle');
+              sel.innerHTML = clips.map((c, i) => `<option value="${i}">${escapeHtml(c.name || 'clip_' + (i + 1))}</option>`).join('');
+              const play = (i) => {
+                if (curAction) curAction.stop();
+                curAction = mixer.clipAction(clips[i]);
+                curAction.reset().play();
+                curAction.paused = paused;
+              };
+              sel.onchange = () => play(Number(sel.value));
+              tog.onclick = () => {
+                paused = !paused;
+                if (curAction) curAction.paused = paused;
+                tog.textContent = paused ? '▶' : '⏸';
+              };
+              overlay.style.display = 'flex';
+              play(0);
+            }
             if (metaEl) {
               const st = loaded.stats || {};
               metaEl.textContent = st.isFallback
@@ -1413,7 +1474,9 @@
 
         function loop() {
           rafId = requestAnimationFrame(loop);
-          if (!dragging && meshRoot) meshRoot.rotation.y += 0.006;
+          const dt = clock.getDelta();
+          if (mixer && !paused) mixer.update(dt);
+          if (!dragging && meshRoot && !mixer) meshRoot.rotation.y += 0.006;
           renderer.render(scene, camera);
         }
         loop();
@@ -1569,9 +1632,17 @@
       document.getElementById('embedded-frame').src = 'about:blank';
     }
 
+    function setActionsBusy(busy, btn) {
+      document.querySelectorAll('#actions-body button').forEach((b) => {
+        b.disabled = busy ? true : b.dataset.keepDisabled === '1';
+        b.classList.toggle('loading', busy && b === btn);
+      });
+    }
+
     async function runAction(payload, opts) {
       if (state.busyAction) return;
       state.busyAction = true;
+      setActionsBusy(true, opts && opts.btn);
       const resultSlot = document.getElementById('action-result-slot');
       if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box">正在执行 ${escapeHtml(payload.action)}...</div>`;
       try {
@@ -1580,11 +1651,8 @@
         if (resultSlot) {
           resultSlot.innerHTML = `<div class="action-result-box">${escapeHtml(JSON.stringify(res.result || res, null, 2))}</div>`;
         }
-        const created = res.created_files || [];
-        if (created.length && (!opts || opts.selectCreated !== false)) {
-          state.selectedPath = created[0];
-        }
-        await loadAssets({ noCache: true });
+        // 保持当前选中节点不变，仅局部刷新其血缘关系（新派生资产会出现在子节点中）
+        await loadAssets({ noCache: true, lineageOnly: true });
       } catch (err) {
         if (err.code === 'need_login' || err.status === 401) {
           showToast('云端操作需要先登录 Asynx 账号，请在弹窗中登录', 'error');
@@ -1597,7 +1665,65 @@
         if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box" style="color:#fca5a5;">${escapeHtml(err.message)}</div>`;
       } finally {
         state.busyAction = false;
+        setActionsBusy(false);
       }
+    }
+
+    async function loadAnimationPresets() {
+      if (state.animPresets) return state.animPresets;
+      const res = await apiAction({ action: 'model3d_animations', source_path: state.selectedPath });
+      state.animPresets = res.result.groups;
+      return state.animPresets;
+    }
+
+    function initAnimCombo(root) {
+      const btn = root.querySelector('.combo-btn');
+      const label = btn.querySelector('span');
+      const filter = root.querySelector('.combo-filter');
+      const list = root.querySelector('.combo-list');
+      root.dataset.value = '[]';
+      const sel = () => JSON.parse(root.dataset.value);
+      const refreshLabel = () => {
+        const v = sel();
+        label.textContent = v.length ? (v.length <= 2 ? v.join(', ') : `已选 ${v.length} 个动画`) : '选择动画（可多选）...';
+      };
+      const render = () => {
+        const q = filter.value.trim().toLowerCase();
+        const groups = state.animPresets || {};
+        let html = '';
+        for (const [g, items] of Object.entries(groups)) {
+          const m = items.filter((i) => i.toLowerCase().includes(q));
+          if (!m.length) continue;
+          html += `<div class="combo-group">${escapeHtml(g)}</div>` + m.map((i) =>
+            `<div class="combo-item ${sel().includes(i) ? 'sel' : ''}" data-v="${escapeHtml(i)}">${sel().includes(i) ? '✓ ' : ''}${escapeHtml(i)}</div>`).join('');
+        }
+        list.innerHTML = html || '<div class="combo-group">无匹配动画</div>';
+      };
+      btn.onclick = async () => {
+        if (root.classList.toggle('open')) {
+          label.textContent = '加载中...';
+          try { await loadAnimationPresets(); } catch (e) { showToast(e.message, 'error'); }
+          refreshLabel();
+          filter.value = '';
+          render();
+          filter.focus();
+        }
+      };
+      filter.oninput = render;
+      list.onclick = (ev) => {
+        const it = ev.target.closest('.combo-item');
+        if (!it) return;
+        const cur = sel();
+        const i = cur.indexOf(it.dataset.v);
+        if (i >= 0) cur.splice(i, 1);
+        else if (cur.length >= 5) return showToast('每个任务最多选择 5 个动画', 'error');
+        else cur.push(it.dataset.v);
+        root.dataset.value = JSON.stringify(cur);
+        refreshLabel();
+        render();
+        const ab = document.getElementById('btn-3d-anim');
+        if (ab) ab.disabled = ab.dataset.keepDisabled === '1' || !cur.length;
+      };
     }
 
     function renderActionsPanel(asset) {
@@ -1681,11 +1807,7 @@
           </div>
 
           <div class="action-group" data-imgpane="3d">
-            <h4>Generate 3D Model 图生 3D (3d.generate)</h4>
-            <div class="field-grid">
-              <div><label class="fl">输出格式</label><select class="fi" id="act-3d-fmt"><option value="glb">GLB</option><option value="fbx">FBX</option><option value="obj">OBJ</option></select></div>
-              <div><label class="fl">附加描述 (可选)</label><input class="fi" id="act-3d-prompt" placeholder="可选" /></div>
-            </div>
+            <h4>Generate 3D Model 图生 3D (model.generate，输出 GLB)</h4>
             <button class="primary sm" id="btn-img-to-3d">生成 3D 模型</button>
           </div>
         `;
@@ -1752,8 +1874,6 @@
         document.getElementById('btn-img-to-3d').onclick = () => runAction({
           action: 'image_to_3d',
           source_path: src,
-          output_format: document.getElementById('act-3d-fmt').value,
-          prompt: document.getElementById('act-3d-prompt').value.trim() || undefined,
         });
         return;
       }
@@ -1869,22 +1989,25 @@
             <button class="primary sm" id="btn-emb-3d">打开 3D 序列帧渲染 Workbench</button>
           </div>
           <div class="action-group">
-            <h4>2. 云端骨骼绑定与动画 (Rig / Animate / Texture / Convert)</h4>
+            <h4>2. 云端骨骼绑定与动画 (Rig / Animate / Convert（需选中由 Asynx 生成的模型）)</h4>
             <div class="field-grid">
-              <div><label class="fl">骨骼类型 (Rig)</label><select class="fi" id="act-3d-rigtype"><option value="auto">auto</option><option value="biped">biped</option><option value="quadruped">quadruped</option></select></div>
-              <div><label class="fl">动画名称 (Animate)</label><input class="fi" id="act-3d-anim" value="walk" /></div>
+              <div><label class="fl">骨骼类型 (Rig)</label><select class="fi" id="act-3d-rigtype"><option value="auto">auto</option><option value="biped">biped</option><option value="quadruped">quadruped</option><option value="hexapod">hexapod</option><option value="octopod">octopod</option><option value="avian">avian</option><option value="serpentine">serpentine</option><option value="aquatic">aquatic</option><option value="others">others</option></select></div>
+              <div><label class="fl">动画 (Animate)</label>
+                <div class="combo" id="act-3d-anim">
+                  <button type="button" class="fi combo-btn"><span>选择动画（可多选）...</span><span>▾</span></button>
+                  <div class="combo-pop"><input class="fi combo-filter" placeholder="输入过滤动画..." /><div class="combo-list"></div></div>
+                </div>
+              </div>
             </div>
+            <div id="rig-status" style="font-size:12px; margin-bottom:8px; opacity:.8;">正在检测骨骼...</div>
             <div class="btn-row" style="margin-bottom:8px;">
-              <button class="sm" id="btn-3d-rigcheck">Rig Check</button>
               <button class="primary sm" id="btn-3d-rig">Auto Rig</button>
               <button class="primary sm" id="btn-3d-anim">Animate</button>
             </div>
             <div class="field-grid">
-              <div><label class="fl">重绘贴图 Prompt</label><input class="fi" id="act-3d-texprompt" placeholder="风格描述" /></div>
-              <div><label class="fl">转换格式</label><select class="fi" id="act-3d-convfmt"><option value="glb">GLB</option><option value="fbx">FBX</option><option value="obj">OBJ</option><option value="usdz">USDZ</option></select></div>
+              <div><label class="fl">转换格式</label><select class="fi" id="act-3d-convfmt"><option value="fbx">FBX</option><option value="gltf">GLB (gltf)</option><option value="obj">OBJ (zip)</option><option value="usdz">USDZ</option><option value="stl">STL</option></select></div>
             </div>
             <div class="btn-row">
-              <button class="sm" id="btn-3d-tex">Re-Texture</button>
               <button class="sm" id="btn-3d-conv">Convert 格式</button>
             </div>
           </div>
@@ -1899,11 +2022,48 @@
         `;
         document.getElementById('btn-emb-3d').onclick = () =>
           openEmbeddedWorkbench('3D 检查与多视角序列帧 Workbench', `/3d/index.html?embedded=1&mode=model3d_render_sequence&token=${encTok}&source_path=${encSrc}`);
-        document.getElementById('btn-3d-rigcheck').onclick = () => runAction({ action: 'model3d_rig_check', source_path: src });
-        document.getElementById('btn-3d-rig').onclick = () => runAction({ action: 'model3d_rig', source_path: src, rig_type: document.getElementById('act-3d-rigtype').value });
-        document.getElementById('btn-3d-anim').onclick = () => runAction({ action: 'model3d_animate', source_path: src, animation: document.getElementById('act-3d-anim').value.trim() || 'walk', animate_in_place: true });
-        document.getElementById('btn-3d-tex').onclick = () => runAction({ action: 'model3d_texture', source_path: src, prompt: document.getElementById('act-3d-texprompt').value.trim() || 'stylized PBR texture' });
-        document.getElementById('btn-3d-conv').onclick = () => runAction({ action: 'model3d_convert', source_path: src, output_format: document.getElementById('act-3d-convfmt').value });
+        const rigBtn = document.getElementById('btn-3d-rig');
+        const animBtn = document.getElementById('btn-3d-anim');
+        const convBtn = document.getElementById('btn-3d-conv');
+        const animCombo = document.getElementById('act-3d-anim');
+        initAnimCombo(animCombo);
+        animBtn.disabled = true;
+        animBtn.dataset.keepDisabled = '1';
+        rigBtn.disabled = true;
+        rigBtn.dataset.keepDisabled = '1';
+        (async () => {
+          const status = document.getElementById('rig-status');
+          try {
+            const res = await apiAction({ action: 'model3d_info', source_path: src });
+            if (state.selectedPath !== src || !status) return;
+            const m = res.result.model || {};
+            const skels = m.skeletons || [];
+            if (m.joint_count > 0) {
+              status.textContent = '已绑定骨骼：' + (skels.map((k) => `${k.name} (${k.joint_count} 关节)`).join(', ') || `${m.joint_count} 关节`);
+              rigBtn.dataset.keepDisabled = '1';
+              rigBtn.disabled = true;
+              animBtn.dataset.keepDisabled = '0';
+            } else {
+              status.textContent = '未检测到骨骼';
+              rigBtn.dataset.keepDisabled = '0';
+              rigBtn.disabled = state.busyAction;
+            }
+            animBtn.disabled = state.busyAction || animBtn.dataset.keepDisabled === '1' || JSON.parse(animCombo.dataset.value).length === 0;
+          } catch (e) {
+            if (status) status.textContent = '骨骼检测失败：' + e.message;
+            rigBtn.dataset.keepDisabled = '0';
+            rigBtn.disabled = false;
+            animBtn.dataset.keepDisabled = '0';
+            animBtn.disabled = false;
+          }
+        })();
+        rigBtn.onclick = () => runAction({ action: 'model3d_auto_rig', source_path: src, rig_type: document.getElementById('act-3d-rigtype').value }, { btn: rigBtn });
+        animBtn.onclick = () => {
+          const anims = JSON.parse(animCombo.dataset.value);
+          if (!anims.length) return showToast('请先选择动画', 'error');
+          runAction({ action: 'model3d_animate', source_path: src, animations: anims }, { btn: animBtn });
+        };
+        convBtn.onclick = () => runAction({ action: 'model3d_convert', source_path: src, output_format: document.getElementById('act-3d-convfmt').value }, { btn: convBtn });
         document.getElementById('btn-3d-info').onclick = () => runAction({ action: 'model3d_info', source_path: src }, { selectCreated: false });
         document.getElementById('btn-3d-val').onclick = () => runAction({ action: 'model3d_validate', source_path: src, require_pbr: true }, { selectCreated: false });
         document.getElementById('btn-3d-ex').onclick = () => runAction({ action: 'model3d_extract_textures', source_path: src });
@@ -2029,11 +2189,8 @@
         }
         if (ev.data.type === 'asx-workbench-complete') {
           closeEmbeddedWorkbench();
-          const res = ev.data.result || {};
-          const nextPath = (res.files && res.files[0]) || (res.image && res.image.path) || (res.atlas && res.atlas.path) || null;
-          if (nextPath) state.selectedPath = nextPath;
           showToast('子工作台操作完成并已同步血缘关系', 'success');
-          await loadAssets({ noCache: true });
+          await loadAssets({ noCache: true, lineageOnly: true });
         }
       });
 

@@ -319,7 +319,7 @@ def _verify(client: ModuleType) -> int:
         "audio.sfx",
         "audio.music",
         "audio.speech",
-        "3d.generate",
+        "model.generate",
     }
     capable = [
         model

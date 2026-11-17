@@ -19,7 +19,7 @@ from .config import config_status, configure, doctor, legacy_installation_notice
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
 from .errors import AsxError
 from .local_model3d import execute_local_model3d
-from .model3d_tasks import build_3d_task
+from .model3d_tasks import CONVERT_FORMATS, RIG_TYPES, SKELETON_PROFILES, build_3d_task
 from .output import emit, log
 from .state import SCHEMA_VERSION, connect_db as connect_ledger_db, task_paths as ledger_task_paths
 from .tasks import (
@@ -74,32 +74,33 @@ def parser() -> argparse.ArgumentParser:
     gen = commands.add_parser("generate", help="生成 3D 模型 (文生 3D、图生 3D)")
     gen.add_argument("--prompt", help="文字描述")
     gen.add_argument("--negative-prompt", help="负向提示词")
-    gen.add_argument("--image", help="单张或首张参考图")
-    gen.add_argument("--reference", action="append", help="参考图路径，可重复")
-    gen.add_argument("--from-task", help="使用之前任务的图片或 3D 产物")
+    gen.add_argument("--image", help="单张参考图 (本地路径或 URL，与 --prompt 互斥)")
+    gen.add_argument("--from-task", help="使用之前图片任务的产物作为参考图")
     gen.add_argument("--model", help="指定模型")
-    gen.add_argument("--pbr", action="store_true", default=True, help="生成 PBR 材质与贴图")
-    gen.add_argument("--texture", action="store_true", default=True, help="生成彩色纹理")
-    gen.add_argument("--face-limit", type=int, help="多边形面数上限")
-    gen.add_argument("--output-format", choices=("glb", "fbx", "obj", "usdz"), default="glb")
+    gen.add_argument("--no-texture", action="store_true", help="不生成贴图")
+    gen.add_argument("--no-pbr", action="store_true", help="不生成 PBR 材质")
+    gen.add_argument("--face-limit", type=int, help="面数上限 (1-2000000，是预算而非精确目标)")
     gen.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     gen.add_argument("--idempotency-key")
     gen.add_argument("--detach", action="store_true")
     gen.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # Rig check & Rig
-    rc = commands.add_parser("rig-check", help="检查 3D 模型是否符合绑定骨骼要求")
-    rc.add_argument("--model-file", help="本地 3D 模型文件")
-    rc.add_argument("--from-task", help="前序 3D 生成任务 ID")
+    rc = commands.add_parser("rig-check", help="检查 3D 生成结果能否自动绑定骨骼 (只返回结论，不交付文件)")
+    rc.add_argument("--from-task", help="已成功的 3D 生成任务 ID")
+    rc.add_argument("--model-file", help="本地模型文件 (GLB/FBX/OBJ/STL)，以 file_id 上传；与 --from-task 二选一")
+    rc.add_argument("--model", help="指定模型")
     rc.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     rc.add_argument("--idempotency-key")
     rc.add_argument("--detach", action="store_true")
     rc.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
-    rig = commands.add_parser("rig", help="为 3D 模型自动绑定骨骼与蒙皮权重")
-    rig.add_argument("--model-file", help="本地 3D 模型文件")
-    rig.add_argument("--from-task", help="前序 3D 生成任务 ID")
-    rig.add_argument("--rig-type", choices=("auto", "biped", "quadruped", "hexapod", "octopod", "serpentine", "aquatic"), default="auto")
+    rig = commands.add_parser("rig", help="为 3D 生成结果自动绑定骨骼")
+    rig.add_argument("--from-task", help="已成功的 3D 生成任务 ID")
+    rig.add_argument("--model-file", help="本地模型文件 (GLB/FBX/OBJ/STL)，以 file_id 上传；与 --from-task 二选一")
+    rig.add_argument("--model", help="指定模型")
+    rig.add_argument("--rig-type", choices=("auto",) + RIG_TYPES, default="auto")
+    rig.add_argument("--skeleton-profile", choices=SKELETON_PROFILES, help="骨骼命名规范，仅 biped 或 auto 可用")
     rig.add_argument("--output-format", choices=("glb", "fbx"), default="glb")
     rig.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     rig.add_argument("--idempotency-key")
@@ -107,34 +108,22 @@ def parser() -> argparse.ArgumentParser:
     rig.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
     # Animate
-    anim = commands.add_parser("animate", help="为已绑定骨骼的 3D 模型重定向预设动画")
-    anim.add_argument("--model-file", help="本地骨骼模型文件")
-    anim.add_argument("--from-task", help="前序绑定任务 ID")
-    anim.add_argument("--animation", help="动画名称 (如 idle, walk, run, jump, slash)")
-    anim.add_argument("--animations", nargs="+", help="批量应用多个动画")
-    anim.add_argument("--animate-in-place", action="store_true", help="原地循环动画，去除位移")
-    anim.add_argument("--bake-animation", action="store_true", default=True, help="烘焙骨骼变换关键帧")
+    anim = commands.add_parser("animate", help="为骨骼绑定任务的结果套用一个预设动画")
+    anim.add_argument("--from-task", help="已成功的骨骼绑定任务 ID")
+    anim.add_argument("--model-file", help="Asynx 生成的骨骼绑定产物文件 (不接受任意本地模型)")
+    anim.add_argument("--model", help="指定模型")
+    anim.add_argument("--animation", required=True, action="append", help="动画标识，可重复传入，最多 5 个 (如 walk 或 preset:quadruped:walk)")
     anim.add_argument("--output-format", choices=("glb", "fbx"), default="glb")
     anim.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     anim.add_argument("--idempotency-key")
     anim.add_argument("--detach", action="store_true")
     anim.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
 
-    # Texture & Convert
-    tex = commands.add_parser("texture", help="为 3D 模型重新生成贴图材质")
-    tex.add_argument("--model-file", help="输入模型文件")
-    tex.add_argument("--from-task", help="前序任务 ID")
-    tex.add_argument("--prompt", required=True, help="材质风格描述")
-    tex.add_argument("--output-format", choices=("glb", "fbx", "obj"), default="glb")
-    tex.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
-    tex.add_argument("--idempotency-key")
-    tex.add_argument("--detach", action="store_true")
-    tex.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
-
-    conv = commands.add_parser("convert", help="云端转换 3D 模型格式")
-    conv.add_argument("--model-file", help="输入模型文件")
-    conv.add_argument("--from-task", help="前序任务 ID")
-    conv.add_argument("--output-format", choices=("glb", "fbx", "obj", "usdz"), required=True)
+    conv = commands.add_parser("convert", help="云端转换 3D 模型格式 (来源：生成/绑定/动画任务)")
+    conv.add_argument("--from-task", help="已成功的生成、骨骼绑定或动画任务 ID")
+    conv.add_argument("--model-file", help="本地模型文件 (GLB/FBX/OBJ/STL)，以 file_id 上传；与 --from-task 二选一")
+    conv.add_argument("--model", help="指定模型")
+    conv.add_argument("--output-format", choices=CONVERT_FORMATS, required=True)
     conv.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     conv.add_argument("--idempotency-key")
     conv.add_argument("--detach", action="store_true")
@@ -225,7 +214,7 @@ def parser() -> argparse.ArgumentParser:
     config_sub.add_parser("status")
 
     models = commands.add_parser("models", help="列出可用 3D 模型")
-    models.add_argument("--operation", choices=("all", "generate", "rig", "animate", "texture", "convert"), default="all")
+    models.add_argument("--operation", choices=("all", "generate", "rig_check", "rig", "animate", "convert"), default="all")
     models.add_argument("--guide", help="查看指定模型的参数指南")
 
     update = commands.add_parser("update", help="检查与更新 Skill")
@@ -351,40 +340,46 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
     if args.command == "history":
         return history_payload(client, status=args.status, limit=args.limit), 0
 
-    # 3D cloud commands: generate, rig-check, rig, animate, texture, convert
+    # 3D cloud commands: generate, rig-check, rig, animate, convert
     cmd_map = {
-        "generate": "3d.generate",
-        "rig-check": "3d.rig_check",
-        "rig": "3d.rig",
-        "animate": "3d.retarget",
-        "texture": "3d.texture",
-        "convert": "3d.convert",
+        "generate": "model.generate",
+        "rig-check": "model.rig_check",
+        "rig": "model.rig",
+        "animate": "model.retarget",
+        "convert": "model.convert",
     }
     if args.command in cmd_map:
         task_type = cmd_map[args.command]
-        model_file = getattr(args, "model_file", None)
         image_path = getattr(args, "image", None)
         from_task = getattr(args, "from_task", None)
+        model_file = getattr(args, "model_file", None)
+        parent_paths: list[str] = []
 
-        if from_task:
+        if task_type == "model.generate" and from_task:
             conn = connect_ledger_db()
             try:
                 paths = ledger_task_paths(conn, from_task)
-                if paths:
-                    first = paths[0]
-                    if first.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                        image_path = image_path or first
-                    else:
-                        model_file = model_file or first
+                first = paths[0] if paths else None
+                if not first or not first.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                    raise AsxError("--from-task 必须是产出图片的任务", code="invalid_source_task")
+                image_path = image_path or first
             finally:
                 conn.close()
+        if image_path and not image_path.casefold().startswith(("http://", "https://")):
+            parent_paths.append(image_path)
+        elif task_type != "model.generate":
+            if model_file:
+                parent_paths = [model_file]
+            elif from_task:
+                conn = connect_ledger_db()
+                try:
+                    try:
+                        parent_paths = ledger_task_paths(conn, from_task)[:1]
+                    except AsxError:
+                        parent_paths = []
+                finally:
+                    conn.close()
 
-        references_arg = getattr(args, "reference", None)
-        parent_paths = [
-            p
-            for p in [image_path, *(references_arg or []), model_file]
-            if isinstance(p, str) and p.strip()
-        ]
         body, selected_model = build_3d_task(
             client,
             task_type=task_type,
@@ -392,15 +387,13 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             prompt=getattr(args, "prompt", None),
             negative_prompt=getattr(args, "negative_prompt", None),
             image=image_path,
-            images=references_arg,
-            model_file=model_file,
+            from_task=None if task_type == "model.generate" else from_task,
+            model_file=None if task_type == "model.generate" else model_file,
             rig_type=getattr(args, "rig_type", None),
-            animation=getattr(args, "animation", None),
-            animations=getattr(args, "animations", None),
-            animate_in_place=getattr(args, "animate_in_place", None),
-            bake_animation=getattr(args, "bake_animation", None),
-            pbr=getattr(args, "pbr", None),
-            texture=getattr(args, "texture", None),
+            skeleton_profile=getattr(args, "skeleton_profile", None),
+            animations=getattr(args, "animation", None),
+            texture=False if getattr(args, "no_texture", False) else None,
+            pbr=False if getattr(args, "no_pbr", False) else None,
             face_limit=getattr(args, "face_limit", None),
             output_format=getattr(args, "output_format", None),
         )

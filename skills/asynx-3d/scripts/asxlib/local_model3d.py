@@ -184,6 +184,23 @@ def model3d_info(input_path: str | Path) -> dict[str, Any]:
             clips.append({"name": name, "duration_seconds": round(duration, 3)})
 
         joint_count = sum(len(s.get("joints", [])) for s in skins)
+        nodes = gltf_json.get("nodes", [])
+
+        def _node_name(idx: Any) -> str | None:
+            if isinstance(idx, int) and 0 <= idx < len(nodes):
+                return nodes[idx].get("name")
+            return None
+
+        skeletons = []
+        for i, skin in enumerate(skins):
+            joints = skin.get("joints", [])
+            name = (
+                skin.get("name")
+                or _node_name(skin.get("skeleton"))
+                or (_node_name(joints[0]) if joints else None)
+                or f"skeleton_{i}"
+            )
+            skeletons.append({"name": name, "joint_count": len(joints)})
         material_names = [m.get("name", f"mat_{i}") for i, m in enumerate(materials)]
 
         has_pbr = any("pbrMetallicRoughness" in m for m in materials)
@@ -198,6 +215,7 @@ def model3d_info(input_path: str | Path) -> dict[str, Any]:
             "has_pbr": has_pbr,
             "texture_count": len(textures),
             "joint_count": joint_count,
+            "skeletons": skeletons,
             "animation_clips": clips,
             "size_bytes": size_bytes,
         }

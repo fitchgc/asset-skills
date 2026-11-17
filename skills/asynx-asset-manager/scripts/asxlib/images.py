@@ -149,6 +149,27 @@ def catalog_choice(value: str, allowed: Any, field: str) -> str:
     )
 
 
+def nearest_aspect_ratio(width: int, height: int, allowed: Any) -> str | None:
+    """Pick the catalog aspect ratio closest to width:height (log-scale distance)."""
+    if width <= 0 or height <= 0 or not isinstance(allowed, list):
+        return None
+    target = math.log(width / height)
+    best: tuple[float, str] | None = None
+    for item in allowed:
+        if not isinstance(item, str) or ":" not in item:
+            continue
+        try:
+            w, h = (float(part) for part in item.split(":", 1))
+            if w <= 0 or h <= 0:
+                continue
+        except ValueError:
+            continue
+        distance = abs(math.log(w / h) - target)
+        if best is None or distance < best[0]:
+            best = (distance, item)
+    return best[1] if best else None
+
+
 def image_mime(data: bytes) -> str:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -328,9 +349,14 @@ def build_task(
             )
         canonical_ratio = ratios.pop()
         if model is not None:
-            canonical_ratio = catalog_choice(
-                canonical_ratio, capabilities(model).get("aspect_ratios"), "aspect_ratio"
-            )
+            allowed_ratios = capabilities(model).get("aspect_ratios")
+            if isinstance(allowed_ratios, list) and canonical_ratio.casefold() not in {
+                str(item).casefold() for item in allowed_ratios
+            }:
+                # 源图比例不在模型支持列表中时，取最接近的比例，尽量保持画幅
+                width, height = next(size for size in source_sizes if size is not None)
+                canonical_ratio = nearest_aspect_ratio(width, height, allowed_ratios) or canonical_ratio
+            canonical_ratio = catalog_choice(canonical_ratio, allowed_ratios, "aspect_ratio")
     task_input: dict[str, Any] = {
         "prompt": prompt,
         "count": count,

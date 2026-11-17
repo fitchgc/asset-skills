@@ -716,17 +716,18 @@
       if (ext === '.gltf') {
         const text = await res.text();
         try {
-          return await parseGltfJson(THREE, text, absUrl, fetchOpts);
-        } catch (e) {
           return await parseWithOfficialLoader(THREE, text, absUrl);
+        } catch (e) {
+          return await parseGltfJson(THREE, text, absUrl, fetchOpts);
         }
       }
       // Default to .glb: built-in parser first, official GLTFLoader for Draco/Meshopt etc.
       const buf = await res.arrayBuffer();
+      // Official loader first: it supports skins/animations; built-in parser is static-only fallback.
       try {
-        return parseGlbBuffer(THREE, buf.slice(0), absUrl);
+        return await parseWithOfficialLoader(THREE, buf.slice(0), absUrl);
       } catch (e) {
-        return await parseWithOfficialLoader(THREE, buf, absUrl);
+        return parseGlbBuffer(THREE, buf, absUrl);
       }
     } catch (err) {
       return createFallbackProxy(THREE, err && err.message ? err.message : 'Model load failed');

@@ -240,7 +240,7 @@ class TestAsynx3DSkill(unittest.TestCase):
         out_dir = Path(self.temp_dir) / "3d_out"
 
         # 1. Text to 3D
-        gen_res = self.run_cli("generate", "--prompt", "magic sword", "--output-format", "glb", "--output-dir", str(out_dir))
+        gen_res = self.run_cli("generate", "--prompt", "magic sword", "--output-dir", str(out_dir))
         self.assertTrue(gen_res["ok"])
         self.assertEqual(gen_res["modality"], "3d")
 
@@ -269,20 +269,62 @@ class TestAsynx3DSkill(unittest.TestCase):
         cross_res = self.run_cli("generate", "--from-task", "task_img_char", "--output-dir", str(out_dir))
         self.assertTrue(cross_res["ok"])
         self.assertEqual(cross_res["modality"], "3d")
+        sub = self.server.submissions[-1]
+        self.assertEqual(sub["task_type"], "model.generate")
+        self.assertEqual(sub["model"], "tripo-h3.1")
+        self.assertTrue(sub["input"]["image"].startswith("data:image/"))
+        self.assertNotIn("prompt", sub["input"])
 
-        # 4. Rig check
-        self.server.asset_data["task_3:0"] = self.fixture_glb.read_bytes()
-        rc_res = self.run_cli("rig-check", "--model-file", str(self.fixture_glb), "--output-dir", str(out_dir))
+        # 4. Rig check: verdict only, no files
+        rc_res = self.run_cli("rig-check", "--from-task", "task_2", "--output-dir", str(out_dir))
         self.assertTrue(rc_res["ok"])
+        self.assertEqual(rc_res["data"], {"riggable": True, "recommended_rig_type": "biped"})
+        self.assertEqual(rc_res["files"], [])
+        sub = self.server.submissions[-1]
+        self.assertEqual(sub["task_type"], "model.rig_check")
+        self.assertEqual(sub["input"], {"source": {"task_id": "task_2"}})
 
-        # 5. Rig and animate
+        # 5. Rig, animate, convert
         self.server.asset_data["task_4:0"] = self.fixture_glb.read_bytes()
-        rig_res = self.run_cli("rig", "--model-file", str(self.fixture_glb), "--rig-type", "biped", "--output-dir", str(out_dir))
+        rig_res = self.run_cli("rig", "--from-task", "task_2", "--rig-type", "biped", "--skeleton-profile", "mixamo", "--output-dir", str(out_dir))
         self.assertTrue(rig_res["ok"])
+        sub = self.server.submissions[-1]
+        self.assertEqual(sub["task_type"], "model.rig")
+        self.assertEqual(sub["input"]["rig"], {"type": "biped", "skeleton_profile": "mixamo"})
+        self.assertEqual(sub["input"]["output"], {"formats": ["glb"]})
 
         self.server.asset_data["task_5:0"] = self.fixture_glb.read_bytes()
-        anim_res = self.run_cli("animate", "--model-file", str(self.fixture_glb), "--animation", "walk", "--output-dir", str(out_dir))
+        anim_res = self.run_cli("animate", "--from-task", "task_4", "--animation", "walk", "--output-dir", str(out_dir))
         self.assertTrue(anim_res["ok"])
+        sub = self.server.submissions[-1]
+        self.assertEqual(sub["task_type"], "model.retarget")
+        self.assertEqual(sub["input"]["animations"], ["preset:walk"])
+        self.assertEqual(sub["input"]["source"], {"task_id": "task_4"})
+
+        self.server.asset_data["task_6:0"] = self.fixture_glb.read_bytes()
+        conv_res = self.run_cli("convert", "--from-task", "task_5", "--output-format", "fbx", "--output-dir", str(out_dir))
+        self.assertTrue(conv_res["ok"])
+        sub = self.server.submissions[-1]
+        self.assertEqual(sub["task_type"], "model.convert")
+        self.assertEqual(sub["input"]["output"], {"formats": ["fbx"]})
+
+    def test_local_model_file_uploads_as_file_id(self) -> None:
+        out_dir = Path(self.temp_dir) / "3d_file_out"
+        self.server.asset_data["task_1:0"] = self.fixture_glb.read_bytes()
+        res = self.run_cli("rig", "--model-file", str(self.fixture_glb), "--output-dir", str(out_dir))
+        self.assertTrue(res["ok"])
+        sub = self.server.submissions[-1]
+        self.assertEqual(sub["task_type"], "model.rig")
+        self.assertEqual(sub["input"]["source"], {"file_id": "file_1"})
+        upload = self.server.uploaded_files["file_1"]
+        self.assertIn(b'name="purpose"\r\n\r\nmodel', upload)
+
+        proc = subprocess.run(
+            [sys.executable, str(self.asynx_bin), "animate", "--model-file", str(self.fixture_glb), "--animation", "walk"],
+            capture_output=True, text=True, env=self.env,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("file_source_not_supported", proc.stdout)
 
 
 if __name__ == "__main__":

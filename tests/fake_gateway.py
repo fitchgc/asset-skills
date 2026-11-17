@@ -77,10 +77,34 @@ class FakeGatewayHandler(BaseHTTPRequestHandler):
             "capabilities": ["text_to_video", "image_to_video"],
         },
         {
-            "name": "tripo-3d-v2",
-            "modality": "3d",
-            "task_types": ["3d.generate", "3d.rig_check", "3d.rig", "3d.retarget", "3d.texture", "3d.convert"],
-            "capabilities": ["text_to_3d", "image_to_3d"],
+            "name": "tripo-h3.1",
+            "modality": "model",
+            "task_types": ["model.generate"],
+            "capabilities": {"task_types": ["model.generate"]},
+        },
+        {
+            "name": "tripo-rig-check",
+            "modality": "model",
+            "task_types": ["model.rig_check"],
+            "capabilities": {"task_types": ["model.rig_check"]},
+        },
+        {
+            "name": "tripo-rig",
+            "modality": "model",
+            "task_types": ["model.rig"],
+            "capabilities": {"task_types": ["model.rig"]},
+        },
+        {
+            "name": "tripo-animate",
+            "modality": "model",
+            "task_types": ["model.retarget"],
+            "capabilities": {"task_types": ["model.retarget"]},
+        },
+        {
+            "name": "tripo-convert",
+            "modality": "model",
+            "task_types": ["model.convert"],
+            "capabilities": {"task_types": ["model.convert"]},
         },
     ]
 
@@ -308,7 +332,14 @@ class FakeGatewayHandler(BaseHTTPRequestHandler):
                 "input": body.get("input", {}),
             }
             if status == "succeeded":
-                task["result"] = {"assets": [{"index": 0, "download_url": None}]}
+                if task_type == "model.rig_check":
+                    task["result"] = {
+                        "assets": [],
+                        "auxiliary_assets": [],
+                        "data": {"riggable": True, "recommended_rig_type": "biped"},
+                    }
+                else:
+                    task["result"] = {"assets": [{"index": 0, "download_url": None}]}
             if self.server.next_task_poll_sequence:
                 self.server.task_poll_sequences[task_id] = list(self.server.next_task_poll_sequence)
                 self.server.next_task_poll_sequence = None

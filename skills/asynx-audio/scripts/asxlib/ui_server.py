@@ -889,6 +889,25 @@ class WorkbenchServer(ThreadingHTTPServer):
         else:
             raise AsxError(f"Unsupported workbench mode: {mode}", code="unsupported_workbench_mode")
 
+    def _edit_aspect_ratio(self, client: Any, model_name: str, size: Any) -> str | None:
+        if not size:
+            return None
+        try:
+            from .images import _cached_models, capabilities, nearest_aspect_ratio
+
+            models = _cached_models(client.base_url) if client else None
+            for item in models or []:
+                if (
+                    "image.edit" in item.get("task_types", [])
+                    and str(item.get("name", "")).casefold() == model_name.casefold()
+                ):
+                    return nearest_aspect_ratio(
+                        size[0], size[1], capabilities(item).get("aspect_ratios")
+                    )
+        except Exception:
+            return None
+        return None
+
     def _handle_region_edit_submit(self, body: dict[str, Any]) -> tuple[dict[str, Any], int]:
         client = self.require_client() if self.mode == "asset_manager" else self.client
         if not client:
@@ -939,15 +958,21 @@ class WorkbenchServer(ThreadingHTTPServer):
             input_paths.append(str(preview_path))
 
         from .reference_media import prepare_inputs
+        source_sizes: list[Any] = []
         images, prepared_mask = prepare_inputs(
             input_paths,
             mask=str(mask_path) if (mask_data_url and mask_path.is_file()) else None,
             keep_original=False,
+            source_sizes=source_sizes,
         )
         request_input: dict[str, Any] = {
             "prompt": final_prompt,
             "images": images,
         }
+        # 保持原图画幅：按源图尺寸选择模型支持的最接近比例
+        aspect = self._edit_aspect_ratio(client, selected_model, source_sizes[0] if source_sizes else None)
+        if aspect:
+            request_input["aspect_ratio"] = aspect
         if prepared_mask:
             request_input["mask"] = prepared_mask
 
