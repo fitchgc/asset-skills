@@ -309,6 +309,115 @@
       await loadSessionModel();
     }
 
+    // ---- Sequence export helpers: in-place root + fixed framing ----
+    // Pick the node with the largest horizontal world travel across the loop.
+    // Candidates: nodes with position tracks + skeleton root bones.
+    function findRootMotionNode(framesPerDir) {
+      if (!mixer || !currentAction || !modelRoot) return { node: null, travel: 0 };
+      const cands = new Set();
+      for (const track of currentAction.getClip().tracks) {
+        if (!track.name.endsWith('.position')) continue;
+        const parsed = THREE.PropertyBinding.parseTrackName(track.name);
+        const node = THREE.PropertyBinding.findNode(modelRoot, parsed.nodeName);
+        if (node && node.parent) cands.add(node);
+      }
+      modelRoot.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton) {
+          for (const bone of o.skeleton.bones) {
+            if (bone.parent && !bone.parent.isBone && bone.parent !== o) cands.add(bone);
+          }
+        }
+      });
+      const list = [...cands];
+      if (!list.length) return { node: null, travel: 0 };
+      const dur = currentAction.getClip().duration || 1;
+      const samples = list.map(() => []);
+      currentAction.paused = true;
+      for (let f = 0; f < framesPerDir; f++) {
+        currentAction.time = (f / framesPerDir) * dur;
+        mixer.update(0);
+        modelRoot.updateMatrixWorld(true);
+        list.forEach((n, i) => samples[i].push(n.getWorldPosition(new THREE.Vector3())));
+      }
+      // Root motion lives on the top-most bone that travels: limbs/fingers swing more
+      // but only because they ride on that root. Pick the shallowest node above epsilon.
+      const depthOf = (n) => { let d = 0; for (let o = n; o && o !== modelRoot; o = o.parent) d++; return d; };
+      const size = new THREE.Box3().setFromObject(modelRoot).getSize(new THREE.Vector3()).length() || 1;
+      const eps = size * 0.01;
+      let best = null, bestTravel = 0, bestDepth = Infinity;
+      list.forEach((n, i) => {
+        const pts = samples[i];
+        const xs = pts.map((v) => v.x), zs = pts.map((v) => v.z);
+        const travel = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+        const d = depthOf(n);
+        if (travel > eps && d < bestDepth) { best = n; bestTravel = travel; bestDepth = d; }
+      });
+      return { node: best, travel: bestTravel };
+    }
+
+    function poseExportFrame(f, framesPerDir, ctx) {
+      if (mixer && currentAction) {
+        const dur = currentAction.getClip().duration || 1;
+        currentAction.paused = true;
+        currentAction.time = (f / framesPerDir) * dur;
+        mixer.update(0);
+        modelRoot.updateMatrixWorld(true);
+        const node = ctx.rootNode;
+        if (node) {
+          const wp = node.getWorldPosition(new THREE.Vector3());
+          if (!ctx.baseWorld) ctx.baseWorld = wp.clone();
+          // Lock horizontal root motion (world X/Z); keep vertical (jumps, bobbing).
+          wp.x = ctx.baseWorld.x;
+          wp.z = ctx.baseWorld.z;
+          node.position.copy(node.parent.worldToLocal(wp));
+          modelRoot.updateMatrixWorld(true);
+        }
+      } else if (modelRoot) {
+        modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
+        modelRoot.updateMatrixWorld(true);
+      }
+    }
+
+    // Box3.setFromObject ignores skinning (rest-pose geometry bounds), so skin vertices explicitly.
+    function computePosedBounds() {
+      const box = new THREE.Box3();
+      const v = new THREE.Vector3();
+      modelRoot.updateMatrixWorld(true);
+      modelRoot.traverse((o) => {
+        if (!o.isMesh || !o.geometry || !o.visible) return;
+        const pos = o.geometry.attributes.position;
+        if (!pos) return;
+        if (o.isSkinnedMesh && typeof o.boneTransform === 'function') {
+          o.skeleton.update();
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i);
+            o.boneTransform(i, v);
+            box.expandByPoint(v.applyMatrix4(o.matrixWorld));
+          }
+        } else {
+          if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+          box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+        }
+      });
+      return box;
+    }
+
+    // Union bounds over all frames -> one fixed ortho framing shared by every frame/direction.
+    function computeExportFraming(framesPerDir, ctx) {
+      const union = new THREE.Box3();
+      for (let f = 0; f < framesPerDir; f++) {
+        poseExportFrame(f, framesPerDir, ctx);
+        const b = computePosedBounds();
+        if (!b.isEmpty()) union.union(b);
+      }
+      if (union.isEmpty()) union.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+      const center = union.getCenter(new THREE.Vector3());
+      // Sphere radius is rotation-invariant: no clipping for any direction/elevation.
+      const radius = (union.getSize(new THREE.Vector3()).length() / 2) * 1.08 || 1;
+      const foot = new THREE.Vector3(center.x, union.min.y, center.z);
+      return { center, radius, foot };
+    }
+
     document.getElementById('render-btn').onclick = async () => {
       document.getElementById('loading-overlay').style.display = 'flex';
 
@@ -333,12 +442,25 @@
       offRenderer.setClearColor(0x000000, 0);
       if (THREE.sRGBEncoding !== undefined) offRenderer.outputEncoding = THREE.sRGBEncoding;
       if (THREE.ACESFilmicToneMapping !== undefined) offRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const mainBackground = scene.background;
+      scene.background = null;
       const mainEnv = scene.environment;
       scene.environment = window.AsxModel3DLoader.createStudioEnvironment(THREE, offRenderer);
 
-      const orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20);
       const savedRotX = modelRoot ? modelRoot.rotation.x : 0;
       const savedRotY = modelRoot ? modelRoot.rotation.y : 0;
+      if (modelRoot) modelRoot.rotation.set(0, 0, 0);
+
+      const inPlace = document.getElementById('in-place-root').checked;
+      const rootInfo = inPlace ? findRootMotionNode(framesPerDir) : { node: null, travel: 0 };
+      console.info('[asynx-3d] in-place root:', inPlace, 'node:', rootInfo.node && rootInfo.node.name, 'travel:', rootInfo.travel);
+      const poseCtx = { rootNode: rootInfo.node, baseWorld: null };
+      const framing = computeExportFraming(framesPerDir, poseCtx);
+      const halfH = framing.radius;
+      const halfW = halfH * (frameW / frameH);
+      const camDist = framing.radius * 4;
+      const orthoCamera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.01, camDist * 2 + framing.radius * 2);
+      const pivots = {};
 
       let frameCounter = 0;
       for (const dir of directions) {
@@ -347,22 +469,21 @@
         const elevRad = view.startsWith('isometric') ? 0.6154 : view.startsWith('topdown') ? 1.4 : 0;
 
         orthoCamera.position.set(
-          Math.cos(rad) * Math.cos(elevRad) * 4,
-          Math.sin(elevRad) * 4,
-          Math.sin(rad) * Math.cos(elevRad) * 4
+          framing.center.x + Math.cos(rad) * Math.cos(elevRad) * camDist,
+          framing.center.y + Math.sin(elevRad) * camDist,
+          framing.center.z + Math.sin(rad) * Math.cos(elevRad) * camDist
         );
-        orthoCamera.lookAt(0, 0, 0);
+        orthoCamera.lookAt(framing.center);
+        orthoCamera.updateMatrixWorld(true);
+        const ndc = framing.foot.clone().project(orthoCamera);
+        pivots[dir] = {
+          x: Math.round(((ndc.x + 1) / 2) * frameW * 100) / 100,
+          y: Math.round(((1 - ndc.y) / 2) * frameH * 100) / 100,
+        };
 
         for (let f = 0; f < framesPerDir; f++) {
           if (frameCounter >= 240) break;
-          if (mixer && currentAction) {
-            const dur = currentAction.getClip().duration || 1;
-            currentAction.paused = true;
-            currentAction.time = (f / framesPerDir) * dur;
-            mixer.update(0);
-          } else if (modelRoot) {
-            modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
-          }
+          poseExportFrame(f, framesPerDir, poseCtx);
           offRenderer.render(scene, orthoCamera);
 
           const c = frameCounter % grid.columns;
@@ -377,6 +498,7 @@
             rotated: false,
             trimmed: false,
             direction: dir,
+            pivot: pivots[dir],
             sourceSize: { w: frameW, h: frameH },
             duration: 1.0 / fps,
           };
@@ -391,6 +513,7 @@
       if (currentAction) currentAction.paused = false;
       if (scene.environment && scene.environment !== mainEnv) scene.environment.dispose();
       scene.environment = mainEnv;
+      scene.background = mainBackground;
       offRenderer.dispose();
 
       const atlasDataUrl = atlasCanvas.toDataURL('image/png');
@@ -406,6 +529,11 @@
           columns: grid.columns,
           rows: grid.rows,
           fps: fps,
+          in_place_root: !!poseCtx.rootNode,
+          root_node: poseCtx.rootNode ? poseCtx.rootNode.name : null,
+          root_travel: rootInfo.travel,
+          pixels_per_unit: frameH / (2 * halfH),
+          pivots: pivots,
         },
       };
 
