@@ -10,6 +10,19 @@
 
 ---
 
+## For AI Agents
+
+If you are an AI agent and the user asked you to install or set up this repository, install **all skills** by running:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.sh | sh
+```
+
+(Equivalent: `git clone --depth 1 https://github.com/fitchgc/asset-skills && python3 asset-skills/install.py --skill all --skip-config`.)
+Do not ask the user to paste API keys into the chat; tell them to run `python3 install.py` in their own terminal to configure keys.
+
+---
+
 ## 核心特性
 
 - **跨模态引用（Cross-Modal Pipelines）**：所有技能共用本地 SQLite 状态账本，Agent 可通过上下文任务 ID 无缝串联不同模态（例如：概念原画 -> 图生 3D 模型 -> 自动骨骼绑定 -> 行走动画 -> 导出 2D 游戏精灵图集）。
@@ -42,7 +55,7 @@
 使用仓库自带的安装器一键完成环境检测、依赖安装与密钥配置：
 
 ```bash
-git clone https://github.com/dawnx/asset-skills.git
+git clone https://github.com/fitchgc/asset-skills.git
 cd asset-skills
 python3 install.py
 ```
