@@ -358,17 +358,17 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-config",
         action="store_true",
-        help="安装但不询问 API Key",
+        help="安装但不进行账号登录",
     )
     parser.add_argument(
         "--no-verify",
         action="store_true",
-        help="跳过密钥和模型目录检查（只读，不提交任务）",
+        help="跳过登录会话和模型目录检查（只读，不提交任务）",
     )
     parser.add_argument(
         "--uninstall",
         action="store_true",
-        help="卸载已安装的 Skill，保留密钥、任务记录和已生成文件",
+        help="卸载已安装的 Skill，保留登录会话、任务记录和已生成文件",
     )
     parser.add_argument(
         "--yes",
@@ -400,10 +400,10 @@ def run(
         if not args.yes:
             if not sys.stdin.isatty():
                 raise RuntimeError(
-                    "当前终端无法确认卸载。如需卸载，请在命令中添加 --yes；密钥、任务记录和已生成文件将保留。"
+                    "当前终端无法确认卸载。如需卸载，请在命令中添加 --yes；登录会话、任务记录和已生成文件将保留。"
                 )
             skills_str = ", ".join(target_skills)
-            print(f"将卸载目标：{', '.join(targets)} 下的 [{skills_str}]。密钥、任务记录和已生成文件将保留。", file=sys.stderr)
+            print(f"将卸载目标：{', '.join(targets)} 下的 [{skills_str}]。登录会话、任务记录和已生成文件将保留。", file=sys.stderr)
             print("确认卸载？[y/N] ", end="", file=sys.stderr, flush=True)
             if input().strip().casefold() not in {"y", "yes"}:
                 print("已取消卸载。", file=sys.stderr)
@@ -456,9 +456,9 @@ def run(
             if verification:
                 return verification
         else:
-            print("已跳过连接检查，尚未验证密钥是否可用。")
+            print("已跳过连接检查，尚未验证登录会话是否可用。")
     else:
-        print("已跳过密钥配置和连接检查；若尚未配置，请回到 Agent 对话中获取配置指引。")
+        print("已跳过登录和连接检查；若尚未登录，请运行 `python3 <skill-dir>/scripts/asynx.py login`（会打开本地登录页面）。")
 
     print("\n安装完成！使用示例：")
     if "codex" in targets:

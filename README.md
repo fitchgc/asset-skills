@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.s
 ```
 
 (Equivalent: `git clone --depth 1 https://github.com/fitchgc/asset-skills && python3 asset-skills/install.py --skill all --skip-config`.)
-Do not ask the user to paste API keys into the chat; tell them to run `python3 install.py` in their own terminal to configure keys.
+Installation does not need an API key or login. Cloud generation requires logging in to the Identity Service: run `python3 <skill-dir>/scripts/asynx.py login` (opens a local browser login page; it is also triggered automatically on first use). Never ask the user to paste passwords or tokens into the chat; local post-processing and `asynx-asset-manager` scan/list/lineage work without login.
 
 ---
 
@@ -27,7 +27,7 @@ Do not ask the user to paste API keys into the chat; tell them to run `python3 i
 
 - **跨模态引用（Cross-Modal Pipelines）**：所有技能共用本地 SQLite 状态账本，Agent 可通过上下文任务 ID 无缝串联不同模态（例如：概念原画 -> 图生 3D 模型 -> 自动骨骼绑定 -> 行走动画 -> 导出 2D 游戏精灵图集）。
 - **自包含与开箱即用（Self-Contained Bundling）**：每个 Skill 均包含独立的配置与规则定义，零全局环境污染。
-- **本地免 Key 确定性后处理（Keyless Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需消耗 API Key，本地离线秒级执行。
+- **本地免登录确定性后处理（Login-free Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需登录、不消耗额度，本地离线秒级执行。
 - **按需本地交互工作台（Local UI Workbench）**：Agent 可按需自动拉起轻量 Web 服务，在浏览器中完成视觉交互操作（局部重绘圈选标注、视频时间轴去背、WebGL 3D 预览与多方向序列帧图集渲染）。
 
 ---
@@ -48,11 +48,11 @@ Do not ask the user to paste API keys into the chat; tell them to run `python3 i
 
 ## 安装说明 (Installation)
 
-运行环境要求 Python 3.10+。生成多模态资产须配置 [LLMAPI API Key](https://llmapi.site/api-keys)；仅使用本地处理功能时无需配置密钥。
+运行环境要求 Python 3.10+。生成多模态资产须登录 Asynx 账号（通过 Identity Service 获取 Partner Token/JWT，无需 API Key）；仅使用本地处理功能时无需登录。
 
 ### 自动化安装（推荐）
 
-使用仓库自带的安装器一键完成环境检测、依赖安装与密钥配置：
+使用仓库自带的安装器一键完成环境检测、依赖安装与账号登录：
 
 ```bash
 git clone https://github.com/fitchgc/asset-skills.git
@@ -62,14 +62,14 @@ python3 install.py
 
 Windows 环境下将最后一行改为 `py install.py`。
 
-安装器会自动检测当前环境中的 Codex、Claude Code 或 Pi，并引导在终端中安全输入 API Key（无需且严禁将密钥发送给 Agent 对话）：
+安装器会自动检测当前环境中的 Codex、Claude Code 或 Pi，并引导在终端中登录账号（输入用户名/密码，严禁将账号密码或令牌发送给 Agent 对话）：
 
 常用参数选项：
 - `--target`：指定安装目标 Agent，可选 `auto`（默认自动检测）、`codex`、`claude` 或 `both`。
 - `--skill`：指定安装的技能，默认全部安装 (`all`)。可选：`image`、`audio`、`video`、`3d`，或多选如 `--skill image,audio`。
-- `--skip-config`：仅安装技能，不提示输入 API Key。
-- `--no-verify`：跳过密钥连通性校验。
-- `--uninstall`：卸载已安装的 Skill，保留密钥、任务记录和已生成文件（可配合 `--yes` 跳过确认）。
+- `--skip-config`：仅安装技能，不登录（之后可运行 `asynx.py login`）。
+- `--no-verify`：跳过登录会话与模型目录连通性校验。
+- `--uninstall`：卸载已安装的 Skill，保留登录会话、任务记录和已生成文件（可配合 `--yes` 跳过确认）。
 
 默认安装位置：
 
@@ -91,9 +91,11 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 各 Skill 共用同一套本机配置与本地状态账本，只需配置一次即可全局生效：
 
-1. **自动引导**：运行 `python3 install.py` 时会主动引导配置并加密存储。
-2. **环境变量**：适用于 CI/CD 或临时环境，直接导出 `export ASYNX_API_KEY="asx-xxxxxxxxxxxx"`。
-3. **终端配置**：如需后续更新密钥，可让用户在终端中运行配置命令（详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)）。
+1. **安装时登录**：运行 `python3 install.py` 会在终端引导登录 Identity Service，保存 Partner Token（24h）与 Refresh Token（30d），过期自动刷新。
+2. **按需登录**：`python3 <skill-dir>/scripts/asynx.py login` 打开本地登录工作台；未登录时首次调用云端功能也会自动拉起（`ASYNX_NO_LOGIN_UI=1` 可禁用，改为返回 `need_login`）。`whoami` 查看账号与额度，`logout` 清除会话。
+3. **环境变量**：适用于 CI/CD，导出 `ASYNX_PARTNER_TOKEN`（优先级高于配置文件）；可选 `ASYNX_BASE_URL` 指定网关。
+
+详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)。
 
 ---
 

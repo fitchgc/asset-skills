@@ -5,7 +5,7 @@ description: 扫描并管理项目工作区中的五类创作 Asset（image、au
 
 # Asynx 资产管理器 (Asset Manager)
 
-使用本 Skill 的 `scripts/asynx.py` 扫描项目工作区资产、追踪跨模态 Asset Lineage（血缘关系）或启动交互工作台。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；需要 Python 3.10+。`scan`、`list`、`lineage` 为离线操作，无需 API Key 或登录会话即可使用。
+使用本 Skill 的 `scripts/asynx.py` 扫描项目工作区资产、追踪跨模态 Asset Lineage（血缘关系）或启动交互工作台。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；需要 Python 3.10+。`scan`、`list`、`lineage` 为离线操作，无需登录会话即可使用。
 
 ## 工作区扫描与分类检索
 

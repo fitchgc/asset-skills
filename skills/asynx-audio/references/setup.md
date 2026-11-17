@@ -1,9 +1,9 @@
 # Asynx Audio 环境与配置
 
-## 凭证
-与 `asynx-image-pro` 共享相同的 API 凭证与用户配置（`~/.config/asynx/config.json` 或 `ASYNX_API_KEY` 环境变量）。配置一次即可多模态通用：
+## 登录
+与 `asynx-image-pro` 共享同一登录会话（`~/.config/asynx/config.json` 或 `ASYNX_PARTNER_TOKEN` 环境变量）。登录一次即可多模态通用，由用户在浏览器中完成：
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" configure
+python3 "<skill-dir>/scripts/asynx.py" login
 ```
 
 ## 依赖诊断

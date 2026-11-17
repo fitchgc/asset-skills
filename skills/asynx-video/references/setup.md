@@ -1,9 +1,9 @@
 # Asynx Video 环境配置
 
-## 凭证
-与所有 Asynx Skill 共享同一份用户凭据：
+## 登录
+与所有 Asynx Skill 共享同一登录会话（Identity Service 签发的 Partner Token）：
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" configure
+python3 "<skill-dir>/scripts/asynx.py" login
 ```
 
 ## 依赖诊断

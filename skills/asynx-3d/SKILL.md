@@ -39,7 +39,7 @@ python3 "<skill-dir>/scripts/asynx.py" convert --from-task "<task-id>" --output-
 
 ## 本地纯 Python 后处理 (Keyless Local Post-Processing)
 
-无需 API Key，无需安装 Blender 或第三方 DCC 软件：
+无需登录，无需安装 Blender 或第三方 DCC 软件：
 
 ```bash
 # 检查模型元数据 (顶点数、三角面数、包围盒尺寸、材质槽、内嵌贴图、骨骼关节、动画剪辑)

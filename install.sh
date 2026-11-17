@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# One-line bootstrap: installs all Asynx skills without prompting for API keys.
+# One-line bootstrap: installs all Asynx skills without logging in.
 #   curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.sh | sh
 # Extra args are passed to install.py, e.g.  ... | sh -s -- --target claude
 set -eu
@@ -11,4 +11,4 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 git clone --depth 1 --branch "$REF" "$REPO" "$TMP/asset-skills"
 "$PY" "$TMP/asset-skills/install.py" --skill all --skip-config "$@"
-echo "安装完成。请在终端自行运行 install.py 配置 API Key（不要发给 Agent）。"
+echo "安装完成。使用云端生成前需登录：python3 <skill-dir>/scripts/asynx.py login（打开本地登录页面，账号密码只在浏览器/终端中输入，不要发给 Agent）。"

@@ -83,7 +83,7 @@ python3 "<skill-dir>/scripts/asynx.py" ui tools --image "/absolute/path/input.pn
 
 ## 本地图片工具
 
-以下操作不调用 Asynx，不需要 API Key，也不写入任务记录：
+以下操作不调用 Asynx，不需要登录，也不写入任务记录：
 
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" image info "/absolute/path/input.png"

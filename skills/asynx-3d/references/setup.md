@@ -1,9 +1,9 @@
 # Asynx 3D 环境配置
 
-## 凭证
-与 `asynx-image-pro` 等同族 Skill 共享相同的用户配置：
+## 登录
+与 `asynx-image-pro` 等同族 Skill 共享同一登录会话：
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" configure
+python3 "<skill-dir>/scripts/asynx.py" login
 ```
 
 ## 离线解析能力

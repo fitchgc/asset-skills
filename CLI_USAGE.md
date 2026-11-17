@@ -15,7 +15,7 @@
   - [2. 使用独立构建产物 (Dist Packages)](#2-使用独立构建产物-dist-packages)
   - [3. 源码编译与重新打包 (开发者构建)](#3-源码编译与重新打包-开发者构建)
 - [二、配置与环境诊断命令](#二配置与环境诊断命令)
-  - [1. 终端交互式配置 API Key](#1-终端交互式配置-api-key)
+  - [1. 登录账号（Identity Service）](#1-登录账号identity-service)
   - [2. 环境变量配置](#2-环境变量配置)
   - [3. 存储路径与优先级](#3-存储路径与优先级)
   - [4. 环境自检与连通性诊断 (Doctor)](#4-环境自检与连通性诊断-doctor)
@@ -91,33 +91,41 @@ python3 src/build_skills.py --skill all --package
 
 各 Skill 共用同一套本机全局配置与本地状态账本，只需配置一次即可在全部 4 个技能中生效。
 
-### 1. 终端交互式配置 API Key
+### 1. 登录账号（Identity Service）
 
-在交互式终端中执行任一技能的 `configure` 命令，根据提示输入 API Key：
+云端生成使用 Identity Service 签发的 Partner Token（JWT），不再使用 API Key。任选其一：
 
 ```bash
+# 打开本地登录工作台（浏览器），登录或注册
+python3 skills/asynx-image-pro/scripts/asynx.py login
+# 交互式终端中用命令行输入用户名/密码
 python3 skills/asynx-image-pro/scripts/asynx.py configure
+# 查看当前账号与额度 / 退出登录
+python3 skills/asynx-image-pro/scripts/asynx.py whoami
+python3 skills/asynx-image-pro/scripts/asynx.py logout
 ```
 
-- 输入格式以 `asx-` 开头的有效 API Key。
-- 若使用私有网关或自托管地址，可传入 `--base-url`：
-  ```bash
-  python3 skills/asynx-image-pro/scripts/asynx.py configure --base-url "https://your-domain.com/api"
-  ```
+- Partner Token 有效期 24 小时，Refresh Token 30 天，临近过期自动刷新；未登录时调用云端功能会自动拉起登录工作台。
+- 可用 `--login-svr-url` 指定 Identity Service 地址，`configure --base-url` 指定自托管网关。
+- 本地离线处理命令无需登录。
 
 ### 2. 环境变量配置
 
 适用于 CI/CD 或临时会话：
 
 ```bash
-# 必填：Asynx 统一 API Key
-export ASYNX_API_KEY="asx-xxxxxxxxxxxx"
+# 直接提供 Partner Token（优先于配置文件，不会写入文件）
+export ASYNX_PARTNER_TOKEN="<jwt>"
 
-# 可选：远端网关地址（默认为官方网关 https://asynx.llmapi.site/api）
+# 可选：远端网关地址
 export ASYNX_BASE_URL="https://asynx.llmapi.site/api"
 
 # 可选：自定义配置文件存储路径
 export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
+
+# 可选：禁用自动拉起登录工作台 / 不自动打开浏览器
+export ASYNX_NO_LOGIN_UI=1
+export ASYNX_NO_OPEN_BROWSER=1
 ```
 
 ### 3. 存储路径与优先级
@@ -128,7 +136,7 @@ export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
 - **本地状态数据库存储位置**：
   - macOS / Linux：`~/.local/state/asx/state.db`
   - Windows：`%LOCALAPPDATA%\Asynx\state.db`
-- **配置优先级**：环境变量（`ASYNX_API_KEY`） > 配置文件（`config.json`）。
+- **配置优先级**：环境变量（`ASYNX_PARTNER_TOKEN`） > 配置文件（`config.json`）。
 
 ### 4. 环境自检与连通性诊断 (Doctor)
 
@@ -138,10 +146,10 @@ export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
 # 离线检查配置文件、权限、Pillow 与 ffmpeg 工具链
 python3 skills/asynx-image-pro/scripts/asynx.py doctor
 
-# 联网验证密钥与网关连通性
+# 联网验证登录会话与网关连通性
 python3 skills/asynx-image-pro/scripts/asynx.py doctor --verify
 
-# 查看当前配置状态及密钥脱敏信息
+# 查看当前配置状态及登录会话脱敏信息
 python3 skills/asynx-image-pro/scripts/asynx.py config status
 ```
 
@@ -170,7 +178,7 @@ python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "将角色的衣�
 python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
 ```
 
-#### 本地确定性图片处理 (免 API Key)
+#### 本地确定性图片处理 (免登录)
 ```bash
 # 查看图片基础元数据 (尺寸、格式、色彩模式)
 python3 skills/asynx-image-pro/scripts/asynx.py image info "input.png"
@@ -216,7 +224,7 @@ python3 skills/asynx-audio/scripts/asynx.py speech --text "勇敢的冒险者，
 python3 skills/asynx-audio/scripts/asynx.py speech --text "前进，决不后退！" --from-task "<previous-audio-task-id>"
 ```
 
-#### 本地确定性音频处理 (免 API Key)
+#### 本地确定性音频处理 (免登录)
 ```bash
 # 查看音频元数据 (编码格式、采样率、声道数、比特率、时长)
 python3 skills/asynx-audio/scripts/asynx.py audio info "sound.wav"
@@ -259,7 +267,7 @@ python3 skills/asynx-video/scripts/asynx.py generate --prompt "城堡从白昼�
 python3 skills/asynx-video/scripts/asynx.py edit --prompt "将环境变换为大雪纷飞的冬日场景" --video "street.mp4"
 ```
 
-#### 本地确定性视频处理 (免 API Key)
+#### 本地确定性视频处理 (免登录)
 ```bash
 # 查看视频参数 (分辨率、帧率、时长、视频编码、音频编码)
 python3 skills/asynx-video/scripts/asynx.py video info "clip.mp4"
@@ -320,7 +328,7 @@ python3 skills/asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --a
 python3 skills/asynx-3d/scripts/asynx.py convert --from-task "<task-id>" --output-format fbx
 ```
 
-#### 本地纯 Python 3D 模型处理 (免 API Key，无需 Blender)
+#### 本地纯 Python 3D 模型处理 (免登录，无需 Blender)
 ```bash
 # 查看 3D 模型结构 (顶点数、三角面数、材质槽、内嵌贴图、骨骼关节数、动画片段)
 python3 skills/asynx-3d/scripts/asynx.py model3d info "character.glb"
