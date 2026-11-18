@@ -18,8 +18,9 @@ If you are an AI agent and the user asked you to install or set up this reposito
 curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.sh | sh
 ```
 
-(Equivalent: `git clone --depth 1 https://github.com/fitchgc/asset-skills && python3 asset-skills/install.py --skill all --skip-config`.)
-Installation does not need an API key or login. Cloud generation requires logging in to the Identity Service: run `python3 <skill-dir>/scripts/asynx.py login` (opens a local browser login page; it is also triggered automatically on first use). Never ask the user to paste passwords or tokens into the chat; local post-processing and `asynx-asset-manager` scan/list/lineage work without login.
+This is a single non-interactive command (no prompts, no login, no API key) — run it once, in one step; do not split it into separate clone / install / login commands, as that multiplies approval prompts.
+Options: `--target codex|claude|both`, `--login` (also open the browser login page at the end).
+Login is triggered automatically on first cloud use (`python3 <skill-dir>/scripts/asynx.py login` to do it manually; `ASYNX_NO_LOGIN_UI=1` disables auto-launch). Never ask the user to paste passwords or tokens into the chat. Local post-processing and `asynx-asset-manager` scan/list/lineage need no login.
 
 ---
 
