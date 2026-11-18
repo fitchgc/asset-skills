@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import importlib.util
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from types import ModuleType
 from typing import NoReturn
@@ -163,10 +165,17 @@ def _target_path(target: str, home: Path, skill_name: str = "asynx-image-pro") -
     raise ValueError(f"不支持的安装目标：{target}，请使用 codex、claude 或 both。")
 
 
-def _install_dependencies(destination: Path) -> None:
-    vendor = destination / "scripts" / "vendor"
-    vendor.mkdir(parents=True, exist_ok=True)
-    print(f"正在为 {destination.name} 安装处理依赖，首次安装可能需要一些时间……", file=sys.stderr)
+_DEPENDENCY_CACHE: dict[str, Path] = {}
+
+
+def _download_dependencies() -> Path | None:
+    """pip-install Pillow once per run; every skill copies from this directory."""
+    cached = _DEPENDENCY_CACHE.get(PILLOW_REQUIREMENT)
+    if cached is not None:
+        return cached
+    target = Path(tempfile.mkdtemp(prefix="asynx-vendor-"))
+    atexit.register(shutil.rmtree, target, ignore_errors=True)
+    print("正在安装图片处理依赖（只下载一次，供所有 Skill 共用）……", file=sys.stderr)
     result = subprocess.run(
         [
             sys.executable,
@@ -176,21 +185,40 @@ def _install_dependencies(destination: Path) -> None:
             "--disable-pip-version-check",
             "--upgrade",
             "--target",
-            str(vendor),
+            str(target),
             PILLOW_REQUIREMENT,
         ],
         check=False,
         capture_output=True,
     )
     if result.returncode:
-        # If vendor already has files (e.g. copied or bundled), warn instead of hard fail
-        if any(vendor.iterdir()):
-            print(
-                f"警告：依赖联网安装未成功，将尝试使用内置预编译依赖。如遇图片处理异常请检查网络或执行 pip install {PILLOW_REQUIREMENT}。",
-                file=sys.stderr,
-            )
-            return
-        raise RuntimeError("依赖安装失败，请检查网络连接以及当前 Python 是否已安装 pip，然后重新运行安装命令。")
+        return None
+    _DEPENDENCY_CACHE[PILLOW_REQUIREMENT] = target
+    return target
+
+
+def _install_dependencies(destination: Path, source: Path | None = None) -> None:
+    vendor = destination / "scripts" / "vendor"
+    vendor.mkdir(parents=True, exist_ok=True)
+    downloaded = _download_dependencies()
+    if downloaded is not None:
+        shutil.copytree(downloaded, vendor, dirs_exist_ok=True)
+        return
+    bundled = source / "scripts" / "vendor" if source else None
+    if bundled is not None and bundled.is_dir() and any(bundled.iterdir()):
+        shutil.copytree(bundled, vendor, dirs_exist_ok=True)
+        print(
+            f"警告：依赖联网安装未成功，已使用仓库内置依赖。如遇图片处理异常请检查网络或执行 pip install {PILLOW_REQUIREMENT}。",
+            file=sys.stderr,
+        )
+        return
+    if any(vendor.iterdir()):
+        print(
+            f"警告：依赖联网安装未成功，将沿用已安装的依赖。如遇图片处理异常请检查网络或执行 pip install {PILLOW_REQUIREMENT}。",
+            file=sys.stderr,
+        )
+        return
+    raise RuntimeError("依赖安装失败，请检查网络连接以及当前 Python 是否已安装 pip，然后重新运行安装命令。")
 
 
 def _check_legacy_installations(home: Path, targets: list[str]) -> None:
@@ -249,7 +277,7 @@ def _install_skill(
         script.chmod(script.stat().st_mode | 0o111)
 
     if install_dependencies and skill_name in SKILLS_NEEDING_PILLOW:
-        _install_dependencies(destination)
+        _install_dependencies(destination, skill_source)
 
     client = _load_client_module(destination)
     update_files = importlib.import_module(f"{client.__name__}.update_files")
