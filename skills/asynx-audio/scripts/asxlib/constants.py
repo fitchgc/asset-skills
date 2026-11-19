@@ -28,7 +28,6 @@ DOWNLOAD_TIMEOUT_BY_MODALITY = {
 }
 
 # Gateway & Defaults
-DEFAULT_ORIGIN = "https://plaiers.ai"
 DEFAULT_TOKEN_HEADER = "X-Asynx-Partner-Token"
 PROACTIVE_REFRESH_LEEWAY_SECONDS = 60
 DEFAULT_BASE_URL = "https://asynx.llmapi.site/api"

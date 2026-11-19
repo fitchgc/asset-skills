@@ -143,18 +143,16 @@ class TestInstaller(unittest.TestCase):
         self.assertFalse(manager_dir.exists())
 
     def test_verify_with_fake_gateway(self) -> None:
-        from tests.fake_sagein_server import run_fake_sagein_server
+        from tests.fake_sagein_server import install_fake_context, run_fake_sagein_server
 
         server, url, _ = run_fake_gateway()
         self.addCleanup(server.shutdown)
-        cred = self.temp_home / "cred.json"
-        sagein, origin, _ = run_fake_sagein_server(url, cred)
+        sagein, origin, _ = run_fake_sagein_server(url)
         self.addCleanup(sagein.shutdown)
         self.config_file.write_text("{}", encoding="utf-8")
-        os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(cred)
-        os.environ["SAGEIN_COMMUNITY_ORIGIN"] = origin
-        self.addCleanup(os.environ.pop, "SAGEIN_COMMUNITY_CREDENTIAL_FILE", None)
-        self.addCleanup(os.environ.pop, "SAGEIN_COMMUNITY_ORIGIN", None)
+        context, _ = install_fake_context(self.temp_home / "plaiers-context", origin)
+        os.environ["PLAIERS_SKILL_CONTEXT"] = str(context)
+        self.addCleanup(os.environ.pop, "PLAIERS_SKILL_CONTEXT", None)
 
         (self.temp_home / ".agents").mkdir(parents=True, exist_ok=True)
         ret = install.run(

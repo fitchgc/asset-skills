@@ -94,7 +94,7 @@
     root.className = 'asx-acct-root' + (!auth || !auth.authenticated ? ' off' : '');
 
     if (!auth || !auth.authenticated) {
-      const reason = (auth && auth.error && auth.error.message) || '请通过 sagein-community 授权（需 skill_jwt 权限）';
+      const reason = (auth && auth.error && auth.error.message) || '请经 plaiers-community 授权（需 skill_jwt 权限）并用 get_skill 安装本 Skill';
       root.innerHTML = `
         <button type="button" class="asx-acct-pill" title="${escapeHtml(reason)}">
           <span class="asx-acct-avatar">?</span>

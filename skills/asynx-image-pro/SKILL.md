@@ -79,7 +79,7 @@ python3 "<skill-dir>/scripts/asynx.py" wait "<task-id>"
 | 配置、连接异常、安装、升级或旧入口清理 | [配置与维护](references/setup.md) |
 | 用户要求模型推荐、Prompt 优化，或需梳理多图关系、复杂图文布局 | [模型与提示词](references/model-prompting.md)，读取本身不要求查模型目录 |
 
-返回 `need_login` 时，说明本机没有有效的 SageIn Agent 授权：使用 `sagein-community` 技能完成设备授权，并确认勾选 `skill_jwt` 权限（返回 `scope_missing` 即缺少该权限）；不在对话中索取令牌。已授权却报错时按维护参考诊断。
+返回 `need_login` 时，说明本机没有有效的 Plaiers Agent 授权或凭据上下文：经 `plaiers-community` 完成设备授权并用 `get_skill` 安装本 Skill，确认勾选 `skill_jwt` 权限（返回 `scope_missing` 即缺少该权限）；不在对话中索取令牌。已授权却报错时按维护参考诊断。
 
 ## 结果与边界
 

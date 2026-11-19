@@ -1,11 +1,11 @@
 # Asynx Audio 环境与配置
 
 ## 授权
-与 `asynx-image-pro` 共享同一授权（`sagein-community` 的 SageIn Agent 授权，需 `skill_jwt` 权限；或 `ASYNX_PARTNER_TOKEN` 环境变量）。运行时自动用 PAT 换取短期 JWT：
+JWT 只经 Plaiers 社区凭据桥接取得：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令（需 `skill_jwt` 权限；或用 `ASYNX_PARTNER_TOKEN` 环境变量）。Skill 不读取 PAT，也不缓存 JWT：
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" whoami
 ```
-未授权时使用 `sagein-community` 技能完成授权。
+未授权或缺少 `.plaiers-context.json` 时返回 `need_login`：经 `plaiers-community` 用 `get_skill` 安装本 Skill，并确认授权勾选了 `skill_jwt`。
 
 ## 依赖诊断
 检查外部媒体工具 `ffmpeg` 与 `ffprobe` 状态：

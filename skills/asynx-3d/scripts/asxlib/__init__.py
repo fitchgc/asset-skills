@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from . import state
-from .auth import AuthSession, fetch_asynx_config, fetch_jwt, load_auth_session
+from .auth import AuthSession, fetch_asynx_config, load_auth_session, load_credential_context
 from .client import AsynxClient
 from .config import (
     cache_path,
@@ -27,9 +27,9 @@ __all__ = [
     "config_status",
     "doctor",
     "fetch_asynx_config",
-    "fetch_jwt",
     "legacy_config_paths",
     "load_auth_session",
+    "load_credential_context",
     "load_client",
     "load_credentials",
     "migrate_legacy_config",

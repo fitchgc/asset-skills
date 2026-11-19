@@ -211,17 +211,18 @@ def _write_config(payload: dict[str, Any], path: Path) -> Path:
     return path
 
 
-def save_config(payload_or_token: dict[str, Any] | str, base_url: str | None = None) -> Path:
-    payload = read_config()
-    if isinstance(payload_or_token, dict):
-        payload.update(payload_or_token)
-    else:
-        payload["token"] = payload_or_token
-        if base_url:
-            asynx_cfg = dict(payload.get("asynx")) if isinstance(payload.get("asynx"), dict) else {}
-            asynx_cfg["baseUrl"] = validate_base_url(base_url)
-            payload["asynx"] = asynx_cfg
-    return _write_config(payload, config_path())
+def save_config(payload: dict[str, Any]) -> Path:
+    """Merge non-credential settings into the user config. JWTs are never stored here."""
+    for key in ("token", "asynx", "origin"):
+        if key in payload:
+            raise AsxError(
+                f"配置文件不保存 {key}；JWT 只经凭据上下文中的桥接命令获取",
+                code="invalid_config",
+                details={"key": key},
+            )
+    merged = read_config()
+    merged.update(payload)
+    return _write_config(merged, config_path())
 
 
 def migrate_legacy_config() -> Path | None:
@@ -236,49 +237,43 @@ def migrate_legacy_config() -> Path | None:
 
 
 def config_status() -> dict[str, Any]:
-    from .auth import credential_file_path, decode_jwt, resolve_origin
+    from .auth import decode_jwt, load_credential_context
 
     config, source = read_config_with_source()
     env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
-    stored_token = config.get("token") if isinstance(config.get("token"), str) else None
+    env_token = env_token.strip() if isinstance(env_token, str) and env_token.strip() else None
+
+    context: dict[str, Any] = {"ok": False}
     try:
-        origin = resolve_origin(config)
-        has_pat = credential_file_path(origin).is_file()
-    except AsxError:
-        origin = "<invalid>"
-        has_pat = False
-    token = env_token.strip() if isinstance(env_token, str) and env_token.strip() else stored_token
+        loaded = load_credential_context()
+        context = {
+            "ok": True,
+            "path": loaded["path"],
+            "origin": loaded["origin"],
+            "agent_id": loaded["agent_id"],
+            "account_id": loaded["account_id"],
+        }
+    except AsxError as exc:
+        context = {"ok": False, "path": exc.details.get("context_path"), "error": exc.payload()["error"]}
 
-    credential_source = (
-        "environment"
-        if isinstance(env_token, str) and env_token.strip()
-        else "sagein_pat"
-        if has_pat
-        else "none"
-    )
+    credential_source = "environment" if env_token else "credential_context" if context["ok"] else "none"
 
-    asynx_cfg = config.get("asynx") if isinstance(config.get("asynx"), dict) else {}
-    raw_base_url = (
-        os.environ.get("ASYNX_BASE_URL")
-        or asynx_cfg.get("baseUrl")
-        or config.get("base_url")
-    )
-    if (not isinstance(raw_base_url, str) or not raw_base_url.strip()) and credential_source == "environment":
-        raw_base_url = DEFAULT_BASE_URL
+    raw_base_url = os.environ.get("ASYNX_BASE_URL") or (DEFAULT_BASE_URL if env_token else None)
     normalized_base_url: str | None = None
-    base_url_valid = False
+    base_url_valid = credential_source == "credential_context"  # base URL comes from asynx-config at use time
     if isinstance(raw_base_url, str) and raw_base_url.strip():
         try:
             normalized_base_url = validate_base_url(raw_base_url)
             base_url_valid = True
         except AsxError:
             normalized_base_url = "<invalid>"
+            base_url_valid = False
 
     token_expires_at: int | None = None
     token_kid: str | None = None
-    if isinstance(token, str) and token.strip():
+    if env_token:
         try:
-            hdr, pld = decode_jwt(token.strip())
+            hdr, pld = decode_jwt(env_token)
             if isinstance(hdr.get("kid"), str):
                 token_kid = hdr["kid"]
             if pld.get("exp") is not None:
@@ -288,33 +283,24 @@ def config_status() -> dict[str, Any]:
 
     overrides = [
         name
-        for name in (
-            "ASYNX_PARTNER_TOKEN",
-            "ASYNX_BASE_URL",
-            "ASYNX_CONFIG_PATH",
-        )
+        for name in ("ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL", "ASYNX_CONFIG_PATH", "PLAIERS_SKILL_CONTEXT")
         if os.environ.get(name)
     ]
     canonical = config_path()
-    configured = bool(
-        (isinstance(env_token, str) and env_token.strip())
-        or has_pat
-    )
     return {
         "ok": True,
-        "configured": configured,
+        "configured": credential_source != "none",
         "credential_source": credential_source,
+        "credential_context": context,
         "config_path": str(canonical),
         "loaded_config_path": str(source) if source else None,
         "config_exists": canonical.exists(),
-        "origin": origin,
-        "has_pat": has_pat,
-        "has_token": bool(isinstance(token, str) and token.strip()),
+        "origin": context.get("origin"),
+        "has_env_token": bool(env_token),
         "token_expires_at": token_expires_at,
         "token_kid": token_kid,
         "base_url": normalized_base_url,
         "base_url_valid": base_url_valid,
-        "asynx": asynx_cfg or None,
         "skill_version": VERSION,
         "environment_overrides": overrides,
     }
@@ -420,16 +406,14 @@ def doctor(
     issues: list[dict[str, Any]] = []
 
     # 1. Config & credentials check
-    config_ok = bool(status["configured"]) and (
-        status["credential_source"] == "sagein_pat" or status["base_url_valid"]
-    )
+    config_ok = bool(status["configured"]) and status["base_url_valid"]
     checks.append(
         {
             "name": "credentials",
             "ok": config_ok,
-            "message": "SageIn PAT / partner token configured"
+            "message": "Plaiers credential context / partner token configured"
             if config_ok
-            else "SageIn PAT or partner token not configured",
+            else "Plaiers credential context or partner token not configured",
         }
     )
     if not status["configured"]:
@@ -437,7 +421,8 @@ def doctor(
             {
                 "level": "error",
                 "code": "need_login",
-                "message": "SageIn Agent credential not found. Authorize via sagein-community (with skill_jwt scope) or set ASYNX_PARTNER_TOKEN.",
+                "message": "Plaiers credential context not found or invalid. Install this skill through plaiers-community (search_skills / get_skill) with the skill_jwt scope, or set ASYNX_PARTNER_TOKEN.",
+                "details": status["credential_context"].get("error"),
             }
         )
     elif not config_ok:
@@ -535,7 +520,7 @@ def doctor(
                 for chk in checks:
                     if chk.get("name") == "credentials":
                         chk["ok"] = True
-                        chk["message"] = "SageIn PAT / partner token configured"
+                        chk["message"] = "Plaiers credential context / partner token configured"
                 result["ok"] = not any(issue["level"] == "error" for issue in issues)
             result["verification"] = {
                 "ok": True,

@@ -17,7 +17,10 @@ _Avoid_: 资产类型、文件格式、频道
 _Avoid_: 插件、子代理、微服务
 
 **SageIn Agent 授权（Agent PAT → JWT）**:
-用户通过 `sagein-community` 设备授权（含 `skill_jwt` 权限）获得本地长效 `sagein_pat_...`；Skill 用它请求 `/api/agent/jwt` 换取短期 JWT（Partner Token），并从 `/api/agent/asynx-config` 获取网关接入参数。PAT 永不发送给 Asynx。
+用户通过 Plaiers 社区设备授权（含 `skill_jwt` 权限），本地保存长效 `sagein_pat_...`。Skill 不读取 PAT，只运行**本机凭据上下文**记录的 `get-skill-jwt.mjs` 命令取得短期 JWT（Partner Token），并从 `/api/agent/asynx-config` 获取网关接入参数。JWT 只是访问凭据，不代表付费同意。
+
+**本机凭据上下文（`.plaiers-context.json`）**:
+Plaiers 安装器写在已安装 Skill 根目录的文件，记录凭据桥接的完整 argv（`--agent-id`、`--origin`、`--config-dir`，可选 `--credential-file`、`--account-id`）。不含 PAT，不参与包完整性校验。缺少它时 Skill 返回 `need_login`，不回退到其他凭据。
 _Avoid_: 授权中心、Key 管理台
 
 **Asset Gateway（资产网关）**:

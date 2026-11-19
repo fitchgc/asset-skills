@@ -18,7 +18,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import thumb_cache
-from .auth import load_auth_session, resolve_origin
+from .auth import load_auth_session, load_credential_context
 from .client import AsynxClient
 from .config import load_credentials, read_config
 from .constants import DEFAULT_OUTPUT_DIR
@@ -575,7 +575,7 @@ class WorkbenchServer(ThreadingHTTPServer):
 
     def get_auth_status(self) -> dict[str, Any]:
         try:
-            origin = resolve_origin(read_config())
+            origin = load_credential_context()["origin"]
         except AsxError:
             origin = ""
         try:

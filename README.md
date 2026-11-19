@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.s
 
 This is a single non-interactive command (no prompts, no API key) — run it once, in one step; do not split it into separate clone / install / login commands, as that multiplies approval prompts.
 Options: `--target codex|claude|both`.
-Cloud use requires a SageIn Agent grant with the `skill_jwt` scope (via the `sagein-community` skill); the skills then exchange the local PAT for a short-lived JWT automatically (see `docs/agent-jwt-contract.md`). Never ask the user to paste tokens into the chat. Local post-processing and `asynx-asset-manager` scan/list/lineage need no authorization.
+Cloud use requires a Plaiers Agent grant with the `skill_jwt` scope. The Plaiers installer writes `.plaiers-context.json` next to each installed skill, and the skills obtain short-lived JWTs only by running the `get-skill-jwt.mjs` command recorded there (see `docs/agent-jwt-contract.md`). Never ask the user to paste tokens into the chat. Local post-processing and `asynx-asset-manager` scan/list/lineage need no authorization.
 
 ---
 
@@ -49,7 +49,7 @@ Cloud use requires a SageIn Agent grant with the `skill_jwt` scope (via the `sag
 
 ## 安装说明 (Installation)
 
-运行环境要求 Python 3.10+。生成多模态资产须先通过 `sagein-community` 完成 SageIn Agent 授权（勾选 `skill_jwt`），Skill 自动用 PAT 换取短期 JWT，无需 API Key；仅使用本地处理功能时无需授权。
+运行环境要求 Python 3.10+。生成多模态资产须先完成 Plaiers Agent 授权（勾选 `skill_jwt`），并由 Plaiers 安装器写入凭据上下文；Skill 经社区凭据桥接取得短期 JWT，无需 API Key；仅使用本地处理功能时无需授权。
 
 ### 自动化安装（推荐）
 
@@ -92,8 +92,8 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 各 Skill 共用同一套本机配置与本地状态账本，只需配置一次即可全局生效：
 
-1. **SageIn Agent 授权**：通过 `sagein-community` 完成设备授权并勾选 `skill_jwt`；Skill 读取本地 `sagein_pat_...`，请求 `POST /api/agent/jwt` 换取短期 JWT（24h，临近过期自动刷新），网关参数取自 `GET /api/agent/asynx-config`。`whoami` 查看额度与并发。
-2. **环境变量**：适用于 CI/CD，导出 `ASYNX_PARTNER_TOKEN`（优先级高于授权流程）；可选 `ASYNX_BASE_URL` 指定网关，`SAGEIN_COMMUNITY_ORIGIN` 指定站点。
+1. **Plaiers Agent 授权**：完成设备授权并勾选 `skill_jwt`。Skill 不读取 `sagein_pat_...`，只运行 `.plaiers-context.json` 记录的 `get-skill-jwt.mjs` 命令取得短期 JWT，网关参数取自 `GET /api/agent/asynx-config`。`whoami` 查看额度与并发。
+2. **环境变量**：适用于 CI/CD，导出 `ASYNX_PARTNER_TOKEN`（优先级高于授权流程）；可选 `ASYNX_BASE_URL` 指定网关。
 
 详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)。
 

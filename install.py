@@ -308,7 +308,7 @@ def _configured(client: ModuleType) -> bool:
     token = os.environ.get("ASYNX_PARTNER_TOKEN")
     if isinstance(token, str) and token.strip():
         return True
-    return bool(client.config_status().get("has_pat"))
+    return bool(client.config_status().get("configured"))
 
 
 def _verify(client: ModuleType) -> int:

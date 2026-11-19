@@ -527,7 +527,7 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         }
         self.env.pop("ASYNX_PARTNER_TOKEN", None)
         self.env.pop("ASYNX_BASE_URL", None)
-        self.env["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(self.temp_dir / "missing-cred.json")
+        self.env["PLAIERS_SKILL_CONTEXT"] = str(self.temp_dir / "no-context" / ".plaiers-context.json")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -638,20 +638,19 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         self.assertFalse(missing_lin["ok"])
         self.assertEqual(missing_lin["error"]["code"], "asset_not_found")
 
-        # 5. whoami / doctor --verify via SageIn PAT -> JWT exchange + FakeGatewayServer
+        # 5. whoami / doctor --verify via the credential-context bridge + FakeGatewayServer
         from tests.fake_gateway import run_fake_gateway
-        from tests.fake_sagein_server import run_fake_sagein_server
+        from tests.fake_sagein_server import install_fake_context, run_fake_sagein_server
 
         gw_server, gw_url, _ = run_fake_gateway()
         self.addCleanup(gw_server.shutdown)
-        cred = Path(self.temp_dir) / "cred.json"
-        sagein, origin, _ = run_fake_sagein_server(gw_url, cred)
+        sagein, origin, _ = run_fake_sagein_server(gw_url)
         self.addCleanup(sagein.shutdown)
         self.config_file.write_text("{}", encoding="utf-8")
         self.env.pop("ASYNX_PARTNER_TOKEN", None)
         self.env.pop("ASYNX_BASE_URL", None)
-        self.env["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(cred)
-        self.env["SAGEIN_COMMUNITY_ORIGIN"] = origin
+        context, _ = install_fake_context(Path(self.temp_dir) / "skill", origin)
+        self.env["PLAIERS_SKILL_CONTEXT"] = str(context)
 
         who = self._run_cli("whoami")
         self.assertTrue(who["ok"])

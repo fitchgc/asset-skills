@@ -2,9 +2,9 @@
 
 命令中的 `<skill-dir>` 为当前 Skill 的绝对路径。`scan`、`list` 与 `lineage` 均为本地离线命令，不需要授权或联网即可运行。
 
-## SageIn Agent 授权与 JWT
+## Plaiers Agent 授权与 JWT
 
-需要执行 `whoami`、`doctor --verify` 或从统一工作台发起云端 Generation Task 时，使用 `sagein-community` 写入的 SageIn Agent 授权（需 `skill_jwt` 权限），自动用 PAT 换取短期 JWT（与其他 Asynx Skill 共享，JWT 缓存于 `~/.config/asynx/config.json`）：
+需要执行 `whoami`、`doctor --verify` 或从统一工作台发起云端 Generation Task 时，运行 `.plaiers-context.json` 记录的社区凭据桥接取得短期 JWT（需 `skill_jwt` 权限）。该文件由 Plaiers 安装器写入；Skill 不读取 PAT，也不缓存 JWT：
 
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" whoami

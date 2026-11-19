@@ -1,16 +1,18 @@
-"""Short-lived JWT acquisition via the SageIn Agent PAT (see docs/agent-jwt-contract.md).
+"""Short-lived JWT acquisition through the Plaiers community bridge (see docs/agent-jwt-contract.md).
 
-The long-lived ``sagein_pat_...`` credential stays in the local credential file
-written by the sagein-community skill. It is only sent to ``POST /api/agent/jwt``
-to exchange for a short-lived JWT; the JWT is the only secret sent to Asynx.
+The Asset Skills never read the ``sagein_pat_...`` credential and keep no JWT cache of their own.
+Every JWT comes from running the exact ``get-skill-jwt.mjs`` argv that the Plaiers installer recorded
+in the local credential context (``.plaiers-context.json`` next to the installed package). The bridge
+keys its cache by site + Agent + account + PAT and checks the JWT ``sub`` against the bound account.
 """
 
 from __future__ import annotations
 
 import base64
-import hashlib
 import json
 import os
+import re
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -21,7 +23,6 @@ from urllib.request import Request, urlopen
 
 from .constants import (
     DEFAULT_BASE_URL,
-    DEFAULT_ORIGIN,
     DEFAULT_TOKEN_HEADER,
     MAX_API_RESPONSE_BYTES,
     PROACTIVE_REFRESH_LEEWAY_SECONDS,
@@ -30,11 +31,27 @@ from .constants import (
 )
 from .errors import AsxError
 
-_PAT_PREFIX = "sagein_pat_"
+CONTEXT_FILENAME = ".plaiers-context.json"
+CONTEXT_ENV = "PLAIERS_SKILL_CONTEXT"
+CONTEXT_SCHEMA_VERSION = 1
+BRIDGE_TIMEOUT_SECONDS = 60
+# Flags accepted by get-skill-jwt.mjs (sagein-credentials.mjs options()); each takes one value.
+_BRIDGE_FLAGS = frozenset({"--agent-id", "--origin", "--config-dir", "--credential-file", "--account-id"})
+_SECRET_PATTERN = re.compile(r"(?:sagein|cg)_pat_[A-Za-z0-9]+|[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")
+INSTALL_HINT = (
+    "请通过 plaiers-community 用 search_skills / get_skill 安装本 Skill（安装器会写入 "
+    f"{CONTEXT_FILENAME}），并确认授权时勾选了 skill_jwt 权限。"
+)
 
 
-def validate_origin(value: str | None) -> str:
-    candidate = (value or DEFAULT_ORIGIN).strip().rstrip("/")
+def _redact(text: str) -> str:
+    return _SECRET_PATTERN.sub("[redacted]", text)
+
+
+def validate_origin(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise AsxError("缺少 Plaiers 站点 origin", code="invalid_origin", details={"origin": value})
+    candidate = value.strip().rstrip("/")
     parts = urlsplit(candidate)
     local = parts.hostname in {"127.0.0.1", "localhost", "::1"}
     if (
@@ -47,115 +64,129 @@ def validate_origin(value: str | None) -> str:
         or not (parts.scheme == "https" or (parts.scheme == "http" and local))
     ):
         raise AsxError(
-            "SageIn origin 格式不正确，应为 HTTPS 站点根地址（本地测试可用 http://localhost）",
+            "Plaiers origin 格式不正确，应为 HTTPS 站点根地址（本地测试可用 http://localhost）",
             code="invalid_origin",
             details={"origin": value},
         )
     return candidate
 
 
-def resolve_origin(config: dict[str, Any] | None = None) -> str:
-    env = os.environ.get("SAGEIN_COMMUNITY_ORIGIN")
-    if env and env.strip():
-        return validate_origin(env)
-    configured = (config or {}).get("origin")
-    return validate_origin(configured if isinstance(configured, str) else None)
-
-
-def _community_config_dir() -> Path:
-    override = os.environ.get("SAGEIN_COMMUNITY_CONFIG_DIR")
+def context_path() -> Path:
+    override = os.environ.get(CONTEXT_ENV)
     if override and override.strip():
         return Path(override).expanduser()
-    return Path.home() / ".config" / "sagein-community"
+    # <skill>/scripts/asxlib/auth.py -> <skill>/.plaiers-context.json
+    return Path(__file__).resolve().parents[2] / CONTEXT_FILENAME
 
 
-def _read_binding_credential(binding_path: Path, origin: str, agent_id: str | None = None) -> Path | None:
+def _invalid_context(path: Path, reason: str) -> AsxError:
+    return AsxError(
+        f"本机凭据上下文无效（{reason}）。{INSTALL_HINT}",
+        code="need_login",
+        exit_code=2,
+        details={"reason_code": "invalid_context", "context_path": str(path), "reason": reason},
+    )
+
+
+def load_credential_context() -> dict[str, Any]:
+    """Read and validate the installer-written context. It holds the bridge argv, never the PAT."""
+    path = context_path()
     try:
-        data = json.loads(binding_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    if not isinstance(data, dict) or data.get("origin") != origin:
-        return None
-    if agent_id is not None and data.get("agent_id") != agent_id:
-        return None
-    cred_file = data.get("credential_file")
-    if not isinstance(cred_file, str) or not cred_file.strip():
-        return None
-    candidate = Path(cred_file).expanduser()
-    return candidate if candidate.is_file() else None
-
-
-def _discover_binding_credentials(config_dir: Path, origin: str) -> list[Path]:
-    bindings_dir = config_dir / "bindings"
-    if not bindings_dir.is_dir():
-        return []
-    seen: set[Path] = set()
-    matches: list[Path] = []
-    for binding_path in sorted(bindings_dir.glob("*.json")):
-        candidate = _read_binding_credential(binding_path, origin)
-        if candidate is not None and candidate not in seen:
-            seen.add(candidate)
-            matches.append(candidate)
-    return matches
-
-
-def credential_file_path(origin: str) -> Path:
-    override = os.environ.get("SAGEIN_COMMUNITY_CREDENTIAL_FILE")
-    if override and override.strip():
-        return Path(override).expanduser()
-
-    config_dir = _community_config_dir()
-    agent_id = os.environ.get("SAGEIN_COMMUNITY_AGENT_ID")
-    if agent_id and agent_id.strip():
-        aid = agent_id.strip()
-        binding_hash = hashlib.sha256(
-            json.dumps([origin, aid], separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-        ).hexdigest()
-        matched = _read_binding_credential(config_dir / "bindings" / f"{binding_hash}.json", origin, agent_id=aid)
-        if matched is not None:
-            return matched
-
-    if not (agent_id and agent_id.strip()):
-        candidates = _discover_binding_credentials(config_dir, origin)
-        if len(candidates) == 1:
-            return candidates[0]
-
-    digest = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:16]
-    return config_dir / "credentials" / f"{digest}.json"
-
-
-def load_pat(origin: str) -> str:
-    path = credential_file_path(origin)
-    if (
-        not path.is_file()
-        and not (os.environ.get("SAGEIN_COMMUNITY_CREDENTIAL_FILE") or "").strip()
-        and not (os.environ.get("SAGEIN_COMMUNITY_AGENT_ID") or "").strip()
-    ):
-        candidates = _discover_binding_credentials(_community_config_dir(), origin)
-        if len(candidates) > 1:
-            raise AsxError(
-                "检测到同一站点下存在多个 SageIn Agent 授权凭据，请设置 SAGEIN_COMMUNITY_AGENT_ID 或 SAGEIN_COMMUNITY_CREDENTIAL_FILE 指定要使用的 Agent。",
-                code="need_login",
-                exit_code=2,
-                details={
-                    "reason_code": "ambiguous_credentials",
-                    "origin": origin,
-                    "candidate_count": len(candidates),
-                },
-            )
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        pat = data.get("access_token") if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        pat = None
-    if not isinstance(pat, str) or not pat.startswith(_PAT_PREFIX):
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         raise AsxError(
-            "未找到 SageIn Agent 授权凭据，请先通过 sagein-community 完成授权，并勾选 skill_jwt 权限。",
+            f"未找到本机凭据上下文 {path}。{INSTALL_HINT}",
             code="need_login",
             exit_code=2,
-            details={"reason_code": "missing_credentials", "origin": origin, "credential_file": str(path)},
+            details={"reason_code": "missing_context", "context_path": str(path)},
+        ) from None
+    except OSError as exc:
+        raise _invalid_context(path, f"无法读取：{exc.strerror or exc}") from exc
+    if re.search(r"(?:sagein|cg)_pat_", raw):
+        raise _invalid_context(path, "包含访问令牌，上下文只能保存凭据命令")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise _invalid_context(path, "不是合法 JSON") from exc
+    if not isinstance(data, dict) or data.get("schema_version") != CONTEXT_SCHEMA_VERSION:
+        raise _invalid_context(path, f"schema_version 应为 {CONTEXT_SCHEMA_VERSION}")
+    try:
+        origin = validate_origin(data.get("origin"))
+    except AsxError as exc:
+        raise _invalid_context(path, "origin 无效") from exc
+    argv = data.get("jwt_command")
+    if not isinstance(argv, list) or len(argv) < 2 or not all(isinstance(a, str) and a for a in argv):
+        raise _invalid_context(path, "jwt_command 应为非空字符串数组")
+    flags: dict[str, str] = {}
+    rest = argv[2:]
+    if len(rest) % 2:
+        raise _invalid_context(path, "jwt_command 参数不成对")
+    for key, value in zip(rest[::2], rest[1::2]):
+        if key not in _BRIDGE_FLAGS or key in flags or value.startswith("--"):
+            raise _invalid_context(path, f"jwt_command 含不支持的参数 {key}")
+        flags[key] = value
+    if flags.get("--origin", "").rstrip("/") != origin:
+        raise _invalid_context(path, "jwt_command 的 --origin 与 origin 不一致")
+    if not flags.get("--agent-id"):
+        raise _invalid_context(path, "jwt_command 缺少 --agent-id")
+    if "agent_id" in data and data["agent_id"] != flags["--agent-id"]:
+        raise _invalid_context(path, "agent_id 与 jwt_command 不一致")
+    return {
+        "path": str(path),
+        "origin": origin,
+        "agent_id": flags["--agent-id"],
+        "account_id": flags.get("--account-id"),
+        "jwt_command": list(argv),
+    }
+
+
+def run_jwt_bridge(argv: list[str]) -> str:
+    """Run the recorded bridge argv without a shell; stdout carries only the JWT."""
+    try:
+        proc = subprocess.run(
+            argv,
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=BRIDGE_TIMEOUT_SECONDS,
+            check=False,
         )
-    return pat
+    except FileNotFoundError as exc:
+        raise AsxError(
+            f"无法启动凭据桥接命令（{argv[0]} 不存在）。{INSTALL_HINT}",
+            code="need_login",
+            exit_code=2,
+            details={"reason_code": "bridge_unavailable", "executable": argv[0]},
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise AsxError(
+            "凭据桥接命令超时，请检查网络后重试。",
+            code="need_login",
+            exit_code=2,
+            details={"reason_code": "bridge_timeout", "timeout_seconds": BRIDGE_TIMEOUT_SECONDS},
+        ) from exc
+    if proc.returncode != 0:
+        message = _redact((proc.stderr or "").strip())[-500:]
+        if "skill_jwt" in message:
+            raise AsxError(
+                "当前 Plaiers 授权缺少 skill_jwt 权限，请让用户重新授权并勾选该权限。",
+                code="scope_missing",
+                exit_code=2,
+                details={"required_scope": "skill_jwt", "bridge_error": message},
+            )
+        raise AsxError(
+            f"凭据桥接命令失败：{message or f'exit {proc.returncode}'}",
+            code="need_login",
+            exit_code=2,
+            details={"reason_code": "bridge_failed", "exit_code": proc.returncode, "bridge_error": message},
+        )
+    token = (proc.stdout or "").strip()
+    if token.count(".") != 2 or any(ch.isspace() for ch in token):
+        raise AsxError("凭据桥接命令没有返回 JWT", code="invalid_sagein_response", exit_code=2)
+    return token
 
 
 def decode_jwt_segment(segment: str) -> dict[str, Any]:
@@ -173,84 +204,70 @@ def decode_jwt(token: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return decode_jwt_segment(parts[0]), decode_jwt_segment(parts[1])
 
 
-def is_token_usable(
+def jwt_problem(
     token: str | None,
     asynx_config: dict[str, Any] | None,
     *,
     now: float | None = None,
     leeway_seconds: int = PROACTIVE_REFRESH_LEEWAY_SECONDS,
-) -> bool:
+) -> str | None:
+    """Return why the JWT cannot be used with this gateway config, or None if it can."""
     if not isinstance(token, str) or not token.strip():
-        return False
+        return "missing"
     if not isinstance(asynx_config, dict) or not asynx_config.get("baseUrl"):
-        return False
+        return "gateway_config_missing"
     try:
         header, payload = decode_jwt(token.strip())
         if asynx_config.get("kid") and header.get("kid") != asynx_config.get("kid"):
-            return False
+            return "kid_mismatch"
         if asynx_config.get("issuer") and payload.get("iss") != asynx_config.get("issuer"):
-            return False
+            return "iss_mismatch"
         if asynx_config.get("audience") and payload.get("aud") != asynx_config.get("audience"):
-            return False
+            return "aud_mismatch"
         exp = int(payload.get("exp", 0))
-        current = int(time.time() if now is None else now)
-        return (exp - current) > leeway_seconds
     except (ValueError, TypeError, KeyError):
-        return False
+        return "malformed"
+    current = int(time.time() if now is None else now)
+    return None if (exp - current) > leeway_seconds else "expired"
 
 
-def _http_json(
-    method: str,
-    url: str,
-    *,
-    pat: str | None = None,
-    timeout: float = REQUEST_TIMEOUT_SECONDS,
-) -> dict[str, Any]:
+def is_token_usable(token: str | None, asynx_config: dict[str, Any] | None, **kwargs: Any) -> bool:
+    return jwt_problem(token, asynx_config, **kwargs) is None
+
+
+def _http_json(method: str, url: str, *, timeout: float = REQUEST_TIMEOUT_SECONDS) -> dict[str, Any]:
     headers = {"User-Agent": f"asx-skill/{VERSION}", "Accept": "application/json"}
-    body: bytes | None = None
-    if method == "POST":
-        headers["Content-Type"] = "application/json"
-        body = b"{}"
-    if pat:
-        headers["Authorization"] = f"Bearer {pat}"
-    req = Request(url, data=body, headers=headers, method=method)
+    req = Request(url, headers=headers, method=method)
     try:
         with urlopen(req, timeout=timeout) as response:
             raw = response.read(MAX_API_RESPONSE_BYTES + 1)
     except HTTPError as exc:
         status = exc.code
-        if status == 401:
+        if status == 404:
             raise AsxError(
-                "SageIn Agent 授权已过期或被撤销，请重新授权。",
-                code="need_login", exit_code=2, http_status=401,
-                details={"reason_code": "pat_invalid"},
-            ) from exc
-        if status == 403:
-            raise AsxError(
-                "当前 SageIn 授权缺少 skill_jwt 权限，请重新授权并勾选该权限。",
-                code="scope_missing", exit_code=2, http_status=403,
-                details={"required_scope": "skill_jwt"},
+                "该站点未开放扩展 Skill 凭据（仅 dev 可用）。",
+                code="skill_jwt_unavailable", exit_code=2, http_status=404,
             ) from exc
         raise AsxError(
-            f"SageIn 服务 HTTP {status}", code=f"sagein_http_{status}", exit_code=2, http_status=status
+            f"Plaiers 服务 HTTP {status}", code=f"sagein_http_{status}", exit_code=2, http_status=status
         ) from exc
     except (URLError, TimeoutError, OSError) as exc:
-        raise AsxError(f"无法连接 SageIn 服务 ({url})：{exc}", code="network_error", exit_code=2) from exc
+        raise AsxError(f"无法连接 Plaiers 服务 ({url})：{exc}", code="network_error", exit_code=2) from exc
     if len(raw) > MAX_API_RESPONSE_BYTES:
-        raise AsxError("SageIn 响应体超出限制", code="response_too_large", exit_code=2)
+        raise AsxError("Plaiers 响应体超出限制", code="response_too_large", exit_code=2)
     try:
         parsed = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise AsxError("SageIn 响应不是合法的 JSON", code="invalid_sagein_response", exit_code=2) from exc
+        raise AsxError("Plaiers 响应不是合法的 JSON", code="invalid_sagein_response", exit_code=2) from exc
     if not isinstance(parsed, dict):
-        raise AsxError("SageIn 响应格式不正确", code="invalid_sagein_response", exit_code=2)
+        raise AsxError("Plaiers 响应格式不正确", code="invalid_sagein_response", exit_code=2)
     code = parsed.get("code")
     if isinstance(code, int) and not isinstance(code, bool) and code != 0:
         msg = parsed.get("msg") if isinstance(parsed.get("msg"), str) else None
-        raise AsxError(msg or f"SageIn 错误 ({code})", code=f"sagein_error_{code}", exit_code=2)
+        raise AsxError(msg or f"Plaiers 错误 ({code})", code=f"sagein_error_{code}", exit_code=2)
     data = parsed.get("data", parsed)
     if not isinstance(data, dict):
-        raise AsxError("SageIn 响应 data 字段格式不正确", code="invalid_sagein_response", exit_code=2)
+        raise AsxError("Plaiers 响应 data 字段格式不正确", code="invalid_sagein_response", exit_code=2)
     return data
 
 
@@ -259,30 +276,22 @@ def fetch_asynx_config(origin: str) -> dict[str, Any]:
     return _http_json("GET", f"{origin}/api/agent/asynx-config")
 
 
-def fetch_jwt(origin: str, pat: str) -> str:
-    """POST {origin}/api/agent/jwt with the PAT to obtain a short-lived JWT."""
-    data = _http_json("POST", f"{origin}/api/agent/jwt", pat=pat)
-    for key in ("token", "jwt", "access_token"):
-        value = data.get(key)
-        if isinstance(value, str) and value.count(".") == 2:
-            return value
-    raise AsxError("SageIn JWT 响应缺少 token 字段", code="invalid_sagein_response", exit_code=2)
-
-
 class AuthSession:
-    """Thread-safe holder for the short-lived JWT and the Asynx gateway config."""
+    """Thread-safe holder for the short-lived JWT and the Asynx gateway config of one process."""
 
     def __init__(
         self,
         *,
-        origin: str,
-        token: str,
+        origin: str | None,
+        token: str = "",
         asynx: dict[str, Any] | None = None,
+        jwt_command: list[str] | None = None,
         headless_env_token: bool = False,
     ) -> None:
         self.origin = origin
         self.token = token
         self.asynx = dict(asynx or {})
+        self.jwt_command = list(jwt_command or [])
         self.headless_env_token = headless_env_token
         self._lock = threading.Lock()
 
@@ -311,59 +320,57 @@ class AuthSession:
         with self._lock:
             if is_token_usable(self.token, self.asynx):
                 return self.token
-            return self._refresh_locked()
+            return self._obtain_locked()
 
     def refresh_session(self) -> str:
+        """Called once after the gateway rejected the JWT with 401: ask the bridge again, no other source."""
         if self.headless_env_token:
             raise AsxError(
                 "ASYNX_PARTNER_TOKEN 认证失败或已过期，请更新环境变量。",
                 code="need_login", exit_code=2, http_status=401,
             )
         with self._lock:
-            return self._refresh_locked()
+            rejected = self.token
+            token = self._obtain_locked()
+            if token == rejected:
+                raise AsxError(
+                    "Asset Gateway 拒绝了当前 JWT，凭据桥接没有给出新的 JWT。请让用户重新授权后再试。",
+                    code="need_login",
+                    exit_code=2,
+                    http_status=401,
+                    details={"reason_code": "gateway_rejected_jwt"},
+                )
+            return token
 
-    def _refresh_locked(self) -> str:
-        pat = load_pat(self.origin)
-        try:
-            self.asynx = fetch_asynx_config(self.origin)
-        except AsxError as exc:
-            if exc.code != "network_error" or not self.asynx.get("baseUrl"):
-                raise
-        self.token = fetch_jwt(self.origin, pat)
-        self._persist()
-        return self.token
-
-    def _persist(self) -> None:
-        from .config import _write_config, config_path, read_config
-
-        try:
-            current = read_config()
-            current.pop("refreshToken", None)
-            current.pop("user", None)
-            current.pop("login_svr_url", None)
-            current["token"] = self.token
-            current["asynx"] = self.asynx
-            _write_config(current, config_path())
-        except AsxError:
-            pass  # cache is best-effort
+    def _obtain_locked(self) -> str:
+        if not self.asynx.get("baseUrl"):
+            self.asynx = fetch_asynx_config(self.origin or "")
+        token = run_jwt_bridge(self.jwt_command)
+        problem = jwt_problem(token, self.asynx)
+        if problem is not None:
+            raise AsxError(
+                f"凭据桥接返回的 JWT 不可用（{problem}），没有使用其他凭据。",
+                code="jwt_invalid",
+                exit_code=2,
+                details={"reason_code": problem, "origin": self.origin},
+            )
+        self.token = token
+        return token
 
 
 def load_auth_session() -> AuthSession:
-    from .config import read_config, validate_base_url
-
-    config = read_config()
-    origin = resolve_origin(config)
-
     env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
     if isinstance(env_token, str) and env_token.strip():
-        asynx_cfg: dict[str, Any] = {}
-        env_base_url = os.environ.get("ASYNX_BASE_URL")
-        asynx_cfg["baseUrl"] = validate_base_url(env_base_url) if env_base_url else DEFAULT_BASE_URL
-        asynx_cfg["tokenHeader"] = DEFAULT_TOKEN_HEADER
-        return AuthSession(origin=origin, token=env_token.strip(), asynx=asynx_cfg, headless_env_token=True)
+        from .config import validate_base_url
 
-    cached_token = config.get("token") if isinstance(config.get("token"), str) else ""
-    cached_asynx = dict(config.get("asynx")) if isinstance(config.get("asynx"), dict) else {}
-    session = AuthSession(origin=origin, token=cached_token, asynx=cached_asynx)
-    session.ensure_valid_token()  # refreshes via PAT when missing / near expiry
+        env_base_url = os.environ.get("ASYNX_BASE_URL")
+        asynx_cfg = {
+            "baseUrl": validate_base_url(env_base_url) if env_base_url else DEFAULT_BASE_URL,
+            "tokenHeader": DEFAULT_TOKEN_HEADER,
+        }
+        return AuthSession(origin=None, token=env_token.strip(), asynx=asynx_cfg, headless_env_token=True)
+
+    context = load_credential_context()
+    session = AuthSession(origin=context["origin"], jwt_command=context["jwt_command"])
+    session.ensure_valid_token()
     return session

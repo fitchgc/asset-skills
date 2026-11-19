@@ -290,8 +290,6 @@ class AsynxClient:
             return False
         if err.http_status != 401:
             return False
-        if err.code == "ambiguous_credentials":
-            return False
         if err.code not in {"invalid_partner_token", "http_401"}:
             return False
         new_token = self.session.refresh_session()

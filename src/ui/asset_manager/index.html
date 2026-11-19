@@ -1237,7 +1237,7 @@
         await loadAssets({ noCache: true, lineageOnly: true });
       } catch (err) {
         if (err.code === 'need_login' || err.status === 401) {
-          showToast('云端操作需要 SageIn Agent 授权（skill_jwt 权限），请先通过 sagein-community 授权', 'error');
+          showToast('云端操作需要 Plaiers Agent 授权（skill_jwt 权限），请经 plaiers-community 授权并用 get_skill 安装本 Skill', 'error');
         } else {
           showToast(err.message, 'error');
         }

@@ -93,16 +93,17 @@ python3 src/build_skills.py --skill all --package
 
 ### 1. 授权与短期 JWT（SageIn Agent）
 
-云端生成使用短期 JWT：由 `sagein-community` 完成设备授权（需勾选 `skill_jwt` 权限）后，本地的长效 `sagein_pat_...` 仅用于请求 `POST <origin>/api/agent/jwt` 换取 JWT；网关地址、请求头、`kid`/`iss`/`aud` 来自 `GET <origin>/api/agent/asynx-config`。详见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md)。
+云端生成使用短期 JWT，只经 Plaiers 社区凭据桥接取得：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令，Skill 每次需要时不经 shell 运行这条命令。Skill 不读取 PAT，自己不缓存 JWT。网关地址、请求头、`kid`/`iss`/`aud` 来自 `GET <origin>/api/agent/asynx-config`。详见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md)。
 
 ```bash
 # 查看额度与并发（首次调用会自动换取 JWT）
 python3 skills/asynx-image-pro/scripts/asynx.py whoami
 ```
 
-- JWT 默认有效期 24 小时，临近过期或配置不一致时自动用 PAT 重新换取；PAT 永不发送给 Asynx。
-- `SAGEIN_COMMUNITY_ORIGIN`（默认 `https://plaiers.ai`）与 `SAGEIN_COMMUNITY_CREDENTIAL_FILE`（或 `SAGEIN_COMMUNITY_AGENT_ID` / `SAGEIN_COMMUNITY_CONFIG_DIR`）可指定站点与授权文件。
-- 授权无效返回 `need_login`，缺少 `skill_jwt` 权限返回 `scope_missing`。
+- 站点、Agent、账号全部由上下文决定。没有默认站点，不读取 `SAGEIN_COMMUNITY_*` 环境变量，不扫描授权目录。
+- 网关返回 401 时重新运行桥接一次；拿到的仍是同一个 JWT 就报 `need_login`，不再重试。
+- 缺少或无效的上下文、桥接失败都返回 `need_login`，缺少 `skill_jwt` 权限返回 `scope_missing`。
+- JWT 只是访问凭据，不代表用户同意付费。
 - 本地离线处理命令无需授权。
 
 ### 2. 环境变量配置
@@ -131,7 +132,7 @@ export ASYNX_NO_OPEN_BROWSER=1
 - **本地状态数据库存储位置**：
   - macOS / Linux：`~/.local/state/asx/state.db`
   - Windows：`%LOCALAPPDATA%\Asynx\state.db`
-- **配置优先级**：环境变量（`ASYNX_PARTNER_TOKEN`） > 配置文件（`config.json`）。
+- **配置优先级**：环境变量（`ASYNX_PARTNER_TOKEN`） > 凭据上下文（`.plaiers-context.json`）。`config.json` 只保存轮询间隔等普通设置，不保存 JWT。
 
 ### 4. 环境自检与连通性诊断 (Doctor)
 

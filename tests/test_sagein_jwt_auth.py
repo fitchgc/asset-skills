@@ -1,12 +1,18 @@
+"""JWT only through the community get-skill-jwt.mjs bridge recorded in the local credential context.
+
+The fake bridge (tests/fake_jwt_bridge.py) mirrors the real bridge contract; these tests assert the
+Asset Skill side: it runs exactly the recorded argv, keeps no JWT cache, never touches the PAT, and never
+falls back to any other credential source or origin.
+"""
+
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -15,31 +21,46 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
 sys.path.insert(0, str(REPO_ROOT / "shared" / "vendor"))
 
-from shared.asxlib.auth import credential_file_path, is_token_usable, load_auth_session, load_pat
-from shared.asxlib.config import config_status, load_client, load_credentials
-from shared.asxlib.constants import DEFAULT_ORIGIN
+from shared.asxlib import constants
+from shared.asxlib.auth import decode_jwt, load_auth_session
+from shared.asxlib.config import config_status, doctor, load_client, load_credentials
 from shared.asxlib.errors import AsxError
 from tests.fake_gateway import run_fake_gateway
-from tests.fake_sagein_server import make_test_jwt, run_fake_sagein_server
+from tests.fake_sagein_server import (
+    BRIDGE_SCRIPT,
+    PAT,
+    install_fake_context,
+    make_test_jwt,
+    run_fake_sagein_server,
+    write_binding,
+)
+
+PAT_B = "sagein_pat_" + "b" * 64
+PAT_C = "sagein_pat_" + "c" * 64
+_ENV_KEYS = (
+    "ASYNX_CONFIG_PATH", "ASYNX_LOG_PATH", "ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL", "PLAIERS_SKILL_CONTEXT",
+    "SAGEIN_COMMUNITY_TOKEN", "SAGEIN_COMMUNITY_ORIGIN", "SAGEIN_COMMUNITY_CREDENTIAL_FILE",
+    "SAGEIN_COMMUNITY_CONFIG_DIR", "SAGEIN_COMMUNITY_AGENT_ID",
+)
 
 
-class TestSageInJwtAuth(unittest.TestCase):
+def sub_of(token: str) -> str:
+    return decode_jwt(token)[1]["sub"]
+
+
+class TestBridgeJwtAuth(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmp = tempfile.mkdtemp()
-        self.cred = Path(self.tmp) / "cred.json"
-        self._env = {k: os.environ.get(k) for k in (
-            "ASYNX_CONFIG_PATH", "SAGEIN_COMMUNITY_ORIGIN", "SAGEIN_COMMUNITY_CREDENTIAL_FILE",
-            "SAGEIN_COMMUNITY_CONFIG_DIR", "SAGEIN_COMMUNITY_AGENT_ID",
-            "ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL")}
-        os.environ.pop("ASYNX_PARTNER_TOKEN", None)
-        os.environ.pop("ASYNX_BASE_URL", None)
-        os.environ.pop("SAGEIN_COMMUNITY_CONFIG_DIR", None)
-        os.environ.pop("SAGEIN_COMMUNITY_AGENT_ID", None)
-        os.environ["ASYNX_CONFIG_PATH"] = str(Path(self.tmp) / "config.json")
-        os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(self.cred)
+        self.tmp = Path(tempfile.mkdtemp())
+        self._env = {k: os.environ.get(k) for k in _ENV_KEYS}
+        for k in _ENV_KEYS:
+            os.environ.pop(k, None)
+        os.environ["ASYNX_CONFIG_PATH"] = str(self.tmp / "asynx" / "config.json")
+        os.environ["ASYNX_LOG_PATH"] = str(self.tmp / "logs" / "failed-requests.jsonl")
         self.gw, self.gw_url, _ = run_fake_gateway()
-        self.sagein, self.origin, _ = run_fake_sagein_server(self.gw_url, self.cred)
-        os.environ["SAGEIN_COMMUNITY_ORIGIN"] = self.origin
+        self.sagein, self.origin, _ = run_fake_sagein_server(self.gw_url)
+        self.skill = self.tmp / "skill"
+        self.context, self.cfg = install_fake_context(self.skill, self.origin)
+        os.environ["PLAIERS_SKILL_CONTEXT"] = str(self.context)
 
     def tearDown(self) -> None:
         for s in (self.gw, self.sagein):
@@ -52,111 +73,258 @@ class TestSageInJwtAuth(unittest.TestCase):
                 os.environ[k] = v
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_exchange_pat_for_jwt_and_cache(self) -> None:
+    def bridge_calls(self, cfg: Path | None = None) -> list[dict]:
+        log = (cfg or self.cfg) / "bridge-calls.jsonl"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    def jwt_requests(self) -> int:
+        return sum(1 for m, p, _ in self.sagein.requests if (m, p) == ("POST", "/api/agent/jwt"))
+
+    def rewrite_context(self, **changes) -> None:
+        data = json.loads(self.context.read_text())
+        data.update(changes)
+        self.context.write_text(json.dumps(data))
+
+    # --- basic contract ---------------------------------------------------------------------------
+
+    def test_jwt_from_recorded_argv_and_nothing_cached_by_skill(self) -> None:
         token, base_url = load_credentials()
         self.assertEqual(base_url, self.gw_url)
         self.assertEqual(token, self.sagein.issued[0])
-        # Second load reuses the cached JWT (no new exchange).
-        token2, _ = load_credentials()
-        self.assertEqual(token2, token)
-        self.assertEqual(len(self.sagein.issued), 1)
+        recorded = json.loads(self.context.read_text())["jwt_command"]
+        self.assertEqual(self.bridge_calls()[0]["argv"], recorded[1:])
+        # The skill keeps no JWT of its own: a new process (new session) asks the bridge again.
+        load_credentials()
+        self.assertEqual(len(self.bridge_calls()), 2)
+        config_file = Path(os.environ["ASYNX_CONFIG_PATH"])
+        self.assertFalse(config_file.exists() and "token" in json.loads(config_file.read_text()))
 
-    def test_refresh_when_near_expiry(self) -> None:
-        cfg = self.sagein.asynx_config
-        stale = make_test_jwt(exp=int(time.time()) + 10)
-        self.assertFalse(is_token_usable(stale, cfg))
-        from shared.asxlib.config import save_config
-        save_config({"token": stale, "asynx": cfg})
-        token, _ = load_credentials()
-        self.assertNotEqual(token, stale)
-        self.assertEqual(len(self.sagein.issued), 1)
+    def test_session_reuses_token_in_memory_only(self) -> None:
+        session = load_auth_session()
+        self.assertEqual(session.ensure_valid_token(), session.ensure_valid_token())
+        self.assertEqual(len(self.bridge_calls()), 1)
 
-    def test_refresh_on_kid_mismatch(self) -> None:
-        from shared.asxlib.config import save_config
-        save_config({"token": make_test_jwt(kid="old"), "asynx": self.sagein.asynx_config})
-        token, _ = load_credentials()
-        self.assertEqual(token, self.sagein.issued[0])
+    def test_no_default_origin_and_env_origin_ignored(self) -> None:
+        self.assertFalse(hasattr(constants, "DEFAULT_ORIGIN"))
+        os.environ["SAGEIN_COMMUNITY_ORIGIN"] = "https://plaiers.ai"
+        session = load_auth_session()
+        self.assertEqual(session.origin, self.origin)
 
-    def test_missing_pat_needs_login(self) -> None:
-        self.cred.unlink()
+    def test_missing_context_needs_login_with_install_hint(self) -> None:
+        self.context.unlink()
         with self.assertRaises(AsxError) as ctx:
             load_auth_session()
         self.assertEqual(ctx.exception.code, "need_login")
-        self.assertFalse(config_status()["has_pat"])
+        self.assertEqual(ctx.exception.details["reason_code"], "missing_context")
+        self.assertIn("get_skill", ctx.exception.message)
+        self.assertEqual(self.bridge_calls(), [])
+        status = config_status()
+        self.assertFalse(status["configured"])
+        self.assertEqual(status["credential_source"], "none")
+        self.assertFalse(doctor()["ok"])
 
-    def test_missing_scope_is_403(self) -> None:
+    def test_missing_context_ignores_legacy_credentials_and_bindings(self) -> None:
+        legacy = self.tmp / "legacy"
+        (legacy / "credentials").mkdir(parents=True)
+        (legacy / "credentials" / "0123456789abcdef.json").write_text(json.dumps({"access_token": PAT}))
+        (legacy / "bindings").mkdir()
+        (legacy / "bindings" / "x.json").write_text(json.dumps({"origin": self.origin, "credential_file": "x"}))
+        os.environ["SAGEIN_COMMUNITY_CONFIG_DIR"] = str(legacy)
+        os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(legacy / "credentials" / "0123456789abcdef.json")
+        self.context.unlink()
+        with self.assertRaises(AsxError) as ctx:
+            load_auth_session()
+        self.assertEqual(ctx.exception.details["reason_code"], "missing_context")
+        self.assertEqual(self.sagein.requests, [])
+
+    def test_invalid_contexts_are_refused(self) -> None:
+        argv = json.loads(self.context.read_text())["jwt_command"]
+        cases = {
+            "pat": {"jwt_command": argv, "token": PAT},
+            "flag": {"jwt_command": argv + ["--import-env", "1"]},
+            "origin": {"jwt_command": argv, "origin": "https://plaiers.ai"},
+            "schema": {"schema_version": 2},
+            "argv": {"jwt_command": "node get-skill-jwt.mjs"},
+        }
+        original = self.context.read_text()
+        for name, change in cases.items():
+            with self.subTest(name):
+                self.context.write_text(original)
+                self.rewrite_context(**change)
+                with self.assertRaises(AsxError) as ctx:
+                    load_auth_session()
+                self.assertEqual(ctx.exception.code, "need_login")
+                self.assertEqual(ctx.exception.details["reason_code"], "invalid_context")
+                self.assertNotIn(PAT, json.dumps(ctx.exception.payload()))
+        self.assertEqual(self.bridge_calls(), [])
+
+    def test_missing_scope(self) -> None:
         self.sagein.scope_ok = False
         with self.assertRaises(AsxError) as ctx:
             load_auth_session()
         self.assertEqual(ctx.exception.code, "scope_missing")
 
     def test_status_and_client(self) -> None:
-        self.assertTrue(config_status()["has_pat"])
-        client = load_client()
-        self.assertEqual(client.base_url, self.gw_url)
+        status = config_status()
+        self.assertTrue(status["configured"])
+        self.assertEqual(status["credential_source"], "credential_context")
+        self.assertEqual(status["origin"], self.origin)
+        self.assertNotIn(PAT, json.dumps(status))
+        self.assertEqual(load_client().base_url, self.gw_url)
 
     def test_env_partner_token_headless(self) -> None:
+        # Kept until the owner answers Q6.
         os.environ["ASYNX_PARTNER_TOKEN"] = "pt_env"
         session = load_auth_session()
         self.assertEqual(session.token, "pt_env")
-        self.assertEqual(self.sagein.issued, [])
+        self.assertEqual(self.bridge_calls(), [])
 
-    def test_default_origin_is_plaiers(self) -> None:
-        self.assertEqual(DEFAULT_ORIGIN, "https://plaiers.ai")
-
-    def test_bindings_discovery_single_and_agent_id(self) -> None:
-        os.environ.pop("SAGEIN_COMMUNITY_CREDENTIAL_FILE", None)
-        cfg_dir = Path(self.tmp) / "community-cfg"
-        (cfg_dir / "bindings").mkdir(parents=True)
-        (cfg_dir / "credentials").mkdir(parents=True)
-        os.environ["SAGEIN_COMMUNITY_CONFIG_DIR"] = str(cfg_dir)
-
-        pat_a = "sagein_pat_" + "a" * 64
-        cred_a = cfg_dir / "credentials" / "cred-a.json"
-        cred_a.write_text(json.dumps({"access_token": pat_a}), encoding="utf-8")
-        hash_a = hashlib.sha256(
-            json.dumps([self.origin, "agent-a"], separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        (cfg_dir / "bindings" / f"{hash_a}.json").write_text(
-            json.dumps({
-                "schema_version": 2,
-                "origin": self.origin,
-                "agent_id": "agent-a",
-                "account_id": "u1",
-                "credential_file": str(cred_a),
-            }),
-            encoding="utf-8",
-        )
-
-        # Unique binding for origin is discovered automatically without SAGEIN_COMMUNITY_CREDENTIAL_FILE
-        self.assertEqual(credential_file_path(self.origin), cred_a)
-        self.assertEqual(load_pat(self.origin), pat_a)
-
-        # Adding a second agent binding makes auto-discovery ambiguous until SAGEIN_COMMUNITY_AGENT_ID is set
-        pat_b = "sagein_pat_" + "b" * 64
-        cred_b = cfg_dir / "credentials" / "cred-b.json"
-        cred_b.write_text(json.dumps({"access_token": pat_b}), encoding="utf-8")
-        hash_b = hashlib.sha256(
-            json.dumps([self.origin, "agent-b"], separators=(",", ":")).encode("utf-8")
-        ).hexdigest()
-        (cfg_dir / "bindings" / f"{hash_b}.json").write_text(
-            json.dumps({
-                "schema_version": 2,
-                "origin": self.origin,
-                "agent_id": "agent-b",
-                "account_id": "u2",
-                "credential_file": str(cred_b),
-            }),
-            encoding="utf-8",
-        )
-
+    def test_bridge_jwt_with_wrong_kid_is_rejected_without_fallback(self) -> None:
+        self.sagein.asynx_config["kid"] = "k1"
+        bridge = self.tmp / "bad-kid-bridge.py"
+        bridge.write_text(f"print({make_test_jwt(kid='old')!r})\n")
+        self.rewrite_context(jwt_command=[sys.executable, str(bridge), "--agent-id", "agent-a", "--origin", self.origin])
         with self.assertRaises(AsxError) as ctx:
-            load_pat(self.origin)
-        self.assertEqual(ctx.exception.details.get("reason_code"), "ambiguous_credentials")
+            load_auth_session()
+        self.assertEqual(ctx.exception.code, "jwt_invalid")
+        self.assertEqual(ctx.exception.details["reason_code"], "kid_mismatch")
+        self.assertEqual(self.jwt_requests(), 0)
 
-        os.environ["SAGEIN_COMMUNITY_AGENT_ID"] = "agent-b"
-        self.assertEqual(credential_file_path(self.origin), cred_b)
-        self.assertEqual(load_pat(self.origin), pat_b)
+    # --- identity switching (PR #10 P1 scenarios) ---------------------------------------------------
+
+    def test_account_switch_env_token_mode(self) -> None:
+        shutil.rmtree(self.cfg / "bindings")
+        self.sagein.pats.update({PAT: "user_a", PAT_B: "user_b"})
+        os.environ["SAGEIN_COMMUNITY_TOKEN"] = PAT
+        install_fake_context(self.skill, self.origin, config_dir=self.cfg, account_id="user_a", binding=False)
+        self.assertEqual(sub_of(load_credentials()[0]), "user_a")
+        os.environ["SAGEIN_COMMUNITY_TOKEN"] = PAT_B
+        install_fake_context(self.skill, self.origin, config_dir=self.cfg, account_id="user_b", binding=False)
+        self.assertEqual(sub_of(load_credentials()[0]), "user_b")
+        # Env token of A with the context pinned to B: the bridge refuses; the skill does not fall back.
+        os.environ["SAGEIN_COMMUNITY_TOKEN"] = PAT
+        with self.assertRaises(AsxError) as ctx:
+            load_credentials()
+        self.assertEqual(ctx.exception.details["reason_code"], "bridge_failed")
+        self.assertIn("does not match", ctx.exception.details["bridge_error"])
+
+    def test_account_switch_binding_mode(self) -> None:
+        self.sagein.pats[PAT_B] = "user_2"
+        self.assertEqual(sub_of(load_credentials()[0]), "user_1")
+        write_binding(self.cfg, "agent-a", "user_2", PAT_B)
+        self.assertEqual(sub_of(load_credentials()[0]), "user_2")
+
+    def test_pat_rotation(self) -> None:
+        write_binding(self.cfg, "agent-a", "user_1", PAT, cache=True)
+        first = load_credentials()[0]
+        self.assertEqual(load_credentials()[0], first)  # bridge cache hit, same identity
+        del self.sagein.pats[PAT]
+        self.sagein.pats[PAT_C] = "user_1"
+        write_binding(self.cfg, "agent-a", "user_1", PAT_C, cache=True)
+        rotated = load_credentials()[0]
+        self.assertNotEqual(rotated, first)
+        self.assertEqual(self.jwt_requests(), 2)
+
+    def test_pinned_account_mismatch(self) -> None:
+        install_fake_context(self.skill, self.origin, config_dir=self.cfg, account_id="someone_else", binding=False)
+        with self.assertRaises(AsxError) as ctx:
+            load_credentials()
+        self.assertEqual(ctx.exception.code, "need_login")
+        self.assertIn("mismatch", ctx.exception.details["bridge_error"])
+        self.assertEqual(self.jwt_requests(), 0)
+
+    def test_spaces_in_paths_passed_unchanged(self) -> None:
+        spaced = self.tmp / "My Bridge Dir"
+        spaced.mkdir()
+        bridge = spaced / "get skill jwt.py"
+        shutil.copy(BRIDGE_SCRIPT, bridge)
+        cfg = self.tmp / "Community Config"
+        cred = self.tmp / "Cred Dir" / "cred file.json"
+        context, _ = install_fake_context(
+            self.tmp / "Skill Dir", self.origin, config_dir=cfg, credential_file=cred, account_id="user_1",
+            bridge_script=bridge,
+        )
+        os.environ["PLAIERS_SKILL_CONTEXT"] = str(context)
+        self.assertEqual(sub_of(load_credentials()[0]), "user_1")
+        recorded = json.loads(context.read_text())["jwt_command"]
+        self.assertEqual(self.bridge_calls(cfg)[0]["argv"], recorded[1:])
+        self.assertIn("--credential-file", recorded)
+
+    # --- gateway 401 ----------------------------------------------------------------------------------
+
+    def test_gateway_401_reinvokes_bridge_once(self) -> None:
+        client = load_client()
+        self.gw.fail_next_auth_count = 1
+        identity, _ = client.partner_identity()
+        self.assertIn("budget", identity)
+        self.assertEqual(len(self.bridge_calls()), 2)
+
+    def test_gateway_401_same_token_is_not_retried(self) -> None:
+        write_binding(self.cfg, "agent-a", "user_1", PAT, cache=True)
+        client = load_client()
+        self.gw.fail_next_auth_count = 5
+        with self.assertRaises(AsxError) as ctx:
+            client.partner_identity()
+        self.assertEqual(ctx.exception.details["reason_code"], "gateway_rejected_jwt")
+        self.assertEqual(len(self.bridge_calls()), 2)
+        gateway_auth_attempts = [r for r in self.gw.received_requests if r[1].endswith("/partner/identity")]
+        self.assertEqual(len(gateway_auth_attempts), 1)
+
+
+class TestInstalledSkillCli(unittest.TestCase):
+    """Default context location (<skill>/.plaiers-context.json) in an installed package with spaces in paths."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from src.build_skills import build_skill
+        build_skill("audio")
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.gw, self.gw_url, _ = run_fake_gateway()
+        self.sagein, self.origin, _ = run_fake_sagein_server(self.gw_url)
+        self.skill = self.tmp / "Agent Skills" / "asynx-audio"
+        shutil.copytree(REPO_ROOT / "skills" / "asynx-audio", self.skill)
+        self.env = {k: v for k, v in os.environ.items() if k not in _ENV_KEYS}
+        self.env.update({
+            "ASYNX_CONFIG_PATH": str(self.tmp / "config.json"),
+            "ASYNX_STATE_PATH": str(self.tmp / "state.db"),
+            "ASYNX_LOG_PATH": str(self.tmp / "logs" / "failed.jsonl"),
+            "SAGEIN_COMMUNITY_ORIGIN": "https://plaiers.ai",
+        })
+
+    def tearDown(self) -> None:
+        for s in (self.gw, self.sagein):
+            s.shutdown()
+            s.server_close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def run_cli(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(self.skill / "scripts" / "asynx.py"), *args],
+                              capture_output=True, text=True, env=self.env, cwd=str(self.tmp))
+
+    def test_whoami_via_installed_context_and_pat_never_printed(self) -> None:
+        missing = self.run_cli("whoami")
+        self.assertEqual(missing.returncode, 2, missing.stderr)
+        error = json.loads(missing.stdout or missing.stderr)["error"]
+        self.assertEqual(error["code"], "need_login")
+        self.assertEqual(error["details"]["context_path"], str((self.skill / ".plaiers-context.json").resolve()))
+
+        install_fake_context(self.skill, self.origin, config_dir=self.tmp / "Community Config")
+        ok = self.run_cli("whoami")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(json.loads(ok.stdout)["origin"], self.origin)
+
+        self.gw.fail_next_auth_count = 5
+        failed = self.run_cli("whoami")
+        self.assertNotEqual(failed.returncode, 0)
+        logs = "".join(p.read_text() for p in self.tmp.rglob("*.jsonl") if p.name != "bridge-calls.jsonl")
+        for output in (missing.stdout, missing.stderr, ok.stdout, ok.stderr, failed.stdout, failed.stderr, logs):
+            self.assertNotIn(PAT, output)
+            self.assertNotIn("sagein_pat_", output)
+        # Receipt hashes exclude the local context, so integrity checks ignore it.
+        receipt = json.loads((self.skill / ".asx-install.json").read_text())
+        self.assertNotIn(".plaiers-context.json", receipt["files"])
 
 
 if __name__ == "__main__":
