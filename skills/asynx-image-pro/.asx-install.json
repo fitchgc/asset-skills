@@ -4,17 +4,17 @@
     "agents/openai.yaml": "44442f723ac14d66d55a5abd2bf7adc0e306d4257f69929f182f084393565e31",
     "references/model-prompting.md": "5c77d0e85ace0523a26e6cf54760f85678c47e36881208f15c2c544d8cd0f8d6",
     "references/operations.md": "61c81431409e281a37c65774750882b042f564712cd13ad3186f0d618f700c45",
-    "references/setup.md": "ee5ce82b9320e8386b410d0afe8e312cf9d06d6e06034b6b814d8529154692a4",
+    "references/setup.md": "87821bff7ec79a43fe5202b1d55e55af180eb25e93847ea30719f9fdd0c6a2e4",
     "scripts/asx_runtime.py": "6fc808705597429d8f16f2d5485ca038cd5c6638484be8f4f89ce8d459c5835e",
     "scripts/asxlib/__init__.py": "d54fc5bcfe9fc122ca8366438d3ac776ee3bbec7eef8c68fbbaf697b3444fcbb",
     "scripts/asxlib/artifacts.py": "6624851145cefabe4fbd1f955d0a05b73a0e756d6b9ed39b18f9af46c742fc2e",
-    "scripts/asxlib/auth.py": "19c56f380fc45621f57f500698bd093aea46fc23a127ed3884c4cca41de48771",
+    "scripts/asxlib/auth.py": "1c781765cc4871f6c4c5c2c450930beb5f461037364a0d5b87a5e30f322f7165",
     "scripts/asxlib/batches.py": "5780a1a2d8762c3aca9e8598dded7ef10d5dfc6788e274f8fe61755ad81f3095",
     "scripts/asxlib/cli.py": "fa36851ecefdbb377d0f20f3d0500a2bcd66a6463c232a14740a575db1000a39",
     "scripts/asxlib/cli_common.py": "4b1304c3a083b8f820ef49b15ed5c55373de6cf6e8a2f84432618c96a7784f0f",
     "scripts/asxlib/client.py": "b7779c418329e748951bf5868d9d6a014120af1a32343dc8d5bdc60bec3537d0",
     "scripts/asxlib/config.py": "50631ba510c4d00e14327b36224d6edb32e03ce7886d00772dab9d52dae9f527",
-    "scripts/asxlib/constants.py": "50a4d854b4a82d98963c217bc1badab031ea202c2fae01b75441fc62a59f6102",
+    "scripts/asxlib/constants.py": "b1b8d5b730e785f4ddc11894ea4bfd1050c21dd6cd9df75a145cadbc1e53167c",
     "scripts/asxlib/errors.py": "af67f367d9dcb2a1171a6027ac75019883aca90575f7e3d16d1b000049057382",
     "scripts/asxlib/image_results.py": "a76d9ff7f402c7664941d7dfec88788d0822291fb84db3116359975ddd86a5de",
     "scripts/asxlib/images.py": "9cde4ddd07b0e9bd10f6c4e7624d882ca49bc59c75807f4ea42f14dcb0aab3b5",
@@ -176,5 +176,5 @@
   },
   "repository": "dawnx/asynx-skills",
   "schema": 1,
-  "version": "0.7.0"
+  "version": "1.0.0"
 }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timezone
 
-VERSION = "0.7.0"
+VERSION = "1.0.0"
 UTC = timezone.utc
 
 # Modalities
@@ -28,7 +28,7 @@ DOWNLOAD_TIMEOUT_BY_MODALITY = {
 }
 
 # Gateway & Defaults
-DEFAULT_ORIGIN = "https://sagein.ai"
+DEFAULT_ORIGIN = "https://plaiers.ai"
 DEFAULT_TOKEN_HEADER = "X-Asynx-Partner-Token"
 PROACTIVE_REFRESH_LEEWAY_SECONDS = 60
 DEFAULT_BASE_URL = "https://asynx.llmapi.site/api"

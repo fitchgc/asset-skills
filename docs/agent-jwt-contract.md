@@ -6,9 +6,9 @@
 
 用户通过 `sagein-community` 完成设备授权，并勾选 `skill_jwt` 权限。授权成功后，本机保存有 `sagein_pat_...` 的凭据文件：
 
-- 默认路径：`~/.config/sagein-community/credentials/<sha256(origin)[:16]>.json`
-- 覆盖：`SAGEIN_COMMUNITY_CREDENTIAL_FILE`
-- 站点 origin：默认 `https://sagein.ai`，可用 `SAGEIN_COMMUNITY_ORIGIN` 覆盖
+- 凭据目录：默认 `~/.config/sagein-community`（可用 `SAGEIN_COMMUNITY_CONFIG_DIR` 覆盖）
+- 查找顺序：`SAGEIN_COMMUNITY_CREDENTIAL_FILE` → 若设 `SAGEIN_COMMUNITY_AGENT_ID` 则读取 `bindings/<sha256([origin,agentId])>.json` 指向的 `credential_file` → 扫描 `bindings/*.json` 唯一匹配的 `origin` → 兼容 `credentials/<sha256(origin)[:16]>.json`
+- 站点 origin：默认 `https://plaiers.ai`，可用 `SAGEIN_COMMUNITY_ORIGIN` 覆盖
 - 凭据文件中的 `access_token` 字段即 PAT。
 
 ## 接口

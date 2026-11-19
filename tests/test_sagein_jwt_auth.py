@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import sys
@@ -13,8 +15,9 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
 sys.path.insert(0, str(REPO_ROOT / "shared" / "vendor"))
 
-from shared.asxlib.auth import is_token_usable, load_auth_session
+from shared.asxlib.auth import credential_file_path, is_token_usable, load_auth_session, load_pat
 from shared.asxlib.config import config_status, load_client, load_credentials
+from shared.asxlib.constants import DEFAULT_ORIGIN
 from shared.asxlib.errors import AsxError
 from tests.fake_gateway import run_fake_gateway
 from tests.fake_sagein_server import make_test_jwt, run_fake_sagein_server
@@ -26,9 +29,12 @@ class TestSageInJwtAuth(unittest.TestCase):
         self.cred = Path(self.tmp) / "cred.json"
         self._env = {k: os.environ.get(k) for k in (
             "ASYNX_CONFIG_PATH", "SAGEIN_COMMUNITY_ORIGIN", "SAGEIN_COMMUNITY_CREDENTIAL_FILE",
+            "SAGEIN_COMMUNITY_CONFIG_DIR", "SAGEIN_COMMUNITY_AGENT_ID",
             "ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL")}
         os.environ.pop("ASYNX_PARTNER_TOKEN", None)
         os.environ.pop("ASYNX_BASE_URL", None)
+        os.environ.pop("SAGEIN_COMMUNITY_CONFIG_DIR", None)
+        os.environ.pop("SAGEIN_COMMUNITY_AGENT_ID", None)
         os.environ["ASYNX_CONFIG_PATH"] = str(Path(self.tmp) / "config.json")
         os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(self.cred)
         self.gw, self.gw_url, _ = run_fake_gateway()
@@ -94,6 +100,63 @@ class TestSageInJwtAuth(unittest.TestCase):
         session = load_auth_session()
         self.assertEqual(session.token, "pt_env")
         self.assertEqual(self.sagein.issued, [])
+
+    def test_default_origin_is_plaiers(self) -> None:
+        self.assertEqual(DEFAULT_ORIGIN, "https://plaiers.ai")
+
+    def test_bindings_discovery_single_and_agent_id(self) -> None:
+        os.environ.pop("SAGEIN_COMMUNITY_CREDENTIAL_FILE", None)
+        cfg_dir = Path(self.tmp) / "community-cfg"
+        (cfg_dir / "bindings").mkdir(parents=True)
+        (cfg_dir / "credentials").mkdir(parents=True)
+        os.environ["SAGEIN_COMMUNITY_CONFIG_DIR"] = str(cfg_dir)
+
+        pat_a = "sagein_pat_" + "a" * 64
+        cred_a = cfg_dir / "credentials" / "cred-a.json"
+        cred_a.write_text(json.dumps({"access_token": pat_a}), encoding="utf-8")
+        hash_a = hashlib.sha256(
+            json.dumps([self.origin, "agent-a"], separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        (cfg_dir / "bindings" / f"{hash_a}.json").write_text(
+            json.dumps({
+                "schema_version": 2,
+                "origin": self.origin,
+                "agent_id": "agent-a",
+                "account_id": "u1",
+                "credential_file": str(cred_a),
+            }),
+            encoding="utf-8",
+        )
+
+        # Unique binding for origin is discovered automatically without SAGEIN_COMMUNITY_CREDENTIAL_FILE
+        self.assertEqual(credential_file_path(self.origin), cred_a)
+        self.assertEqual(load_pat(self.origin), pat_a)
+
+        # Adding a second agent binding makes auto-discovery ambiguous until SAGEIN_COMMUNITY_AGENT_ID is set
+        pat_b = "sagein_pat_" + "b" * 64
+        cred_b = cfg_dir / "credentials" / "cred-b.json"
+        cred_b.write_text(json.dumps({"access_token": pat_b}), encoding="utf-8")
+        hash_b = hashlib.sha256(
+            json.dumps([self.origin, "agent-b"], separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        (cfg_dir / "bindings" / f"{hash_b}.json").write_text(
+            json.dumps({
+                "schema_version": 2,
+                "origin": self.origin,
+                "agent_id": "agent-b",
+                "account_id": "u2",
+                "credential_file": str(cred_b),
+            }),
+            encoding="utf-8",
+        )
+
+        with self.assertRaises(AsxError) as ctx:
+            load_pat(self.origin)
+        self.assertEqual(ctx.exception.details.get("reason_code"), "ambiguous_credentials")
+
+        os.environ["SAGEIN_COMMUNITY_AGENT_ID"] = "agent-b"
+        self.assertEqual(credential_file_path(self.origin), cred_b)
+        self.assertEqual(load_pat(self.origin), pat_b)
 
 
 if __name__ == "__main__":

@@ -62,16 +62,87 @@ def resolve_origin(config: dict[str, Any] | None = None) -> str:
     return validate_origin(configured if isinstance(configured, str) else None)
 
 
+def _community_config_dir() -> Path:
+    override = os.environ.get("SAGEIN_COMMUNITY_CONFIG_DIR")
+    if override and override.strip():
+        return Path(override).expanduser()
+    return Path.home() / ".config" / "sagein-community"
+
+
+def _read_binding_credential(binding_path: Path, origin: str, agent_id: str | None = None) -> Path | None:
+    try:
+        data = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict) or data.get("origin") != origin:
+        return None
+    if agent_id is not None and data.get("agent_id") != agent_id:
+        return None
+    cred_file = data.get("credential_file")
+    if not isinstance(cred_file, str) or not cred_file.strip():
+        return None
+    candidate = Path(cred_file).expanduser()
+    return candidate if candidate.is_file() else None
+
+
+def _discover_binding_credentials(config_dir: Path, origin: str) -> list[Path]:
+    bindings_dir = config_dir / "bindings"
+    if not bindings_dir.is_dir():
+        return []
+    seen: set[Path] = set()
+    matches: list[Path] = []
+    for binding_path in sorted(bindings_dir.glob("*.json")):
+        candidate = _read_binding_credential(binding_path, origin)
+        if candidate is not None and candidate not in seen:
+            seen.add(candidate)
+            matches.append(candidate)
+    return matches
+
+
 def credential_file_path(origin: str) -> Path:
     override = os.environ.get("SAGEIN_COMMUNITY_CREDENTIAL_FILE")
-    if override:
+    if override and override.strip():
         return Path(override).expanduser()
+
+    config_dir = _community_config_dir()
+    agent_id = os.environ.get("SAGEIN_COMMUNITY_AGENT_ID")
+    if agent_id and agent_id.strip():
+        aid = agent_id.strip()
+        binding_hash = hashlib.sha256(
+            json.dumps([origin, aid], separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        matched = _read_binding_credential(config_dir / "bindings" / f"{binding_hash}.json", origin, agent_id=aid)
+        if matched is not None:
+            return matched
+
+    if not (agent_id and agent_id.strip()):
+        candidates = _discover_binding_credentials(config_dir, origin)
+        if len(candidates) == 1:
+            return candidates[0]
+
     digest = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:16]
-    return Path.home() / ".config" / "sagein-community" / "credentials" / f"{digest}.json"
+    return config_dir / "credentials" / f"{digest}.json"
 
 
 def load_pat(origin: str) -> str:
     path = credential_file_path(origin)
+    if (
+        not path.is_file()
+        and not (os.environ.get("SAGEIN_COMMUNITY_CREDENTIAL_FILE") or "").strip()
+        and not (os.environ.get("SAGEIN_COMMUNITY_AGENT_ID") or "").strip()
+    ):
+        candidates = _discover_binding_credentials(_community_config_dir(), origin)
+        if len(candidates) > 1:
+            raise AsxError(
+                "检测到同一站点下存在多个 SageIn Agent 授权凭据，请设置 SAGEIN_COMMUNITY_AGENT_ID 或 SAGEIN_COMMUNITY_CREDENTIAL_FILE 指定要使用的 Agent。",
+                code="need_login",
+                exit_code=2,
+                details={
+                    "reason_code": "ambiguous_credentials",
+                    "origin": origin,
+                    "candidate_count": len(candidates),
+                },
+            )
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         pat = data.get("access_token") if isinstance(data, dict) else None

@@ -101,7 +101,7 @@ python3 skills/asynx-image-pro/scripts/asynx.py whoami
 ```
 
 - JWT 默认有效期 24 小时，临近过期或配置不一致时自动用 PAT 重新换取；PAT 永不发送给 Asynx。
-- `SAGEIN_COMMUNITY_ORIGIN`（默认 `https://sagein.ai`）与 `SAGEIN_COMMUNITY_CREDENTIAL_FILE` 可指定站点与授权文件。
+- `SAGEIN_COMMUNITY_ORIGIN`（默认 `https://plaiers.ai`）与 `SAGEIN_COMMUNITY_CREDENTIAL_FILE`（或 `SAGEIN_COMMUNITY_AGENT_ID` / `SAGEIN_COMMUNITY_CONFIG_DIR`）可指定站点与授权文件。
 - 授权无效返回 `need_login`，缺少 `skill_jwt` 权限返回 `scope_missing`。
 - 本地离线处理命令无需授权。
 
