@@ -302,12 +302,17 @@ class FakeGatewayHandler(BaseHTTPRequestHandler):
         body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
 
         if path == "/v1/tasks/quote":
+            if self.server.quote_error_status:
+                self._send_envelope({}, status=self.server.quote_error_status, code="unavailable",
+                                    message="quote unavailable", request_id="req-quote-err")
+                return
             self._send_envelope(
                 {
                     "model": body.get("model", "gpt-image-2.5-sunburst"),
                     "currency": "USD",
                     "estimated_amount": "0.12000000",
                     "charge_amount": "0.12000000",
+                    **self.server.quote_overrides,
                 },
                 request_id="req-quote-1",
             )
@@ -318,6 +323,12 @@ class FakeGatewayHandler(BaseHTTPRequestHandler):
             task = self.server.tasks.get(task_id, {"id": task_id, "status": "canceled"})
             task["status"] = "canceled"
             self._send_envelope(task, request_id=f"req-cancel-{task_id}")
+            return
+
+        if path == "/v1/tasks" and self.server.fail_next_submit_statuses:
+            status_code = self.server.fail_next_submit_statuses.pop(0)
+            self._send_envelope({}, status=status_code, code="internal_error", message="upstream failure",
+                                request_id="req-submit-fail")
             return
 
         if path == "/v1/tasks":
@@ -358,6 +369,9 @@ class FakeGatewayServer(HTTPServer):
         self.valid_tokens: set[str] | None = None
         self.expired_tokens: set[str] = set()
         self.fail_next_auth_count: int = 0
+        self.quote_overrides: dict[str, Any] = {}
+        self.quote_error_status: int | None = None
+        self.fail_next_submit_statuses: list[int] = []
         self.default_submit_status: str = "succeeded"
         self.next_task_poll_sequence: list[str] | None = None
         self.task_poll_sequences: dict[str, list[str]] = {}

@@ -26,6 +26,7 @@ from .constants import (
     KNOWN_STATUSES,
     VERSION,
 )
+from .charge_consent import add_charge_args
 from .errors import AsxError
 from .workbench import require_workbench, workbench_ui_dir
 from .output import emit, log
@@ -58,6 +59,7 @@ def _add_image_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--idempotency-key")
     parser.add_argument("--detach", action="store_true")
     parser.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(parser)
     parser.add_argument("--ui", action="store_true", help="启动交互式 Web 视觉工作台")
     parser.add_argument("--no-open", action="store_true", help="不自动在浏览器中打开工作台")
     parser.add_argument(
@@ -304,8 +306,10 @@ def parser() -> argparse.ArgumentParser:
     batch_commands = batch.add_subparsers(dest="batch_command", required=True)
     create = batch_commands.add_parser("create", help="创建并启动批次")
     _add_batch_creation_options(create)
+    add_charge_args(create)
     add = batch_commands.add_parser("add", help="向批次追加 Task")
     _add_batch_add_options(add)
+    add_charge_args(add)
 
     poll = batch_commands.add_parser("poll", help="推进一次批次轮询")
     poll.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")

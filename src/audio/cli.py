@@ -16,6 +16,7 @@ from .cli_common import (
 from .client import AsynxClient
 from .config import config_status, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
+from .charge_consent import add_charge_args, require_charge_consent
 from .errors import AsxError
 from .workbench import require_workbench, workbench_ui_dir
 from .output import emit, log
@@ -94,6 +95,7 @@ def parser() -> argparse.ArgumentParser:
     sfx.add_argument("--idempotency-key")
     sfx.add_argument("--detach", action="store_true")
     sfx.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(sfx)
 
     music = commands.add_parser("music", help="生成背景音乐与配乐")
     music.add_argument("--prompt", required=True, help="音乐风格、乐器与情绪描述")
@@ -106,6 +108,7 @@ def parser() -> argparse.ArgumentParser:
     music.add_argument("--idempotency-key")
     music.add_argument("--detach", action="store_true")
     music.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(music)
 
     speech = commands.add_parser("speech", help="合成角色台词与语音")
     speech.add_argument("--text", required=True, help="朗读文本")
@@ -120,6 +123,7 @@ def parser() -> argparse.ArgumentParser:
     speech.add_argument("--idempotency-key")
     speech.add_argument("--detach", action="store_true")
     speech.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(speech)
 
     # Common task lifecycle commands
     status = commands.add_parser("status", help="查询任务进度")
@@ -299,6 +303,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         )
         if getattr(args, "quote", False):
             return quote_task_payload(client, task_type=task_type, body=body, model=selected_model)
+        consent = require_charge_consent(client, task_type=task_type, body=body, model=selected_model, args=args)
         parent_paths = [ref_audio] if isinstance(ref_audio, str) and ref_audio.strip() else []
         return run_task_submission(
             client,
@@ -310,6 +315,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             detach=args.detach,
             modality="audio",
             parent_paths=parent_paths,
+            metadata={"charge_consent": consent},
         )
 
     raise AssertionError("unreachable")

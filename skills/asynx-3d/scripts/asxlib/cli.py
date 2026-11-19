@@ -15,6 +15,7 @@ from .cli_common import (
 from .client import AsynxClient
 from .config import config_status, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
+from .charge_consent import add_charge_args, require_charge_consent
 from .errors import AsxError
 from .workbench import require_workbench, workbench_ui_dir
 from .model3d_tasks import CONVERT_FORMATS, RIG_TYPES, SKELETON_PROFILES, build_3d_task
@@ -82,6 +83,7 @@ def parser() -> argparse.ArgumentParser:
     gen.add_argument("--idempotency-key")
     gen.add_argument("--detach", action="store_true")
     gen.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(gen)
 
     # Rig check & Rig
     rc = commands.add_parser("rig-check", help="检查 3D 生成结果能否自动绑定骨骼 (只返回结论，不交付文件)")
@@ -92,6 +94,7 @@ def parser() -> argparse.ArgumentParser:
     rc.add_argument("--idempotency-key")
     rc.add_argument("--detach", action="store_true")
     rc.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(rc)
 
     rig = commands.add_parser("rig", help="为 3D 生成结果自动绑定骨骼")
     rig.add_argument("--from-task", help="已成功的 3D 生成任务 ID")
@@ -104,6 +107,7 @@ def parser() -> argparse.ArgumentParser:
     rig.add_argument("--idempotency-key")
     rig.add_argument("--detach", action="store_true")
     rig.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(rig)
 
     # Animate
     anim = commands.add_parser("animate", help="为骨骼绑定任务的结果套用一个预设动画")
@@ -116,6 +120,7 @@ def parser() -> argparse.ArgumentParser:
     anim.add_argument("--idempotency-key")
     anim.add_argument("--detach", action="store_true")
     anim.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(anim)
 
     conv = commands.add_parser("convert", help="云端转换 3D 模型格式 (来源：生成/绑定/动画任务)")
     conv.add_argument("--from-task", help="已成功的生成、骨骼绑定或动画任务 ID")
@@ -126,6 +131,7 @@ def parser() -> argparse.ArgumentParser:
     conv.add_argument("--idempotency-key")
     conv.add_argument("--detach", action="store_true")
     conv.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(conv)
 
     # UI workbenches
     ui = commands.add_parser("ui", help="启动本地 3D 交互工作台")
@@ -378,6 +384,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         )
         if getattr(args, "quote", False):
             return quote_task_payload(client, task_type=task_type, body=body, model=selected_model)
+        consent = require_charge_consent(client, task_type=task_type, body=body, model=selected_model, args=args)
         return run_task_submission(
             client,
             task_type=task_type,
@@ -388,6 +395,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             detach=args.detach,
             modality="3d",
             parent_paths=parent_paths,
+            metadata={"charge_consent": consent},
         )
 
     raise AssertionError("unreachable")

@@ -22,6 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tests.charge_args import with_consent  # noqa: E402
 from tests.fake_gateway import run_fake_gateway  # noqa: E402
 
 BLOCKER = REPO_ROOT / "tests" / "pil_blocker.py"
@@ -73,7 +74,7 @@ class PillowFreeCase(unittest.TestCase):
     def cli(self, skill: str, *args: str, expect_ok: bool = True) -> dict[str, Any]:
         script = REPO_ROOT / "skills" / skill / "scripts" / "asynx.py"
         proc = subprocess.run(
-            [sys.executable, "-S", str(BLOCKER), str(script), *args],
+            [sys.executable, "-S", str(BLOCKER), str(script), *with_consent(args)],
             capture_output=True,
             text=True,
             env=self.env,

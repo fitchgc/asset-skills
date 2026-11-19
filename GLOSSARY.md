@@ -33,6 +33,10 @@ _Avoid_: 插件、子代理、微服务
 Plaiers 安装器写在已安装 Skill 根目录的文件，记录凭据桥接的完整 argv（`--agent-id`、`--origin`、`--config-dir`，可选 `--credential-file`、`--account-id`）。另记录技能库 ID 与锁定版本（`skill_id`、`skill_version`），供 `update status` 查询。不含 PAT，不参与包完整性校验。缺少它时 Skill 返回 `need_login`，不回退到其他凭据。
 _Avoid_: 授权中心、Key 管理台
 
+**付费确认（Charge Confirmation）**:
+每次提交付费的生成任务或批次之前，先向资产网关报价（`POST /v1/tasks/quote`），再取得用户对这一次请求的明确确认（`--confirmed-quote`）。授权、JWT、安装都不算付费同意。报价不可用时，只有用户明确同意，才能用 `--confirm-without-quote` 提交，这个决定会记入日志。
+_Avoid_: 自动扣费、默认同意
+
 **Asset Gateway（资产网关）**:
 提供统一鉴权、异步生成任务调度与产物分发的远端服务入口，屏蔽不同底层多模态模型的协议差异。
 _Avoid_: 上游通道、第三方 API、中转站

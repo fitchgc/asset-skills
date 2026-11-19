@@ -15,6 +15,7 @@ from .cli_common import (
 from .client import AsynxClient
 from .config import config_status, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
+from .charge_consent import add_charge_args, require_charge_consent
 from .errors import AsxError
 from .workbench import require_workbench, workbench_ui_dir
 from .output import emit, log
@@ -96,6 +97,7 @@ def _add_video_generation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--idempotency-key")
     parser.add_argument("--detach", action="store_true")
     parser.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    add_charge_args(parser)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -344,6 +346,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         )
         if getattr(args, "quote", False):
             return quote_task_payload(client, task_type=task_type, body=body, model=selected_model)
+        consent = require_charge_consent(client, task_type=task_type, body=body, model=selected_model, args=args)
         return run_task_submission(
             client,
             task_type=task_type,
@@ -354,6 +357,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             detach=args.detach,
             modality="video",
             parent_paths=parent_paths,
+            metadata={"charge_consent": consent},
         )
 
     raise AssertionError("unreachable")

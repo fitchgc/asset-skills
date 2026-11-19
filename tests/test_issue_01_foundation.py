@@ -15,6 +15,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
+from tests.charge_args import with_consent  # noqa: E402
 from tests.interpreter_pillow import add_interpreter_pillow  # noqa: E402
 
 add_interpreter_pillow()
@@ -275,7 +276,7 @@ class TestAsynxImageCLIEndToEnd(unittest.TestCase):
     def run_cli(self, *args: str) -> dict[str, Any]:
         asynx_py = REPO_ROOT / "skills" / "asynx-image-pro" / "scripts" / "asynx.py"
         proc = subprocess.run(
-            [sys.executable, str(asynx_py), *args],
+            [sys.executable, str(asynx_py), *with_consent(args)],
             capture_output=True,
             text=True,
             env=self.env,

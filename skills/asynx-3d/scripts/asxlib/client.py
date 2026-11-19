@@ -310,7 +310,11 @@ class AsynxClient:
         content_type: str | None = None,
         timeout: float = REQUEST_TIMEOUT_SECONDS,
         idempotency_key: str | None = None,
+        retry_transient: bool = True,
     ) -> tuple[int, dict[str, Any], str | None]:
+        # Paid submissions pass retry_transient=False: after a 5xx, timeout or network error the outcome is
+        # unknown, so the CLI never re-sends on its own; `task recover` resumes with the same idempotency key.
+        attempts = MAX_HTTP_ATTEMPTS if retry_transient else 1
         for auth_attempt in range(2):
             token = self._current_token()
             url = self._url(path)
@@ -319,7 +323,7 @@ class AsynxClient:
 
             for _redirect in range(MAX_REDIRECTS + 1):
                 redirected = False
-                for attempt in range(MAX_HTTP_ATTEMPTS):
+                for attempt in range(attempts):
                     headers: dict[str, str] = {
                         "User-Agent": f"asx-skill/{VERSION}",
                         "Accept": "application/json",
@@ -383,7 +387,7 @@ class AsynxClient:
                             response_body=raw,
                             attempt=attempt + 1,
                         )
-                        if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
+                        if exc.code in TRANSIENT_HTTP_STATUSES and attempt < attempts - 1:
                             time.sleep(_retry_after(exc.headers, attempt))
                             continue
                         err = _api_error(exc.code, raw, exc.headers)
@@ -400,7 +404,7 @@ class AsynxClient:
                             error=str(exc),
                             attempt=attempt + 1,
                         )
-                        if attempt < MAX_HTTP_ATTEMPTS - 1:
+                        if attempt < attempts - 1:
                             time.sleep(_retry_after(None, attempt))
                             continue
                         raise AsxError(f"网络连接失败：{exc}", code="network_error") from exc
@@ -422,6 +426,7 @@ class AsynxClient:
         body: dict[str, Any] | None = None,
         timeout: float = REQUEST_TIMEOUT_SECONDS,
         idempotency_key: str | None = None,
+        retry_transient: bool = True,
     ) -> tuple[Any, str | None]:
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
         status, decoded, req_id = self._execute_gateway_raw(
@@ -431,6 +436,7 @@ class AsynxClient:
             content_type="application/json" if payload is not None else None,
             timeout=timeout,
             idempotency_key=idempotency_key,
+            retry_transient=retry_transient,
         )
         try:
             data = _validate_gateway_envelope(decoded, status=status, req_id=req_id)
@@ -561,7 +567,8 @@ class AsynxClient:
         idempotency_key: str | None = None,
     ) -> tuple[dict[str, Any], str | None]:
         body = {"task_type": task_type, **payload}
-        data, req_id = self.request_json("POST", "/v1/tasks", body=body, idempotency_key=idempotency_key)
+        data, req_id = self.request_json("POST", "/v1/tasks", body=body, idempotency_key=idempotency_key,
+                                         retry_transient=False)
         if not isinstance(data, dict):
             raise AsxError("提交任务响应格式不正确", code="invalid_api_response", request_id=req_id)
         return data, req_id

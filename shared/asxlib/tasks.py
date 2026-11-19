@@ -25,6 +25,7 @@ from .constants import (
     TERMINAL_STATUSES,
     UTC,
 )
+from .charge_consent import require_charge_consent
 from .errors import AsxError
 from .output import log
 from .state import (
@@ -598,7 +599,12 @@ def recover_tasks(
                 task_type = body.get("task_type") or f"{row.get('modality', 'image')}.{row.get('operation', 'generate')}"
                 task, request_id = client.submit(task_type, body, str(row["idempotency_key"]))
                 local_id = str(row["local_id"])
-                bind_remote_task(connection, local_id, str(task.get("id")), remote=task, status=task.get("status", "queued"))
+                connection = connect_ledger_db()
+                try:
+                    bind_remote_task(connection, local_id, str(task.get("id")), remote=task, status=task.get("status", "queued"))
+                    connection.commit()
+                finally:
+                    connection.close()
             synced, _code = sync_local_task(client, str(row["local_id"]))
             results.append(synced)
         except AsxError as exc:
@@ -1134,6 +1140,7 @@ def run_submission(
     )
     if getattr(args, "quote", False):
         return quote_task_payload(client, task_type=task_type, body=body, model=model)
+    consent = require_charge_consent(client, task_type=task_type, body=body, model=model, args=args)
     input_warnings = task_input_warnings(body)
     for warning in input_warnings:
         log(f"提示：{warning['message']}")
@@ -1153,6 +1160,7 @@ def run_submission(
         catalog_request_id=catalog_request_id,
         started_at=started_at,
         parent_paths=parent_paths,
+        metadata={"charge_consent": consent},
     )
 
 

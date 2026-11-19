@@ -7,6 +7,18 @@ description: 通过 Asynx 生成音效 (sfx)、背景音乐 (music) 与角色语
 
 使用本 Skill 的 `scripts/asynx.py` 完成音频创作与处理操作。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；需要 Python 3.10+ 与 `ffmpeg`。
 
+## 付费确认
+
+每次提交付费的生成任务或批次之前都要先确认费用。**授权 `skill_jwt`、登录或安装本 Skill 都不代表用户同意付费。**
+
+1. 第一次运行生成命令时，不要带 `--confirmed-quote`。CLI 只报价，不提交任务，并返回 `confirmation_required`。`details` 里有本次任务数（`units`）、币种、总价（`total_amount`）和剩余额度（`budget`）。
+2. 把模型、数量、总价和剩余额度告诉用户，请用户确认**这一次**请求或批次。
+3. 用户确认后，带上 `details.confirm_args`（如 `--confirmed-quote USD:0.12`）重新运行同一条命令。CLI 会重新报价。新报价高于用户确认的金额、币种变化或报价过期时，会再次返回 `confirmation_required`，这时要重新征求用户确认，不能自己改大金额。
+4. 报价不可用时返回 `quote_unavailable`，不会提交任务。只有用户明确同意在没有报价的情况下提交，才可以加 `--confirm-without-quote`；这个决定会写入请求日志。
+5. 报价为 0 时无需确认。
+
+提交后如果出现失败、超时或网络错误，CLI 不会自动重新提交。按错误里的 `next_action_args`（`task recover <local_id>`）恢复，它会沿用同一幂等键。下载重试只会重新下载，不会再收费。之前确认过的费用不能用于其他请求。
+
 ## 创作与合成
 
 ```bash

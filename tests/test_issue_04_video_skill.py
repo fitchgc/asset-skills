@@ -13,6 +13,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
+from tests.charge_args import with_consent  # noqa: E402
 from tests.interpreter_pillow import add_interpreter_pillow  # noqa: E402
 
 add_interpreter_pillow()
@@ -67,7 +68,7 @@ class TestAsynxVideoSkill(unittest.TestCase):
 
     def run_cli(self, *args: str) -> dict[str, Any]:
         proc = subprocess.run(
-            [sys.executable, str(self.asynx_bin), *args],
+            [sys.executable, str(self.asynx_bin), *with_consent(args)],
             capture_output=True,
             text=True,
             env=self.env,

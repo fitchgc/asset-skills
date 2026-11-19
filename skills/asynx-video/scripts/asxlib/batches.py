@@ -19,6 +19,7 @@ from .constants import (
     MAX_BATCH_ITEMS,
     UTC,
 )
+from .charge_consent import require_charge_consent
 from .errors import AsxError
 try:
     from .image_results import attach_image_details, requested_aspect_ratio
@@ -251,6 +252,7 @@ def create_batch(
     output_dir: str | None,
     keep_reference_original: bool = False,
     modality: str = "image",
+    consent_args: argparse.Namespace | None = None,
 ) -> dict[str, Any]:
     if not 1 <= total <= MAX_BATCH_ITEMS:
         raise AsxError(
@@ -269,6 +271,12 @@ def create_batch(
         references=references,
         mask=mask,
         keep_reference_original=keep_reference_original,
+    )
+    # Per-request charge confirmation for the whole batch before any local state or submission.
+    consent = (
+        require_charge_consent(client, task_type=f"image.{operation}", body=body, model=selected_model,
+                               args=consent_args, units=total)
+        if consent_args is not None else None
     )
     parent_paths = [p for p in references if isinstance(p, str) and p.strip()]
     if isinstance(mask, str) and mask.strip():
@@ -319,6 +327,8 @@ def create_batch(
         connection.close()
     if catalog_request_id:
         summary["catalog_request_id"] = catalog_request_id
+    if consent is not None:
+        summary["charge_consent"] = consent
     input_warnings = task_input_warnings(body)
     if input_warnings:
         summary["warnings"] = input_warnings
@@ -339,6 +349,7 @@ def add_to_batch(
     quality: str | None,
     output_format: str | None,
     keep_reference_original: bool = False,
+    consent_args: argparse.Namespace | None = None,
 ) -> dict[str, Any]:
     if not 1 <= total <= MAX_BATCH_ITEMS:
         raise AsxError(
@@ -423,6 +434,11 @@ def add_to_batch(
                 parent_paths.append(effective_mask)
             if parent_paths:
                 body["_asx_parent_paths"] = parent_paths
+        consent = (
+            require_charge_consent(client, task_type=f"image.{batch['operation']}", body=body,
+                                   model=str(batch["model"]), args=consent_args, units=total)
+            if consent_args is not None else None
+        )
         connection.execute("BEGIN IMMEDIATE")
         max_sequence = int(
             connection.execute(
@@ -445,6 +461,8 @@ def add_to_batch(
         )
         connection.commit()
         summary = batch_summary(connection, get_batch(connection, batch["id"]))
+        if consent is not None:
+            summary["charge_consent"] = consent
         input_warnings = task_input_warnings(body)
         if input_warnings:
             summary["warnings"] = input_warnings
@@ -1129,11 +1147,14 @@ def execute_batch(
             name=args.name,
             output_dir=args.output_dir,
             keep_reference_original=args.keep_reference_original,
+            consent_args=args,
         )
         for warning in created.get("warnings", []):
             log(f"提示：{warning['message']}")
         progressed = poll_batch(client, created["id"], submissions_limit=args.limit)
         progressed["created"] = True
+        if created.get("charge_consent"):
+            progressed["charge_consent"] = created["charge_consent"]
         if created.get("warnings"):
             progressed["warnings"] = created["warnings"]
         return progressed, 0 if progressed["ok"] else 4
@@ -1152,11 +1173,14 @@ def execute_batch(
             quality=args.quality,
             output_format=args.output_format,
             keep_reference_original=args.keep_reference_original,
+            consent_args=args,
         )
         for warning in result.get("warnings", []):
             log(f"提示：{warning['message']}")
         progressed = poll_batch(client, result["id"], submissions_limit=args.limit)
         progressed["added"] = args.total
+        if result.get("charge_consent"):
+            progressed["charge_consent"] = result["charge_consent"]
         if result.get("warnings"):
             progressed["warnings"] = result["warnings"]
         return progressed, 0 if progressed["ok"] else 4

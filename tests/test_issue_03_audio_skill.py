@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
 
 from shared.asxlib.state import connect_db, get_task, list_tasks
+from tests.charge_args import with_consent  # noqa: E402
 from tests.fake_gateway import run_fake_gateway
 
 
@@ -63,7 +64,7 @@ class TestAsynxAudioSkill(unittest.TestCase):
 
     def run_cli(self, *args: str) -> dict[str, Any]:
         proc = subprocess.run(
-            [sys.executable, str(self.asynx_bin), *args],
+            [sys.executable, str(self.asynx_bin), *with_consent(args)],
             capture_output=True,
             text=True,
             env=self.env,
