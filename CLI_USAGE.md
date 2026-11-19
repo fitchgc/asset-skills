@@ -83,7 +83,12 @@ python3 src/build_skills.py --skill all
 
 # 构建并打包到 dist/ 目录 (生成 zip 压缩包与 sha256 清单 json)
 python3 src/build_skills.py --skill all --package
+
+# 生成 Plaiers 技能库发布条目（dist/registry/<slug>.json 与 size-report.md），只做校验，不发布
+python3 -S src/registry_entries.py
 ```
+
+构建会检查每个包：最多 200 个文件、不超过 4 MiB、全部为 UTF-8 文本，否则直接失败。发布条目还会按 Plaiers 发布器的规则校验，并扫描疑似凭据。真正发布只在 dev 进行，由运维执行 `manage-skill-registry.mjs publish`。
 
 ---
 
