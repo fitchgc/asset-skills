@@ -1,118 +1,95 @@
+"""Short-lived JWT acquisition via the SageIn Agent PAT (see docs/agent-jwt-contract.md).
+
+The long-lived ``sagein_pat_...`` credential stays in the local credential file
+written by the sagein-community skill. It is only sent to ``POST /api/agent/jwt``
+to exchange for a short-lived JWT; the JWT is the only secret sent to Asynx.
+"""
+
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
-import sys
 import threading
 import time
-from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from .constants import (
     DEFAULT_BASE_URL,
-    DEFAULT_LOGIN_SVR_URL,
+    DEFAULT_ORIGIN,
     DEFAULT_TOKEN_HEADER,
     MAX_API_RESPONSE_BYTES,
-    MAX_HTTP_ATTEMPTS,
     PROACTIVE_REFRESH_LEEWAY_SECONDS,
     REQUEST_TIMEOUT_SECONDS,
-    TRANSIENT_HTTP_STATUSES,
     VERSION,
 )
-from .request_log import log_failed_request
-from .errors import AsxError, describe_response
+from .errors import AsxError
 
-_LOGIN_SVR_ERROR_MAP: dict[int, tuple[str, str]] = {
-    10: ("need_login", "未登录或缺少登录凭证"),
-    11: ("need_login", "账户不存在，请重新登录"),
-    12: ("account_locked", "账号已被锁定，请联系管理员"),
-    15: ("account_deleted", "账号已注销"),
-    401: ("auth_expired", "登录凭证已过期或失效"),
-    1001: ("invalid_credentials_format", "用户名或密码格式不正确"),
-    1002: ("username_exists", "用户名已被注册"),
-    1003: ("invalid_login", "用户名或密码错误"),
-    1004: ("invalid_password_change", "原密码错误或新密码与原密码相同"),
-}
-
-UNREFRESHABLE_LOGIN_SVR_CODES = frozenset({10, 11, 12, 15, 401})
-
-LoginUIHandler = Callable[[str], dict[str, Any] | None]
-_login_ui_handler: LoginUIHandler | None = None
-_login_ui_cli_disabled: bool = False
+_PAT_PREFIX = "sagein_pat_"
 
 
-def register_login_ui_handler(handler: LoginUIHandler | None) -> None:
-    """Register the interactive Login Workbench launcher hook."""
-    global _login_ui_handler
-    _login_ui_handler = handler
-
-
-def set_login_ui_disabled(disabled: bool) -> None:
-    global _login_ui_cli_disabled
-    _login_ui_cli_disabled = bool(disabled)
-
-
-def _truthy_env(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def is_login_ui_disabled() -> bool:
-    if _login_ui_cli_disabled or _truthy_env("ASYNX_NO_LOGIN_UI") or _truthy_env("CI"):
-        return True
-    if (
-        os.name != "nt"
-        and not sys.platform.startswith("darwin")
-        and not os.environ.get("DISPLAY")
-        and not os.environ.get("WAYLAND_DISPLAY")
-        and not _truthy_env("ASYNX_NO_OPEN_BROWSER")
-    ):
-        return True
-    return False
-
-
-def is_login_ui_allowed(explicit: bool | None = None) -> bool:
-    if explicit is False:
-        return False
-    if is_login_ui_disabled():
-        return False
-    return _login_ui_handler is not None
-
-
-def validate_login_svr_url(value: str | None) -> str:
-    candidate = (value or DEFAULT_LOGIN_SVR_URL).strip().rstrip("/")
+def validate_origin(value: str | None) -> str:
+    candidate = (value or DEFAULT_ORIGIN).strip().rstrip("/")
     parts = urlsplit(candidate)
+    local = parts.hostname in {"127.0.0.1", "localhost", "::1"}
     if (
-        parts.scheme not in {"http", "https"}
-        or not parts.netloc
+        not parts.netloc
+        or parts.path
         or parts.query
         or parts.fragment
+        or parts.username
+        or parts.password
+        or not (parts.scheme == "https" or (parts.scheme == "http" and local))
     ):
         raise AsxError(
-            "Login Server URL 格式不正确，应形如 http://localhost:3006",
-            code="invalid_login_svr_url",
-            details={"login_svr_url": value},
+            "SageIn origin 格式不正确，应为 HTTPS 站点根地址（本地测试可用 http://localhost）",
+            code="invalid_origin",
+            details={"origin": value},
         )
     return candidate
 
 
-def resolve_login_svr_url(
-    config: dict[str, Any] | None = None,
-    *,
-    override: str | None = None,
-) -> str:
-    if isinstance(override, str) and override.strip():
-        return validate_login_svr_url(override)
-    return DEFAULT_LOGIN_SVR_URL
+def resolve_origin(config: dict[str, Any] | None = None) -> str:
+    env = os.environ.get("SAGEIN_COMMUNITY_ORIGIN")
+    if env and env.strip():
+        return validate_origin(env)
+    configured = (config or {}).get("origin")
+    return validate_origin(configured if isinstance(configured, str) else None)
+
+
+def credential_file_path(origin: str) -> Path:
+    override = os.environ.get("SAGEIN_COMMUNITY_CREDENTIAL_FILE")
+    if override:
+        return Path(override).expanduser()
+    digest = hashlib.sha256(origin.encode("utf-8")).hexdigest()[:16]
+    return Path.home() / ".config" / "sagein-community" / "credentials" / f"{digest}.json"
+
+
+def load_pat(origin: str) -> str:
+    path = credential_file_path(origin)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pat = data.get("access_token") if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError):
+        pat = None
+    if not isinstance(pat, str) or not pat.startswith(_PAT_PREFIX):
+        raise AsxError(
+            "未找到 SageIn Agent 授权凭据，请先通过 sagein-community 完成授权，并勾选 skill_jwt 权限。",
+            code="need_login",
+            exit_code=2,
+            details={"reason_code": "missing_credentials", "origin": origin, "credential_file": str(path)},
+        )
+    return pat
 
 
 def decode_jwt_segment(segment: str) -> dict[str, Any]:
     padding = "=" * (-len(segment) % 4)
-    raw = base64.urlsafe_b64decode(segment + padding)
-    decoded = json.loads(raw.decode("utf-8"))
+    decoded = json.loads(base64.urlsafe_b64decode(segment + padding).decode("utf-8"))
     if not isinstance(decoded, dict):
         raise ValueError("JWT segment is not a JSON object")
     return decoded
@@ -151,274 +128,91 @@ def is_token_usable(
         return False
 
 
-def _map_login_svr_error(
-    code_val: int,
-    msg: str | None,
+def _http_json(
+    method: str,
+    url: str,
     *,
-    http_status: int = 200,
-) -> AsxError:
-    mapped_code, default_msg = _LOGIN_SVR_ERROR_MAP.get(
-        code_val, (f"login_svr_error_{code_val}", msg or f"Identity Service 错误 ({code_val})")
-    )
-    message = f"{default_msg}：{msg}" if msg and msg != default_msg else (msg or default_msg)
-    return AsxError(
-        message,
-        code=mapped_code,
-        exit_code=2,
-        http_status=http_status,
-        details={
-            "login_svr_code": code_val,
-            "login_svr_msg": msg,
-        },
-    )
-
-
-class LoginSvrClient:
-    def __init__(self, base_url: str | None = None) -> None:
-        self.base_url = (base_url or DEFAULT_LOGIN_SVR_URL).strip().rstrip("/")
-
-    def _url(self, path: str) -> str:
-        return urljoin(self.base_url.rstrip("/") + "/", path.lstrip("/"))
-
-    def request(
-        self,
-        method: str,
-        path: str,
-        *,
-        body: dict[str, Any] | None = None,
-        token: str | None = None,
-        timeout: float = REQUEST_TIMEOUT_SECONDS,
-    ) -> dict[str, Any]:
-        url = self._url(path)
-        payload = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-        headers: dict[str, str] = {
-            "User-Agent": f"asx-skill/{VERSION}",
-            "Accept": "application/json",
-        }
-        if payload is not None:
-            headers["Content-Type"] = "application/json"
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
-
-        for attempt in range(MAX_HTTP_ATTEMPTS):
-            req = Request(url, data=payload, headers=headers, method=method)
-            try:
-                with urlopen(req, timeout=timeout) as response:
-                    status = getattr(response, "status", 200)
-                    raw = response.read(MAX_API_RESPONSE_BYTES + 1)
-                    if len(raw) > MAX_API_RESPONSE_BYTES:
-                        raise AsxError(
-                            "Identity Service 响应体超出限制",
-                            code="response_too_large",
-                            http_status=status,
-                        )
-                    return self._parse_envelope(
-                        raw,
-                        status=status,
-                        method=method,
-                        url=url,
-                        content_type=response.headers.get("Content-Type"),
-                    )
-            except HTTPError as exc:
-                raw = exc.read(MAX_API_RESPONSE_BYTES)
-                log_failed_request(
-                    method=method,
-                    url=url,
-                    request_headers=headers,
-                    request_body=payload,
-                    status=exc.code,
-                    response_headers=exc.headers,
-                    response_body=raw,
-                    attempt=attempt + 1,
-                )
-                if exc.code in TRANSIENT_HTTP_STATUSES and attempt < MAX_HTTP_ATTEMPTS - 1:
-                    time.sleep(min(0.5 * (2**attempt), 5.0))
-                    continue
-                # If login_svr returned a structured JSON error even on non-200, map it
-                try:
-                    parsed = json.loads(raw.decode("utf-8"))
-                    if isinstance(parsed, dict) and isinstance(parsed.get("code"), int) and not isinstance(parsed.get("code"), bool) and parsed["code"] != 0:
-                        raise _map_login_svr_error(
-                            parsed["code"],
-                            parsed.get("msg") if isinstance(parsed.get("msg"), str) else None,
-                            http_status=exc.code,
-                        )
-                except AsxError:
-                    raise
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    pass
-                raise AsxError(
-                    f"Identity Service HTTP {exc.code}",
-                    code=f"login_svr_http_{exc.code}",
-                    exit_code=2,
-                    http_status=exc.code,
-                ) from exc
-            except (URLError, TimeoutError) as exc:
-                log_failed_request(
-                    method=method,
-                    url=url,
-                    request_headers=headers,
-                    request_body=payload,
-                    error=str(exc),
-                    attempt=attempt + 1,
-                )
-                if attempt < MAX_HTTP_ATTEMPTS - 1:
-                    time.sleep(min(0.5 * (2**attempt), 5.0))
-                    continue
-                raise AsxError(
-                    f"无法连接 Identity Service ({self.base_url})：{exc}",
-                    code="network_error",
-                    exit_code=2,
-                ) from exc
-        raise AsxError("Identity Service 请求失败", code="network_error", exit_code=2)
-
-    @staticmethod
-    def _parse_envelope(
-        raw: bytes,
-        *,
-        status: int,
-        method: str | None = None,
-        url: str | None = None,
-        content_type: str | None = None,
-    ) -> dict[str, Any]:
-        if status != 200:
-            raise AsxError(
-                f"Identity Service 返回异常 HTTP 状态 {status}",
-                code=f"login_svr_http_{status}",
-                exit_code=2,
-                http_status=status,
-            )
-        try:
-            parsed = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise AsxError(
-                "Identity Service 响应不是合法的 JSON",
-                code="invalid_login_svr_response",
-                exit_code=2,
-                http_status=status,
-                details=describe_response(
-                    raw, method=method, url=url, status=status, content_type=content_type
-                ),
-            ) from exc
-        if not isinstance(parsed, dict):
-            raise AsxError(
-                "Identity Service 响应格式不正确，应为 JSON 对象",
-                code="invalid_login_svr_response",
-                exit_code=2,
-            )
-        code = parsed.get("code")
-        if not isinstance(code, int) or isinstance(code, bool):
-            raise AsxError(
-                "Identity Service 响应缺少数字 code 字段",
-                code="invalid_login_svr_response",
-                exit_code=2,
-            )
-        if code != 0:
-            msg = parsed.get("msg") if isinstance(parsed.get("msg"), str) else None
-            raise _map_login_svr_error(code, msg, http_status=status)
-        data = parsed.get("data")
-        if not isinstance(data, dict):
-            raise AsxError(
-                "Identity Service 响应 data 字段格式不正确",
-                code="invalid_login_svr_response",
-                exit_code=2,
-            )
-        return data
-
-    def asynx_config(self) -> dict[str, Any]:
-        return self.request("GET", "/api/user/asynx-config")
-
-    def check_username(self, username: str) -> dict[str, Any]:
-        return self.request("GET", f"/api/user/check-username?username={quote(username, safe='')}")
-
-    def register(self, username: str, password: str, nickname: str | None = None) -> dict[str, Any]:
-        body: dict[str, Any] = {"username": username, "password": password}
-        if nickname is not None:
-            body["nickname"] = nickname
-        return self.request("POST", "/api/user/register", body=body)
-
-    def login(self, username: str, password: str) -> dict[str, Any]:
-        return self.request("POST", "/api/user/login", body={"username": username, "password": password})
-
-    def refresh(self, refresh_token: str) -> dict[str, Any]:
-        return self.request("POST", "/api/user/refresh", body={"refreshToken": refresh_token})
-
-    def profile(self, token: str) -> dict[str, Any]:
-        return self.request("GET", "/api/user/profile", token=token)
-
-    def change_password(self, token: str, old_password: str, new_password: str) -> dict[str, Any]:
-        return self.request(
-            "POST",
-            "/api/user/change-password",
-            body={"oldPassword": old_password, "newPassword": new_password},
-            token=token,
-        )
-
-
-def _write_auth_session(
-    session_data: dict[str, Any],
-    current: dict[str, Any],
-    *,
-    resolved_login_url: str,
+    pat: str | None = None,
+    timeout: float = REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    from .config import _write_config, config_path
+    headers = {"User-Agent": f"asx-skill/{VERSION}", "Accept": "application/json"}
+    body: bytes | None = None
+    if method == "POST":
+        headers["Content-Type"] = "application/json"
+        body = b"{}"
+    if pat:
+        headers["Authorization"] = f"Bearer {pat}"
+    req = Request(url, data=body, headers=headers, method=method)
+    try:
+        with urlopen(req, timeout=timeout) as response:
+            raw = response.read(MAX_API_RESPONSE_BYTES + 1)
+    except HTTPError as exc:
+        status = exc.code
+        if status == 401:
+            raise AsxError(
+                "SageIn Agent 授权已过期或被撤销，请重新授权。",
+                code="need_login", exit_code=2, http_status=401,
+                details={"reason_code": "pat_invalid"},
+            ) from exc
+        if status == 403:
+            raise AsxError(
+                "当前 SageIn 授权缺少 skill_jwt 权限，请重新授权并勾选该权限。",
+                code="scope_missing", exit_code=2, http_status=403,
+                details={"required_scope": "skill_jwt"},
+            ) from exc
+        raise AsxError(
+            f"SageIn 服务 HTTP {status}", code=f"sagein_http_{status}", exit_code=2, http_status=status
+        ) from exc
+    except (URLError, TimeoutError, OSError) as exc:
+        raise AsxError(f"无法连接 SageIn 服务 ({url})：{exc}", code="network_error", exit_code=2) from exc
+    if len(raw) > MAX_API_RESPONSE_BYTES:
+        raise AsxError("SageIn 响应体超出限制", code="response_too_large", exit_code=2)
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AsxError("SageIn 响应不是合法的 JSON", code="invalid_sagein_response", exit_code=2) from exc
+    if not isinstance(parsed, dict):
+        raise AsxError("SageIn 响应格式不正确", code="invalid_sagein_response", exit_code=2)
+    code = parsed.get("code")
+    if isinstance(code, int) and not isinstance(code, bool) and code != 0:
+        msg = parsed.get("msg") if isinstance(parsed.get("msg"), str) else None
+        raise AsxError(msg or f"SageIn 错误 ({code})", code=f"sagein_error_{code}", exit_code=2)
+    data = parsed.get("data", parsed)
+    if not isinstance(data, dict):
+        raise AsxError("SageIn 响应 data 字段格式不正确", code="invalid_sagein_response", exit_code=2)
+    return data
 
-    current.pop("api_key", None)
-    current["login_svr_url"] = resolved_login_url
-    if isinstance(session_data.get("token"), str):
-        current["token"] = session_data["token"]
-    if isinstance(session_data.get("refreshToken"), str):
-        current["refreshToken"] = session_data["refreshToken"]
-    if isinstance(session_data.get("asynx"), dict):
-        current["asynx"] = session_data["asynx"]
-    if isinstance(session_data.get("user"), dict):
-        current["user"] = session_data["user"]
-    _write_config(current, config_path())
-    return current
+
+def fetch_asynx_config(origin: str) -> dict[str, Any]:
+    """GET {origin}/api/agent/asynx-config (public)."""
+    return _http_json("GET", f"{origin}/api/agent/asynx-config")
 
 
-def save_auth_session(session_data: dict[str, Any], *, login_svr_url: str | None = None) -> dict[str, Any]:
-    from .config import read_config
-
-    current = read_config()
-    resolved_login_url = resolve_login_svr_url(current, override=login_svr_url)
-    return _write_auth_session(session_data, current, resolved_login_url=resolved_login_url)
-
-
-def clear_auth_session(*, keep_login_svr_url: bool = True) -> None:
-    from .config import _write_config, config_path, read_config
-
-    current = read_config()
-    if not current:
-        return
-    for key in ("token", "refreshToken", "user", "api_key"):
-        current.pop(key, None)
-    if not keep_login_svr_url:
-        current.pop("login_svr_url", None)
-    _write_config(current, config_path())
+def fetch_jwt(origin: str, pat: str) -> str:
+    """POST {origin}/api/agent/jwt with the PAT to obtain a short-lived JWT."""
+    data = _http_json("POST", f"{origin}/api/agent/jwt", pat=pat)
+    for key in ("token", "jwt", "access_token"):
+        value = data.get(key)
+        if isinstance(value, str) and value.count(".") == 2:
+            return value
+    raise AsxError("SageIn JWT 响应缺少 token 字段", code="invalid_sagein_response", exit_code=2)
 
 
 class AuthSession:
-    """Thread-safe holder for Identity Service session credentials and refresh state."""
+    """Thread-safe holder for the short-lived JWT and the Asynx gateway config."""
 
     def __init__(
         self,
         *,
-        login_svr_url: str,
+        origin: str,
         token: str,
-        refresh_token: str | None = None,
         asynx: dict[str, Any] | None = None,
-        user: dict[str, Any] | None = None,
         headless_env_token: bool = False,
-        allow_login_ui: bool = True,
     ) -> None:
-        self.login_svr_url = login_svr_url
+        self.origin = origin
         self.token = token
-        self.refresh_token = refresh_token
         self.asynx = dict(asynx or {})
-        self.user = dict(user or {})
         self.headless_env_token = headless_env_token
-        self.allow_login_ui = allow_login_ui
         self._lock = threading.Lock()
 
     @property
@@ -443,248 +237,62 @@ class AuthSession:
     def ensure_valid_token(self) -> str:
         if self.headless_env_token:
             return self.token
-        login_reason: tuple[str, int | None, str | None] | None = None
         with self._lock:
             if is_token_usable(self.token, self.asynx):
                 return self.token
-            token, login_reason = self._refresh_locked()
-            if token is not None:
-                return token
-        assert login_reason is not None
-        return self._trigger_login_or_raise(
-            login_reason[0],
-            login_svr_code=login_reason[1],
-            message=login_reason[2],
-        )
+            return self._refresh_locked()
 
     def refresh_session(self) -> str:
-        if self.headless_env_token and not self.refresh_token:
+        if self.headless_env_token:
             raise AsxError(
-                "ASYNX_PARTNER_TOKEN 认证失败或已过期，请更新环境变量或登录账号。",
-                code="need_login",
-                exit_code=2,
-                http_status=401,
+                "ASYNX_PARTNER_TOKEN 认证失败或已过期，请更新环境变量。",
+                code="need_login", exit_code=2, http_status=401,
             )
-        login_reason: tuple[str, int | None, str | None] | None = None
         with self._lock:
-            token, login_reason = self._refresh_locked()
-            if token is not None:
-                return token
-        assert login_reason is not None
-        return self._trigger_login_or_raise(
-            login_reason[0],
-            login_svr_code=login_reason[1],
-            message=login_reason[2],
-        )
+            return self._refresh_locked()
 
-    def _refresh_locked(self) -> tuple[str | None, tuple[str, int | None, str | None] | None]:
-        if not self.refresh_token:
-            return None, ("missing_refresh_token", None, None)
-
-        client = LoginSvrClient(self.login_svr_url)
+    def _refresh_locked(self) -> str:
+        pat = load_pat(self.origin)
         try:
-            refreshed = client.refresh(self.refresh_token)
+            self.asynx = fetch_asynx_config(self.origin)
         except AsxError as exc:
-            login_svr_code = exc.details.get("login_svr_code") if isinstance(exc.details, dict) else None
-            if login_svr_code in UNREFRESHABLE_LOGIN_SVR_CODES or exc.http_status == 401:
-                clear_auth_session()
-                self.token = ""
-                self.refresh_token = None
-                return None, (exc.code, login_svr_code, exc.message)
-            raise
+            if exc.code != "network_error" or not self.asynx.get("baseUrl"):
+                raise
+        self.token = fetch_jwt(self.origin, pat)
+        self._persist()
+        return self.token
 
-        self._apply_session_payload(refreshed)
-        from .config import read_config
+    def _persist(self) -> None:
+        from .config import _write_config, config_path, read_config
 
-        _write_auth_session(refreshed, read_config(), resolved_login_url=self.login_svr_url)
-        return self.token, None
-
-    def _apply_session_payload(self, data: dict[str, Any]) -> None:
-        self.token = str(data["token"])
-        self.refresh_token = str(data["refreshToken"]) if data.get("refreshToken") else self.refresh_token
-        if isinstance(data.get("asynx"), dict):
-            self.asynx = dict(data["asynx"])
-        if isinstance(data.get("user"), dict):
-            self.user = dict(data["user"])
-
-    def _trigger_login_or_raise(
-        self,
-        reason_code: str,
-        *,
-        login_svr_code: int | None = None,
-        message: str | None = None,
-    ) -> str:
-        login_url = self.login_svr_url
-        if is_login_ui_allowed(self.allow_login_ui) and _login_ui_handler is not None:
-            new_data = _login_ui_handler(login_url)
-            if isinstance(new_data, dict) and isinstance(new_data.get("token"), str):
-                raw_url = new_data.get("login_svr_url")
-                validated_url = (
-                    validate_login_svr_url(raw_url)
-                    if isinstance(raw_url, str) and raw_url.strip()
-                    else None
-                )
-                with self._lock:
-                    if validated_url is not None:
-                        self.login_svr_url = validated_url
-                    self._apply_session_payload(new_data)
-                    return self.token
-        raise AsxError(
-            message or "登录会话已过期或未登录，请重新登录。",
-            code="need_login",
-            exit_code=2,
-            http_status=401,
-            details={
-                "reason_code": reason_code,
-                **({"login_svr_code": login_svr_code} if login_svr_code is not None else {}),
-                "login_svr_url": login_url,
-            },
-        )
+        try:
+            current = read_config()
+            current.pop("refreshToken", None)
+            current.pop("user", None)
+            current.pop("login_svr_url", None)
+            current["token"] = self.token
+            current["asynx"] = self.asynx
+            _write_config(current, config_path())
+        except AsxError:
+            pass  # cache is best-effort
 
 
-def _sync_asynx_config(login_svr_url: str, cached_asynx: dict[str, Any]) -> dict[str, Any]:
-    client = LoginSvrClient(login_svr_url)
-    try:
-        latest = client.asynx_config()
-        return latest
-    except AsxError as exc:
-        # If asynx-config is unreachable and we already have a cached asynx config with baseUrl,
-        # let cached config stand unless token itself needs refresh.
-        if exc.code == "network_error" and isinstance(cached_asynx, dict) and cached_asynx.get("baseUrl"):
-            return cached_asynx
-        raise
-
-
-def load_auth_session(*, allow_login_ui: bool = True, sync_config: bool = True) -> AuthSession:
-    from .config import _write_config, config_path, read_config, validate_base_url
+def load_auth_session() -> AuthSession:
+    from .config import read_config, validate_base_url
 
     config = read_config()
-    login_svr_url = resolve_login_svr_url(config)
+    origin = resolve_origin(config)
 
-    # Headless direct token override
     env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
     if isinstance(env_token, str) and env_token.strip():
-        asynx_cfg = dict(config.get("asynx")) if isinstance(config.get("asynx"), dict) else {}
+        asynx_cfg: dict[str, Any] = {}
         env_base_url = os.environ.get("ASYNX_BASE_URL")
-        if env_base_url:
-            asynx_cfg["baseUrl"] = validate_base_url(env_base_url)
-        elif not asynx_cfg.get("baseUrl"):
-            stored_base = config.get("base_url")
-            asynx_cfg["baseUrl"] = (
-                validate_base_url(stored_base)
-                if isinstance(stored_base, str) and stored_base.strip()
-                else DEFAULT_BASE_URL
-            )
-        asynx_cfg.setdefault("tokenHeader", DEFAULT_TOKEN_HEADER)
-        return AuthSession(
-            login_svr_url=login_svr_url,
-            token=env_token.strip(),
-            refresh_token=config.get("refreshToken") if isinstance(config.get("refreshToken"), str) else None,
-            asynx=asynx_cfg,
-            user=config.get("user") if isinstance(config.get("user"), dict) else None,
-            headless_env_token=True,
-            allow_login_ui=allow_login_ui,
-        )
+        asynx_cfg["baseUrl"] = validate_base_url(env_base_url) if env_base_url else DEFAULT_BASE_URL
+        asynx_cfg["tokenHeader"] = DEFAULT_TOKEN_HEADER
+        return AuthSession(origin=origin, token=env_token.strip(), asynx=asynx_cfg, headless_env_token=True)
 
-    token = config.get("token") if isinstance(config.get("token"), str) else ""
-    refresh_token = config.get("refreshToken") if isinstance(config.get("refreshToken"), str) else None
+    cached_token = config.get("token") if isinstance(config.get("token"), str) else ""
     cached_asynx = dict(config.get("asynx")) if isinstance(config.get("asynx"), dict) else {}
-    user = dict(config.get("user")) if isinstance(config.get("user"), dict) else {}
-
-    if not token and not refresh_token:
-        if is_login_ui_allowed(allow_login_ui) and _login_ui_handler is not None:
-            new_data = _login_ui_handler(login_svr_url)
-            if isinstance(new_data, dict) and isinstance(new_data.get("token"), str):
-                updated_cfg = read_config()
-                resolved_url = (
-                    validate_login_svr_url(new_data["login_svr_url"])
-                    if isinstance(new_data.get("login_svr_url"), str) and new_data["login_svr_url"].strip()
-                    else resolve_login_svr_url(updated_cfg)
-                )
-                return AuthSession(
-                    login_svr_url=resolved_url,
-                    token=new_data["token"],
-                    refresh_token=new_data.get("refreshToken"),
-                    asynx=new_data.get("asynx") if isinstance(new_data.get("asynx"), dict) else {},
-                    user=new_data.get("user") if isinstance(new_data.get("user"), dict) else {},
-                    allow_login_ui=allow_login_ui,
-                )
-        raise AsxError(
-            "未检测到 Asynx 登录会话，请先登录。",
-            code="need_login",
-            exit_code=2,
-            details={"reason_code": "missing_credentials", "login_svr_url": login_svr_url},
-        )
-
-    asynx_cfg = cached_asynx
-    if sync_config or not asynx_cfg.get("baseUrl"):
-        latest_asynx = _sync_asynx_config(login_svr_url, cached_asynx)
-        if latest_asynx != cached_asynx:
-            asynx_cfg = latest_asynx
-            if config_path().exists():
-                updated = dict(config)
-                updated["asynx"] = asynx_cfg
-                _write_config(updated, config_path())
-
-    env_base_url = os.environ.get("ASYNX_BASE_URL")
-    if env_base_url:
-        asynx_cfg["baseUrl"] = validate_base_url(env_base_url)
-
-    session = AuthSession(
-        login_svr_url=login_svr_url,
-        token=token,
-        refresh_token=refresh_token,
-        asynx=asynx_cfg,
-        user=user,
-        allow_login_ui=allow_login_ui,
-    )
-    session.ensure_valid_token()
+    session = AuthSession(origin=origin, token=cached_token, asynx=cached_asynx)
+    session.ensure_valid_token()  # refreshes via PAT when missing / near expiry
     return session
-
-
-def _complete_auth_provision(
-    data: dict[str, Any],
-    *,
-    login_svr_url: str,
-) -> tuple[AuthSession, dict[str, Any]]:
-    from .client import AsynxClient
-    from .config import read_config
-
-    _write_auth_session(data, read_config(), resolved_login_url=login_svr_url)
-    session = AuthSession(
-        login_svr_url=login_svr_url,
-        token=data["token"],
-        refresh_token=data.get("refreshToken"),
-        asynx=data.get("asynx") if isinstance(data.get("asynx"), dict) else {},
-        user=data.get("user") if isinstance(data.get("user"), dict) else {},
-    )
-    gateway_client = AsynxClient(session.base_url, session=session)
-    identity, _req_id = gateway_client.partner_identity()
-    return session, identity
-
-
-def login_and_provision(
-    username: str,
-    password: str,
-    *,
-    login_svr_url: str | None = None,
-) -> tuple[AuthSession, dict[str, Any]]:
-    from .config import read_config
-
-    resolved_url = resolve_login_svr_url(read_config(), override=login_svr_url)
-    data = LoginSvrClient(resolved_url).login(username, password)
-    return _complete_auth_provision(data, login_svr_url=resolved_url)
-
-
-def register_and_provision(
-    username: str,
-    password: str,
-    nickname: str | None = None,
-    *,
-    login_svr_url: str | None = None,
-) -> tuple[AuthSession, dict[str, Any]]:
-    from .config import read_config
-
-    resolved_url = resolve_login_svr_url(read_config(), override=login_svr_url)
-    data = LoginSvrClient(resolved_url).register(username, password, nickname=nickname)
-    return _complete_auth_provision(data, login_svr_url=resolved_url)

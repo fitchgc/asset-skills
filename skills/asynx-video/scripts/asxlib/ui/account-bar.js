@@ -1,7 +1,6 @@
 (function (global) {
   'use strict';
 
-  const USERNAME_RE = /^[a-z0-9_]{3,32}$/;
   let _state = {
     token: '',
     theme: 'light',
@@ -297,236 +296,30 @@
   function render() {
     if (!_state.container) return;
     const auth = _state.auth;
-    const isDark = _state.theme === 'dark';
-
     const root = document.createElement('div');
-    root.className = 'asx-acct-root' + (isDark ? ' dark' : '');
+    root.className = 'asx-acct-root' + (_state.theme === 'dark' ? ' dark' : '');
 
     if (!auth || !auth.authenticated) {
+      const reason = (auth && auth.error && auth.error.message) || '请通过 sagein-community 授权（需 skill_jwt 权限）';
       root.innerHTML = `
-        <button type="button" class="asx-acct-pill" id="asx-acct-signin-btn">
+        <button type="button" class="asx-acct-pill" title="${escapeHtml(reason)}">
           <span class="asx-acct-avatar">?</span>
-          <span>未登录 · 点击登录</span>
+          <span>未授权</span>
         </button>
       `;
-      _state.container.innerHTML = '';
-      _state.container.appendChild(root);
-      root.querySelector('#asx-acct-signin-btn').onclick = () => openSwitchAccountModal('login');
-      return;
+    } else {
+      root.innerHTML = `
+        <button type="button" class="asx-acct-pill" id="asx-acct-refresh" title="点击刷新">
+          <span class="asx-acct-avatar">A</span>
+          <span class="asx-acct-meta" title="剩余额度">${escapeHtml(formatBudget(auth.identity))}</span>
+          <span class="asx-acct-meta">·</span>
+          <span class="asx-acct-meta" title="并发任务数">${escapeHtml(formatConcurrency(auth.identity))}</span>
+        </button>
+      `;
+      root.querySelector('#asx-acct-refresh').onclick = () => refresh();
     }
-
-    const user = auth.user || {};
-    const displayName = user.nickname || user.username || '已登录';
-    const initial = String(displayName).charAt(0).toUpperCase() || 'A';
-    const budgetText = formatBudget(auth.identity);
-    const concText = formatConcurrency(auth.identity);
-
-    root.innerHTML = `
-      <button type="button" class="asx-acct-pill" id="asx-acct-toggle">
-        <span class="asx-acct-avatar">${escapeHtml(initial)}</span>
-        <span style="font-weight: 600;">${escapeHtml(displayName)}</span>
-        <span class="asx-acct-meta">·</span>
-        <span class="asx-acct-meta" title="剩余额度">${escapeHtml(budgetText)}</span>
-        <span class="asx-acct-meta">·</span>
-        <span class="asx-acct-meta" title="并发任务数">${escapeHtml(concText)}</span>
-      </button>
-      <div class="asx-acct-menu ${_state.menuOpen ? 'open' : ''}" id="asx-acct-menu">
-        <div class="asx-acct-menu-hdr">
-          <div style="font-weight: 600;">${escapeHtml(displayName)} <span style="opacity: 0.7;">(@${escapeHtml(user.username || '-')})</span></div>
-          <div style="opacity: 0.75;">额度：${escapeHtml(budgetText)} · ${escapeHtml(concText)}</div>
-          <div style="opacity: 0.6; font-size: 11px; word-break: break-all;">${escapeHtml(auth.login_svr_url || '')}</div>
-        </div>
-        <button type="button" class="asx-acct-menu-item" data-act="refresh">刷新额度与状态</button>
-        <button type="button" class="asx-acct-menu-item" data-act="change-password">修改密码</button>
-        <button type="button" class="asx-acct-menu-item" data-act="switch-account">切换账号</button>
-        <button type="button" class="asx-acct-menu-item danger" data-act="logout">退出登录</button>
-      </div>
-    `;
-
     _state.container.innerHTML = '';
     _state.container.appendChild(root);
-
-    root.querySelector('#asx-acct-toggle').onclick = (e) => {
-      e.stopPropagation();
-      _state.menuOpen = !_state.menuOpen;
-      root.querySelector('#asx-acct-menu').classList.toggle('open', _state.menuOpen);
-    };
-
-    root.querySelector('[data-act="refresh"]').onclick = async () => {
-      _state.menuOpen = false;
-      await refresh();
-    };
-    root.querySelector('[data-act="change-password"]').onclick = () => {
-      _state.menuOpen = false;
-      render();
-      openChangePasswordModal();
-    };
-    root.querySelector('[data-act="switch-account"]').onclick = () => {
-      _state.menuOpen = false;
-      render();
-      openSwitchAccountModal('login');
-    };
-    root.querySelector('[data-act="logout"]').onclick = async () => {
-      _state.menuOpen = false;
-      try {
-        await apiJson('/api/auth/logout', 'POST', {});
-      } catch (_) {}
-      await refresh();
-    };
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    const open = document.querySelectorAll('.asx-acct-modal-backdrop');
-    if (open.length) open[open.length - 1].remove();
-  });
-
-  function openChangePasswordModal() {
-    const backdrop = document.createElement('div');
-    backdrop.className = 'asx-acct-modal-backdrop';
-    backdrop.innerHTML = `
-      <div class="asx-acct-modal ${_state.theme === 'dark' ? 'dark' : ''}">
-        <h3>修改账号密码</h3>
-        <label>原密码</label>
-        <input type="password" id="asx-cp-old" autocomplete="current-password" />
-        <label>新密码（6–64 位字符）</label>
-        <input type="password" id="asx-cp-new" autocomplete="new-password" />
-        <div class="asx-acct-modal-err" id="asx-cp-err"></div>
-        <div class="asx-acct-modal-actions">
-          <button type="button" class="asx-acct-btn" id="asx-cp-cancel">取消</button>
-          <button type="button" class="asx-acct-btn primary" id="asx-cp-submit">确认修改</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(backdrop);
-    backdrop.querySelector('#asx-cp-cancel').onclick = () => backdrop.remove();
-    backdrop.querySelector('#asx-cp-submit').onclick = async () => {
-      const oldPassword = backdrop.querySelector('#asx-cp-old').value;
-      const newPassword = backdrop.querySelector('#asx-cp-new').value;
-      const errEl = backdrop.querySelector('#asx-cp-err');
-      errEl.textContent = '';
-      if (!oldPassword || newPassword.length < 6 || newPassword.length > 64) {
-        errEl.textContent = '请输入原密码，且新密码长度为 6–64 位字符';
-        return;
-      }
-      try {
-        await apiJson('/api/auth/change-password', 'POST', { oldPassword, newPassword });
-        backdrop.remove();
-        await refresh();
-      } catch (err) {
-        errEl.textContent = err.message;
-      }
-    };
-  }
-
-  function openSwitchAccountModal(initialTab) {
-    let tab = initialTab || 'login';
-    const ENV_URLS = { test: 'http://8.153.90.66:3006', prod: 'http://8.153.90.66:3006' };
-    const envUrl = () => {
-      const el = backdrop.querySelector('input[name="asx-sw-env"]:checked');
-      return ENV_URLS[el ? el.value : 'test'];
-    };
-    const backdrop = document.createElement('div');
-    backdrop.className = 'asx-acct-modal-backdrop';
-    backdrop.innerHTML = `
-      <div class="asx-acct-modal ${_state.theme === 'dark' ? 'dark' : ''}">
-        <h3>切换 / 登录 Asynx 账号</h3>
-        <div class="asx-acct-tabs">
-          <button type="button" class="asx-acct-tab active" data-tab="login">登录</button>
-          <button type="button" class="asx-acct-tab" data-tab="register">注册</button>
-        </div>
-        <label>用户名</label>
-        <input type="text" id="asx-sw-user" placeholder="alice_01" />
-        <div id="asx-sw-user-hint" style="font-size: 11px; margin: -6px 0 8px; opacity: 0.75; display: none;"></div>
-        <label>密码</label>
-        <input type="password" id="asx-sw-pass" placeholder="6–64 位字符" />
-        <div id="asx-sw-nick-wrap" style="display: none;">
-          <label>昵称（可选）</label>
-          <input type="text" id="asx-sw-nick" placeholder="显示名称" />
-        </div>
-        <label>环境</label>
-        <div style="display: flex; gap: 18px; margin: 0 0 10px; font-size: 13px;">
-          <label style="display: flex; align-items: center; gap: 6px;"><input type="radio" name="asx-sw-env" value="test" checked style="width: auto; margin: 0;" /> 测试</label>
-          <label style="display: flex; align-items: center; gap: 6px;"><input type="radio" name="asx-sw-env" value="prod" style="width: auto; margin: 0;" /> 正式</label>
-        </div>
-        <div class="asx-acct-modal-err" id="asx-sw-err"></div>
-        <div class="asx-acct-modal-actions">
-          <button type="button" class="asx-acct-btn" id="asx-sw-cancel">取消</button>
-          <button type="button" class="asx-acct-btn primary" id="asx-sw-submit">登录</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(backdrop);
-
-    const setTab = (nextTab) => {
-      tab = nextTab;
-      backdrop.querySelectorAll('.asx-acct-tab').forEach((el) => {
-        el.classList.toggle('active', el.dataset.tab === tab);
-      });
-      backdrop.querySelector('#asx-sw-nick-wrap').style.display = tab === 'register' ? 'block' : 'none';
-      backdrop.querySelector('#asx-sw-user-hint').style.display = tab === 'register' ? 'block' : 'none';
-      backdrop.querySelector('#asx-sw-submit').textContent = tab === 'register' ? '注册并登录' : '登录';
-      backdrop.querySelector('#asx-sw-err').textContent = '';
-    };
-
-    backdrop.querySelectorAll('.asx-acct-tab').forEach((el) => {
-      el.onclick = () => setTab(el.dataset.tab);
-    });
-    setTab(tab);
-
-    let checkTimer = null;
-    backdrop.querySelector('#asx-sw-user').oninput = () => {
-      if (tab !== 'register') return;
-      const u = backdrop.querySelector('#asx-sw-user').value.trim().toLowerCase();
-      const hint = backdrop.querySelector('#asx-sw-user-hint');
-      if (!USERNAME_RE.test(u)) {
-        hint.textContent = '格式：^[a-z0-9_]{3,32}$';
-        return;
-      }
-      hint.textContent = '检查可用性...';
-      clearTimeout(checkTimer);
-      checkTimer = setTimeout(async () => {
-        try {
-          const svr = envUrl();
-          const qs = new URLSearchParams({ username: u });
-          if (svr) qs.set('login_svr_url', svr);
-          const d = await apiJson('/api/auth/check-username?' + qs.toString(), 'GET');
-          hint.textContent = d.available ? '✓ 用户名可用' : '✕ 用户名已被注册';
-        } catch (err) {
-          hint.textContent = err.message;
-        }
-      }, 250);
-    };
-
-    backdrop.querySelector('#asx-sw-cancel').onclick = () => backdrop.remove();
-    backdrop.querySelector('#asx-sw-submit').onclick = async () => {
-      const username = backdrop.querySelector('#asx-sw-user').value.trim().toLowerCase();
-      const password = backdrop.querySelector('#asx-sw-pass').value;
-      const nickname = backdrop.querySelector('#asx-sw-nick').value.trim();
-      const login_svr_url = envUrl();
-      const errEl = backdrop.querySelector('#asx-sw-err');
-      errEl.textContent = '';
-      try {
-        if (tab === 'register') {
-          await apiJson('/api/auth/register', 'POST', {
-            username,
-            password,
-            ...(nickname ? { nickname } : {}),
-            ...(login_svr_url ? { login_svr_url } : {}),
-          });
-        } else {
-          await apiJson('/api/auth/login', 'POST', {
-            username,
-            password,
-            ...(login_svr_url ? { login_svr_url } : {}),
-          });
-        }
-        backdrop.remove();
-        await refresh();
-      } catch (err) {
-        errEl.textContent = err.message;
-      }
-    };
   }
 
   async function refresh() {
@@ -550,14 +343,6 @@
     _state.onAuthChange = opts.onAuthChange || null;
     _state.container = typeof target === 'string' ? document.querySelector(target) : target;
 
-    document.addEventListener('click', () => {
-      if (_state.menuOpen) {
-        _state.menuOpen = false;
-        const menu = _state.container && _state.container.querySelector('#asx-acct-menu');
-        if (menu) menu.classList.remove('open');
-      }
-    });
-
     render();
     return refresh();
   }
@@ -565,6 +350,5 @@
   global.AsxAccountBar = {
     mount,
     refresh,
-    openLogin: () => openSwitchAccountModal('login'),
   };
 })(window);

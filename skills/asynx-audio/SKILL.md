@@ -25,7 +25,7 @@ python3 "<skill-dir>/scripts/asynx.py" speech --text "前进吧！" --from-task 
 
 ## 本地后处理 (Keyless Local Post-Processing)
 
-无需登录 即可在本地确定性处理音频文件：
+无需授权 即可在本地确定性处理音频文件：
 
 ```bash
 # 查看音频元数据

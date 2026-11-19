@@ -5,21 +5,20 @@
 ## 配置与诊断
 
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" login
 python3 "<skill-dir>/scripts/asynx.py" whoami
 python3 "<skill-dir>/scripts/asynx.py" config status
 python3 "<skill-dir>/scripts/asynx.py" doctor
 python3 "<skill-dir>/scripts/asynx.py" doctor --verify
 ```
 
-- `login` 打开本地登录工作台，由用户在浏览器登录；`configure` 为交互式终端登录（用户名/密码）。Agent 不代填、不索要对话中的账号密码。会话含 Partner Token（24h）和 Refresh Token（30d），自动刷新；`whoami` 查看账号与额度，`logout` 清除会话。
+- 认证依赖 `sagein-community` 写入的本地授权文件（`~/.config/sagein-community/credentials/<hash>.json`，需 `skill_jwt` 权限）。运行时用其中的 `sagein_pat_...` 请求 `POST <origin>/api/agent/jwt` 换取短期 JWT（默认 24h，临近过期或 `kid`/`iss`/`aud` 与 `GET <origin>/api/agent/asynx-config` 不一致时自动刷新），并从 `asynx-config` 读取网关地址、请求头等参数。`SAGEIN_COMMUNITY_ORIGIN` 可指定站点（默认 `https://sagein.ai`），`SAGEIN_COMMUNITY_CREDENTIAL_FILE` 可指定授权文件。`whoami` 查看额度与并发。
 - `config status` 查看配置来源与环境变量覆盖；需要进一步排查副本、权限等问题时用 `doctor`。两者默认不联网，不要读取配置原文输出令牌。
 - 用户要求验证连接或登录状态时使用 `doctor --verify`。它只读模型目录；通过不代表已验证生图权限、余额或实际生成。网络错误不等于登录失效。
-- 公共服务默认无需设置地址。用户明确使用自托管部署时才运行 `login --login-svr-url "<Identity Service 地址>"` 或 `configure --base-url "https://asynx.example.com/api"`。
+- 网关地址由 `asynx-config` 下发，`ASYNX_BASE_URL` 可覆盖。
 
 默认配置位置：macOS/Linux 为 `~/.config/asynx/config.json`，Windows 为 `%APPDATA%\Asynx\config.json`。同一系统用户的多份 Skill 默认共用；显式 `ASYNX_CONFIG_PATH` 可指定另一份文件。
 
-`ASYNX_PARTNER_TOKEN` 和 `ASYNX_BASE_URL` 环境变量优先于文件；重新登录后仍异常时先检查是否被环境变量覆盖。`ASYNX_NO_LOGIN_UI=1` 会禁用自动拉起登录页。普通终端的临时环境变量只影响该进程及子进程，桌面 Agent 不一定继承，重启后通常不保留。长期使用优先保存配置。
+`ASYNX_PARTNER_TOKEN` 和 `ASYNX_BASE_URL` 环境变量优先于文件；重新授权后仍异常时先检查是否被环境变量覆盖。`ASYNX_NO_LOGIN_UI=1` 会禁用自动拉起登录页。普通终端的临时环境变量只影响该进程及子进程，桌面 Agent 不一定继承，重启后通常不保留。长期使用优先保存配置。
 
 旧版曾按 `XDG_CONFIG_HOME` 保存配置，新版安装器和配置命令会尝试迁移到固定位置，并保留旧文件。不因发现多份文件就直接删除，按诊断显示的实际来源处理。
 

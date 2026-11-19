@@ -225,14 +225,10 @@ class TestSharedFoundationAndMigration(unittest.TestCase):
 
     def test_doctor_command(self) -> None:
         """Doctor reports credentials, state ledger, pillow, and ffmpeg tools."""
-        save_config(
-            {
-                "login_svr_url": "http://localhost:3006",
-                "token": "pt_valid_test_key",
-                "refreshToken": "rt_valid_test_key",
-                "asynx": {"baseUrl": "https://asynx.llmapi.site/api", "tokenHeader": "X-Asynx-Partner-Token"},
-            }
-        )
+        cred = Path(self.temp_dir) / "cred.json"
+        cred.write_text(json.dumps({"access_token": "sagein_pat_" + "a" * 64}), encoding="utf-8")
+        os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(cred)
+        self.addCleanup(os.environ.pop, "SAGEIN_COMMUNITY_CREDENTIAL_FILE", None)
         doc = doctor(verify=False, modality="image")
         self.assertTrue(doc["ok"])
         self.assertTrue(doc["config"]["configured"])

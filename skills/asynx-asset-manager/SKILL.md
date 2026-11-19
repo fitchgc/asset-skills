@@ -5,7 +5,7 @@ description: 扫描并管理项目工作区中的五类创作 Asset（image、au
 
 # Asynx 资产管理器 (Asset Manager)
 
-使用本 Skill 的 `scripts/asynx.py` 扫描项目工作区资产、追踪跨模态 Asset Lineage（血缘关系）或启动交互工作台。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；需要 Python 3.10+。`scan`、`list`、`lineage` 为离线操作，无需登录会话即可使用。
+使用本 Skill 的 `scripts/asynx.py` 扫描项目工作区资产、追踪跨模态 Asset Lineage（血缘关系）或启动交互工作台。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；需要 Python 3.10+。`scan`、`list`、`lineage` 为离线操作，无需授权即可使用。
 
 ## 工作区扫描与分类检索
 
@@ -47,7 +47,7 @@ python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project"
   - **Video**：内嵌视频抽帧去背工作台 (`video_frame_sequence`)、`video.edit`、本地 `trim` / `convert` / `mux` / `spritesheet`；
   - **3D Model**：内嵌 WebGL 3D 检查与多视角序列帧渲染工作台 (`model3d_viewer` / `render-sequence`)、云端 `rig-check` / `rig` / `animate` / `convert` 与本地 `info` / `validate` / `extract-textures`；
   - **Audio**：波形播放器、参考音色语音合成 (`audio.speech`) 与本地 `trim` / `fade` / `normalize` / `convert`。
-- 所有在工作台内创建或修改的资产均自动保存至项目工作区并记录父子 `asset_lineage`，无需重启服务即可实时刷新显示；若云端操作需要登录，顶部账号栏支持按需登录、注册、切换账号与查看额度/并发。
+- 所有在工作台内创建或修改的资产均自动保存至项目工作区并记录父子 `asset_lineage`，无需重启服务即可实时刷新显示；顶部账号栏显示授权状态与额度/并发；云端操作需要 SageIn Agent 授权（`skill_jwt` 权限）。
 - 若宿主不支持自动打开浏览器，可加 `--no-open` 并向用户展示控制台输出的本地 URL。
 
 ## 按需读取
@@ -55,7 +55,7 @@ python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project"
 | 请求 | 参考 |
 | --- | --- |
 | 扫描过滤参数、五类分类规则、SHA-256 移动重连与血缘结构 | [操作参考](references/operations.md) |
-| Identity Service 登录会话、配置状态、环境诊断与更新 | [配置与维护](references/setup.md) |
+| SageIn Agent 授权、配置状态、环境诊断与更新 | [配置与维护](references/setup.md) |
 
 ## 结果与边界
 

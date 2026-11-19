@@ -308,27 +308,21 @@ def _configured(client: ModuleType) -> bool:
     token = os.environ.get("ASYNX_PARTNER_TOKEN")
     if isinstance(token, str) and token.strip():
         return True
-    config = client.read_config()
-    stored_token = config.get("token")
-    stored_refresh = config.get("refreshToken")
-    return bool(
-        (isinstance(stored_token, str) and stored_token.strip())
-        or (isinstance(stored_refresh, str) and stored_refresh.strip())
-    )
+    return bool(client.config_status().get("has_pat"))
 
 
 def _verify(client: ModuleType) -> int:
     try:
-        api_client = client.load_client(allow_login_ui=False)
+        api_client = client.load_client()
         identity, _id_req = api_client.partner_identity()
         models, _request_id = api_client.models()
     except client.AsxError as exc:
-        if exc.http_status == 401 or exc.code in {"need_login", "invalid_partner_token", "auth_expired"}:
-            message = "登录会话无效或已过期，请重新登录账号。"
+        if exc.http_status in {401, 403} or exc.code in {"need_login", "invalid_partner_token", "scope_missing"}:
+            message = "SageIn Agent 授权无效或已过期，请通过 sagein-community 重新授权（需勾选 skill_jwt 权限）。"
         elif exc.http_status == 403:
             message = "当前账号无权访问模型目录，请检查权限，或联系服务管理员。"
         elif exc.code == "network_error":
-            message = "暂时无法连接 Asynx 或 Identity Service，请检查网络或服务地址后重试。"
+            message = "暂时无法连接 Asynx 或 SageIn 服务，请检查网络后重试。"
         elif exc.http_status == 429:
             message = "请求过于频繁，请稍后重新执行连接检查。"
         else:
@@ -476,9 +470,10 @@ def run(
             if os.environ.get("ASYNX_PARTNER_TOKEN"):
                 print("正在使用 ASYNX_PARTNER_TOKEN 环境变量中的 Partner Token，其优先级高于配置文件；此步骤不会将其写入配置文件。")
             else:
-                print("正在使用已保存的登录会话，无需重复登录。")
+                print("检测到 SageIn Agent 授权，运行时将自动换取短期 JWT。")
         else:
-            client.configure()
+            print("未检测到 SageIn Agent 授权。请先通过 sagein-community 完成授权（勾选 skill_jwt 权限）。")
+            return 0
         if not args.no_verify:
             verification = _verify(client)
             if verification:
@@ -486,7 +481,7 @@ def run(
         else:
             print("已跳过连接检查，尚未验证登录会话是否可用。")
     else:
-        print("已跳过登录和连接检查；若尚未登录，请运行 `python3 <skill-dir>/scripts/asynx.py login`（会打开本地登录页面）。")
+        print("已跳过授权和连接检查；使用云端能力前，请先通过 sagein-community 完成授权（勾选 skill_jwt 权限）。")
 
     print("\n安装完成！使用示例：")
     if "codex" in targets:

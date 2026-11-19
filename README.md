@@ -18,9 +18,9 @@ If you are an AI agent and the user asked you to install or set up this reposito
 curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.sh | sh
 ```
 
-This is a single non-interactive command (no prompts, no login, no API key) — run it once, in one step; do not split it into separate clone / install / login commands, as that multiplies approval prompts.
-Options: `--target codex|claude|both`, `--login` (also open the browser login page at the end).
-Login is triggered automatically on first cloud use (`python3 <skill-dir>/scripts/asynx.py login` to do it manually; `ASYNX_NO_LOGIN_UI=1` disables auto-launch). Never ask the user to paste passwords or tokens into the chat. Local post-processing and `asynx-asset-manager` scan/list/lineage need no login.
+This is a single non-interactive command (no prompts, no API key) — run it once, in one step; do not split it into separate clone / install / login commands, as that multiplies approval prompts.
+Options: `--target codex|claude|both`.
+Cloud use requires a SageIn Agent grant with the `skill_jwt` scope (via the `sagein-community` skill); the skills then exchange the local PAT for a short-lived JWT automatically (see `docs/agent-jwt-contract.md`). Never ask the user to paste tokens into the chat. Local post-processing and `asynx-asset-manager` scan/list/lineage need no authorization.
 
 ---
 
@@ -28,7 +28,7 @@ Login is triggered automatically on first cloud use (`python3 <skill-dir>/script
 
 - **跨模态引用（Cross-Modal Pipelines）**：所有技能共用本地 SQLite 状态账本，Agent 可通过上下文任务 ID 无缝串联不同模态（例如：概念原画 -> 图生 3D 模型 -> 自动骨骼绑定 -> 行走动画 -> 导出 2D 游戏精灵图集）。
 - **自包含与开箱即用（Self-Contained Bundling）**：每个 Skill 均包含独立的配置与规则定义，零全局环境污染。
-- **本地免登录确定性后处理（Login-free Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需登录、不消耗额度，本地离线秒级执行。
+- **本地免授权确定性后处理（Authorization-free Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需授权、不消耗额度，本地离线秒级执行。
 - **按需本地交互工作台（Local UI Workbench）**：Agent 可按需自动拉起轻量 Web 服务，在浏览器中完成视觉交互操作（局部重绘圈选标注、视频时间轴去背、WebGL 3D 预览与多方向序列帧图集渲染）。
 
 ---
@@ -49,11 +49,11 @@ Login is triggered automatically on first cloud use (`python3 <skill-dir>/script
 
 ## 安装说明 (Installation)
 
-运行环境要求 Python 3.10+。生成多模态资产须登录 Asynx 账号（通过 Identity Service 获取 Partner Token/JWT，无需 API Key）；仅使用本地处理功能时无需登录。
+运行环境要求 Python 3.10+。生成多模态资产须先通过 `sagein-community` 完成 SageIn Agent 授权（勾选 `skill_jwt`），Skill 自动用 PAT 换取短期 JWT，无需 API Key；仅使用本地处理功能时无需授权。
 
 ### 自动化安装（推荐）
 
-使用仓库自带的安装器一键完成环境检测、依赖安装与账号登录：
+使用仓库自带的安装器一键完成环境检测、依赖安装与授权检查：
 
 ```bash
 git clone https://github.com/fitchgc/asset-skills.git
@@ -63,14 +63,14 @@ python3 install.py
 
 Windows 环境下将最后一行改为 `py install.py`。
 
-安装器会自动检测当前环境中的 Codex、Claude Code 或 Pi，并引导在终端中登录账号（输入用户名/密码，严禁将账号密码或令牌发送给 Agent 对话）：
+安装器会自动检测当前环境中的 Codex、Claude Code 或 Pi，并检查本机是否已有 SageIn Agent 授权（未授权时提示通过 `sagein-community` 完成，严禁将令牌发送给 Agent 对话）：
 
 常用参数选项：
 - `--target`：指定安装目标 Agent，可选 `auto`（默认自动检测）、`codex`、`claude` 或 `both`。
 - `--skill`：指定安装的技能，默认全部安装 (`all`)。可选：`image`、`audio`、`video`、`3d`，或多选如 `--skill image,audio`。
-- `--skip-config`：仅安装技能，不登录（之后可运行 `asynx.py login`）。
-- `--no-verify`：跳过登录会话与模型目录连通性校验。
-- `--uninstall`：卸载已安装的 Skill，保留登录会话、任务记录和已生成文件（可配合 `--yes` 跳过确认）。
+- `--skip-config`：仅安装技能，不检查授权。
+- `--no-verify`：跳过授权与模型目录连通性校验。
+- `--uninstall`：卸载已安装的 Skill，保留授权、任务记录和已生成文件（可配合 `--yes` 跳过确认）。
 
 默认安装位置：
 
@@ -92,9 +92,8 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 各 Skill 共用同一套本机配置与本地状态账本，只需配置一次即可全局生效：
 
-1. **安装时登录**：运行 `python3 install.py` 会在终端引导登录 Identity Service，保存 Partner Token（24h）与 Refresh Token（30d），过期自动刷新。
-2. **按需登录**：`python3 <skill-dir>/scripts/asynx.py login` 打开本地登录工作台；未登录时首次调用云端功能也会自动拉起（`ASYNX_NO_LOGIN_UI=1` 可禁用，改为返回 `need_login`）。`whoami` 查看账号与额度，`logout` 清除会话。
-3. **环境变量**：适用于 CI/CD，导出 `ASYNX_PARTNER_TOKEN`（优先级高于配置文件）；可选 `ASYNX_BASE_URL` 指定网关。
+1. **SageIn Agent 授权**：通过 `sagein-community` 完成设备授权并勾选 `skill_jwt`；Skill 读取本地 `sagein_pat_...`，请求 `POST /api/agent/jwt` 换取短期 JWT（24h，临近过期自动刷新），网关参数取自 `GET /api/agent/asynx-config`。`whoami` 查看额度与并发。
+2. **环境变量**：适用于 CI/CD，导出 `ASYNX_PARTNER_TOKEN`（优先级高于授权流程）；可选 `ASYNX_BASE_URL` 指定网关，`SAGEIN_COMMUNITY_ORIGIN` 指定站点。
 
 详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)。
 

@@ -15,7 +15,7 @@
   - [2. 使用独立构建产物 (Dist Packages)](#2-使用独立构建产物-dist-packages)
   - [3. 源码编译与重新打包 (开发者构建)](#3-源码编译与重新打包-开发者构建)
 - [二、配置与环境诊断命令](#二配置与环境诊断命令)
-  - [1. 登录账号（Identity Service）](#1-登录账号identity-service)
+  - [1. 授权与短期 JWT（SageIn Agent）](#1-授权与短期-jwtsagein-agent)
   - [2. 环境变量配置](#2-环境变量配置)
   - [3. 存储路径与优先级](#3-存储路径与优先级)
   - [4. 环境自检与连通性诊断 (Doctor)](#4-环境自检与连通性诊断-doctor)
@@ -91,23 +91,19 @@ python3 src/build_skills.py --skill all --package
 
 各 Skill 共用同一套本机全局配置与本地状态账本，只需配置一次即可在全部 4 个技能中生效。
 
-### 1. 登录账号（Identity Service）
+### 1. 授权与短期 JWT（SageIn Agent）
 
-云端生成使用 Identity Service 签发的 Partner Token（JWT），不再使用 API Key。任选其一：
+云端生成使用短期 JWT：由 `sagein-community` 完成设备授权（需勾选 `skill_jwt` 权限）后，本地的长效 `sagein_pat_...` 仅用于请求 `POST <origin>/api/agent/jwt` 换取 JWT；网关地址、请求头、`kid`/`iss`/`aud` 来自 `GET <origin>/api/agent/asynx-config`。详见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md)。
 
 ```bash
-# 打开本地登录工作台（浏览器），登录或注册
-python3 skills/asynx-image-pro/scripts/asynx.py login
-# 交互式终端中用命令行输入用户名/密码
-python3 skills/asynx-image-pro/scripts/asynx.py configure
-# 查看当前账号与额度 / 退出登录
+# 查看额度与并发（首次调用会自动换取 JWT）
 python3 skills/asynx-image-pro/scripts/asynx.py whoami
-python3 skills/asynx-image-pro/scripts/asynx.py logout
 ```
 
-- Partner Token 有效期 24 小时，Refresh Token 30 天，临近过期自动刷新；未登录时调用云端功能会自动拉起登录工作台。
-- 可用 `--login-svr-url` 指定 Identity Service 地址，`configure --base-url` 指定自托管网关。
-- 本地离线处理命令无需登录。
+- JWT 默认有效期 24 小时，临近过期或配置不一致时自动用 PAT 重新换取；PAT 永不发送给 Asynx。
+- `SAGEIN_COMMUNITY_ORIGIN`（默认 `https://sagein.ai`）与 `SAGEIN_COMMUNITY_CREDENTIAL_FILE` 可指定站点与授权文件。
+- 授权无效返回 `need_login`，缺少 `skill_jwt` 权限返回 `scope_missing`。
+- 本地离线处理命令无需授权。
 
 ### 2. 环境变量配置
 
@@ -123,8 +119,7 @@ export ASYNX_BASE_URL="https://asynx.llmapi.site/api"
 # 可选：自定义配置文件存储路径
 export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
 
-# 可选：禁用自动拉起登录工作台 / 不自动打开浏览器
-export ASYNX_NO_LOGIN_UI=1
+# 可选：不自动打开浏览器（UI 工作台）
 export ASYNX_NO_OPEN_BROWSER=1
 ```
 
@@ -146,10 +141,10 @@ export ASYNX_NO_OPEN_BROWSER=1
 # 离线检查配置文件、权限、Pillow 与 ffmpeg 工具链
 python3 skills/asynx-image-pro/scripts/asynx.py doctor
 
-# 联网验证登录会话与网关连通性
+# 联网验证授权/JWT 与网关连通性
 python3 skills/asynx-image-pro/scripts/asynx.py doctor --verify
 
-# 查看当前配置状态及登录会话脱敏信息
+# 查看当前配置状态及授权状态
 python3 skills/asynx-image-pro/scripts/asynx.py config status
 ```
 
@@ -178,7 +173,7 @@ python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "将角色的衣�
 python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
 ```
 
-#### 本地确定性图片处理 (免登录)
+#### 本地确定性图片处理 (免授权)
 ```bash
 # 查看图片基础元数据 (尺寸、格式、色彩模式)
 python3 skills/asynx-image-pro/scripts/asynx.py image info "input.png"
@@ -224,7 +219,7 @@ python3 skills/asynx-audio/scripts/asynx.py speech --text "勇敢的冒险者，
 python3 skills/asynx-audio/scripts/asynx.py speech --text "前进，决不后退！" --from-task "<previous-audio-task-id>"
 ```
 
-#### 本地确定性音频处理 (免登录)
+#### 本地确定性音频处理 (免授权)
 ```bash
 # 查看音频元数据 (编码格式、采样率、声道数、比特率、时长)
 python3 skills/asynx-audio/scripts/asynx.py audio info "sound.wav"
@@ -267,7 +262,7 @@ python3 skills/asynx-video/scripts/asynx.py generate --prompt "城堡从白昼�
 python3 skills/asynx-video/scripts/asynx.py edit --prompt "将环境变换为大雪纷飞的冬日场景" --video "street.mp4"
 ```
 
-#### 本地确定性视频处理 (免登录)
+#### 本地确定性视频处理 (免授权)
 ```bash
 # 查看视频参数 (分辨率、帧率、时长、视频编码、音频编码)
 python3 skills/asynx-video/scripts/asynx.py video info "clip.mp4"
@@ -328,7 +323,7 @@ python3 skills/asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --a
 python3 skills/asynx-3d/scripts/asynx.py convert --from-task "<task-id>" --output-format fbx
 ```
 
-#### 本地纯 Python 3D 模型处理 (免登录，无需 Blender)
+#### 本地纯 Python 3D 模型处理 (免授权，无需 Blender)
 ```bash
 # 查看 3D 模型结构 (顶点数、三角面数、材质槽、内嵌贴图、骨骼关节数、动画片段)
 python3 skills/asynx-3d/scripts/asynx.py model3d info "character.glb"

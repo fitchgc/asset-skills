@@ -527,6 +527,7 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         }
         self.env.pop("ASYNX_PARTNER_TOKEN", None)
         self.env.pop("ASYNX_BASE_URL", None)
+        self.env["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(self.temp_dir / "missing-cred.json")
 
     def tearDown(self) -> None:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -622,14 +623,14 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         self.assertTrue(lin_by_id["ok"])
         self.assertEqual(lin_by_id["children"][0]["child_path"], str(moved_sword.resolve()))
 
-        # 4. Shared utility/auth commands: doctor, config status, whoami --no-login-ui, logout
+        # 4. Shared utility/auth commands: doctor, config status, whoami
         cfg = self._run_cli("config", "status")
         self.assertTrue(cfg["ok"])
 
         doc = self._run_cli("doctor", expected_code=2)
         self.assertIn("checks", doc)
 
-        need_login = self._run_cli("whoami", "--no-login-ui", expected_code=2)
+        need_login = self._run_cli("whoami", expected_code=2)
         self.assertFalse(need_login["ok"])
         self.assertEqual(need_login["error"]["code"], "need_login")
 
@@ -637,53 +638,28 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         self.assertFalse(missing_lin["ok"])
         self.assertEqual(missing_lin["error"]["code"], "asset_not_found")
 
-        # 5. Authenticated whoami / doctor --verify / logout against FakeLoginServer + FakeGatewayServer
+        # 5. whoami / doctor --verify via SageIn PAT -> JWT exchange + FakeGatewayServer
         from tests.fake_gateway import run_fake_gateway
-        from tests.fake_login_server import run_fake_login_server
-        import urllib.request
+        from tests.fake_sagein_server import run_fake_sagein_server
 
         gw_server, gw_url, _ = run_fake_gateway()
         self.addCleanup(gw_server.shutdown)
-        login_server, login_url, _ = run_fake_login_server(gw_url)
-        self.addCleanup(login_server.shutdown)
-        login_server.seed_user("mgr_user", "secret_123", "Manager")
-
-        req = urllib.request.Request(
-            f"{login_url}/api/user/login",
-            data=json.dumps({"username": "mgr_user", "password": "secret_123"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req) as resp:
-            session_data = json.loads(resp.read().decode("utf-8"))["data"]
-
-        self.config_file.write_text(
-            json.dumps(
-                {
-                    "login_svr_url": login_url,
-                    "token": session_data["token"],
-                    "refreshToken": session_data["refreshToken"],
-                    "asynx": session_data["asynx"],
-                    "user": session_data["user"],
-                }
-            ),
-            encoding="utf-8",
-        )
+        cred = Path(self.temp_dir) / "cred.json"
+        sagein, origin, _ = run_fake_sagein_server(gw_url, cred)
+        self.addCleanup(sagein.shutdown)
+        self.config_file.write_text("{}", encoding="utf-8")
+        self.env.pop("ASYNX_PARTNER_TOKEN", None)
+        self.env.pop("ASYNX_BASE_URL", None)
+        self.env["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(cred)
+        self.env["SAGEIN_COMMUNITY_ORIGIN"] = origin
 
         who = self._run_cli("whoami")
         self.assertTrue(who["ok"])
-        self.assertEqual(who["user"]["username"], "mgr_user")
+        self.assertEqual(who["origin"], origin)
 
         doc_ver = self._run_cli("doctor", "--verify")
         self.assertTrue(doc_ver["ok"])
         self.assertTrue(doc_ver["verification"]["ok"])
-
-        logged_out = self._run_cli("logout")
-        self.assertTrue(logged_out["ok"])
-        self.assertTrue(logged_out["logged_out"])
-
-        after_logout = self._run_cli("whoami", "--no-login-ui", expected_code=2)
-        self.assertEqual(after_logout["error"]["code"], "need_login")
 
     def test_asset_manager_ui_placeholder_serves_session_and_index(self) -> None:
         import threading

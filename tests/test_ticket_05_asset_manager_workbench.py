@@ -29,7 +29,7 @@ import PIL.Image
 from shared.asxlib.state import connect_db, get_asset_lineage, record_artifact_with_lineage
 from shared.asxlib.ui_server import WorkbenchServer
 from tests.fake_gateway import run_fake_gateway
-from tests.fake_login_server import run_fake_login_server
+from tests.fake_sagein_server import PAT, run_fake_sagein_server
 from tests.test_issue_03_audio_skill import make_test_wav
 from tests.test_issue_04_video_skill import make_test_mp4
 from tests.test_issue_05_3d_skill import make_test_glb
@@ -115,7 +115,6 @@ class TestAssetManagerPackagingDeterminism(unittest.TestCase):
             "asynx-asset-manager/scripts/asxlib/local_model3d.py",
             "asynx-asset-manager/scripts/asxlib/ui/index.html",
             "asynx-asset-manager/scripts/asxlib/ui/account-bar.js",
-            "asynx-asset-manager/scripts/asxlib/ui/login.html",
             "asynx-asset-manager/scripts/asxlib/ui/model3d-loader.js",
             "asynx-asset-manager/scripts/asxlib/ui/image/index.html",
             "asynx-asset-manager/scripts/asxlib/ui/video/index.html",
@@ -146,7 +145,7 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
 
         self._prev_env = {
             k: os.environ.get(k)
-            for k in ("ASYNX_STATE_PATH", "ASYNX_CONFIG_PATH", "ASYNX_CACHE_PATH", "ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL", "ASYNX_LOGIN_SVR_URL")
+            for k in ("ASYNX_STATE_PATH", "ASYNX_CONFIG_PATH", "ASYNX_CACHE_PATH", "ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL", "SAGEIN_COMMUNITY_ORIGIN", "SAGEIN_COMMUNITY_CREDENTIAL_FILE")
         }
         os.environ["ASYNX_STATE_PATH"] = str(self.state_db)
         os.environ["ASYNX_CONFIG_PATH"] = str(self.config_file)
@@ -155,9 +154,10 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
         os.environ.pop("ASYNX_BASE_URL", None)
 
         self.gw_server, self.gw_url, _ = run_fake_gateway()
-        self.login_server, self.login_url, _ = run_fake_login_server(self.gw_url)
-        self.login_server.seed_user("creator_01", "pass_1234", "Creator One")
-        os.environ["ASYNX_LOGIN_SVR_URL"] = self.login_url
+        self.cred_file = self.temp_dir / "cred.json"
+        self.login_server, self.login_url, _ = run_fake_sagein_server(self.gw_url)
+        os.environ["SAGEIN_COMMUNITY_ORIGIN"] = self.login_url
+        os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(self.cred_file)
 
         # Seed workspace assets across all 5 categories
         (self.workspace / "art").mkdir(parents=True)
@@ -212,7 +212,7 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
             output_path=None,
             output_dir=str(self.workspace / "generated-assets"),
             static_dir=REPO_ROOT / "src" / "ui" / "asset_manager",
-            metadata={"workspace_root": str(self.workspace.resolve()), "login_svr_url": self.login_url},
+            metadata={"workspace_root": str(self.workspace.resolve())},
             client=None,
         )
         self.base_url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -233,14 +233,10 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def _login_via_workbench(self) -> None:
-        status, payload = _http_json(
-            f"{self.base_url}/api/auth/login",
-            method="POST",
-            token=self.token,
-            body={"username": "creator_01", "password": "pass_1234", "login_svr_url": self.login_url},
-        )
+        """Grant the Agent PAT (as sagein-community would); JWT is then exchanged lazily."""
+        self.cred_file.write_text(json.dumps({"access_token": PAT}), encoding="utf-8")
+        status, payload = _http_json(f"{self.base_url}/api/auth/status", token=self.token)
         self.assertEqual(status, 200, payload)
-        self.assertTrue(payload["ok"])
         self.assertTrue(payload["authenticated"])
 
     def _set_next_gateway_assets(self, mime: str, data: bytes) -> None:
@@ -332,7 +328,7 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
         self.assertEqual(len(fs_scan["assets"]), 1)
         self.assertEqual(fs_scan["assets"][0]["parents"][0]["parent_path"], str(self.hero_img.resolve()))
 
-        # 7. Login via AccountBar endpoint -> cloud action now succeeds seamlessly
+        # 7. Grant PAT -> cloud action now succeeds seamlessly
         self._login_via_workbench()
         self._set_next_gateway_assets("image/png", self.hero_img.read_bytes())
         st, edit_res = _http_json(
@@ -699,9 +695,9 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
 
         gw_server, gw_url, _ = run_fake_gateway()
         self.addCleanup(gw_server.shutdown)
-        login_server, login_url, _ = run_fake_login_server(gw_url)
+        cred_file = temp_dir / "cred.json"
+        login_server, login_url, _ = run_fake_sagein_server(gw_url)
         self.addCleanup(login_server.shutdown)
-        login_server.seed_user("standalone_user", "pass_1234", "Standalone")
 
         mp4_path = temp_dir / "vid.mp4"
         make_test_mp4(mp4_path)
@@ -713,7 +709,8 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
             "ASYNX_STATE_PATH": str(temp_dir / "state.db"),
             "ASYNX_CONFIG_PATH": str(temp_dir / "config.json"),
             "ASYNX_CACHE_PATH": str(temp_dir / "cache" / "models.json"),
-            "ASYNX_LOGIN_SVR_URL": login_url,
+            "SAGEIN_COMMUNITY_ORIGIN": login_url,
+            "SAGEIN_COMMUNITY_CREDENTIAL_FILE": str(cred_file),
             "ASYNX_NO_OPEN_BROWSER": "1",
         }
         env.pop("ASYNX_PARTNER_TOKEN", None)
@@ -800,14 +797,8 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
         )
         self.assertEqual(st, 200, slice_res)
 
-        # Login & run cloud image_to_video in standalone process
-        st, login_res = _http_json(
-            f"{base_url}/api/auth/login",
-            method="POST",
-            token=token,
-            body={"username": "standalone_user", "password": "pass_1234", "login_svr_url": login_url},
-        )
-        self.assertEqual(st, 200, login_res)
+        # Grant PAT & run cloud image_to_video in standalone process
+        cred_file.write_text(json.dumps({"access_token": PAT}), encoding="utf-8")
 
         st, vid_res = _http_json(
             f"{base_url}/api/manager/action",

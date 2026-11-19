@@ -1,10 +1,11 @@
 # Asynx Video 环境配置
 
-## 登录
-与所有 Asynx Skill 共享同一登录会话（Identity Service 签发的 Partner Token）：
+## 授权
+与所有 Asynx Skill 共享同一 SageIn Agent 授权（需 `skill_jwt` 权限），自动换取短期 JWT：
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" login
+python3 "<skill-dir>/scripts/asynx.py" whoami
 ```
+未授权时使用 `sagein-community` 技能完成授权。
 
 ## 依赖诊断
 视频处理依赖系统中的 `ffmpeg` 与 `ffprobe`：

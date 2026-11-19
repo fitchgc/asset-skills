@@ -57,7 +57,7 @@ python3 "<skill-dir>/scripts/asynx.py" lineage "artifact_0123456789abcdef" --roo
 python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project" [--no-open]
 ```
 
-- **离线浏览与懒加载登录**：启动时无需预先登录，可直接浏览工作区五类资产、检查详情与血缘；当触发云端生成/编辑操作时，若尚未登录会返回 `need_login` 并在顶部账号栏弹出登录/注册窗口，登录完成后即可继续操作。
+- **离线浏览与懒加载授权**：启动时无需预先登录，可直接浏览工作区五类资产、检查详情与血缘；当触发云端生成/编辑操作时，若本机尚无 SageIn Agent 授权会返回 `need_login`，需先通过 `sagein-community` 授权（`skill_jwt` 权限）后重试。
 - **核心工作台 HTTP 接口**（均需 `X-Asx-Session-Token` 或 `?token=`）：
   - `GET /api/assets`：按 `category`、`source`、`managed_only`、`external_only`、`query`、`no_cache` 实时扫描工作区。
   - `GET /api/lineage`：查询目标资产的上下游血缘卡片与 DAG 边集合。

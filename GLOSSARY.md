@@ -16,8 +16,8 @@ _Avoid_: 资产类型、文件格式、频道
 面向 AI Agent 的特定资产模态创作、处理或项目资产管理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`），包含声明式工作流引导、自包含 CLI 脚本与按需启动的本地交互工作台。
 _Avoid_: 插件、子代理、微服务
 
-**Identity Service（身份认证服务）**:
-负责用户账号注册、登录、会话刷新与网关接入参数下发的统一认证入口，向客户端签发用于访问资产网关的短期伙伴令牌（Partner Token）与长期刷新令牌（Refresh Token）。
+**SageIn Agent 授权（Agent PAT → JWT）**:
+用户通过 `sagein-community` 设备授权（含 `skill_jwt` 权限）获得本地长效 `sagein_pat_...`；Skill 用它请求 `/api/agent/jwt` 换取短期 JWT（Partner Token），并从 `/api/agent/asynx-config` 获取网关接入参数。PAT 永不发送给 Asynx。
 _Avoid_: 授权中心、Key 管理台
 
 **Asset Gateway（资产网关）**:

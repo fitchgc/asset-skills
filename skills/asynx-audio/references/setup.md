@@ -1,10 +1,11 @@
 # Asynx Audio 环境与配置
 
-## 登录
-与 `asynx-image-pro` 共享同一登录会话（`~/.config/asynx/config.json` 或 `ASYNX_PARTNER_TOKEN` 环境变量）。登录一次即可多模态通用，由用户在浏览器中完成：
+## 授权
+与 `asynx-image-pro` 共享同一授权（`sagein-community` 的 SageIn Agent 授权，需 `skill_jwt` 权限；或 `ASYNX_PARTNER_TOKEN` 环境变量）。运行时自动用 PAT 换取短期 JWT：
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" login
+python3 "<skill-dir>/scripts/asynx.py" whoami
 ```
+未授权时使用 `sagein-community` 技能完成授权。
 
 ## 依赖诊断
 检查外部媒体工具 `ffmpeg` 与 `ffprobe` 状态：

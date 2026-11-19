@@ -1655,10 +1655,7 @@
         await loadAssets({ noCache: true, lineageOnly: true });
       } catch (err) {
         if (err.code === 'need_login' || err.status === 401) {
-          showToast('云端操作需要先登录 Asynx 账号，请在弹窗中登录', 'error');
-          if (window.AsxAccountBar && typeof window.AsxAccountBar.openLogin === 'function') {
-            window.AsxAccountBar.openLogin();
-          }
+          showToast('云端操作需要 SageIn Agent 授权（skill_jwt 权限），请先通过 sagein-community 授权', 'error');
         } else {
           showToast(err.message, 'error');
         }

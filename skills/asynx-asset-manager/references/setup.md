@@ -1,18 +1,16 @@
 # Asynx Asset Manager 配置与维护
 
-命令中的 `<skill-dir>` 为当前 Skill 的绝对路径。`scan`、`list` 与 `lineage` 均为本地离线命令，不需要登录账号或联网即可运行。
+命令中的 `<skill-dir>` 为当前 Skill 的绝对路径。`scan`、`list` 与 `lineage` 均为本地离线命令，不需要授权或联网即可运行。
 
-## Identity Service 会话管理
+## SageIn Agent 授权与 JWT
 
-需要执行 `whoami`、`doctor --verify` 或从统一工作台发起云端 Generation Task 时，使用统一 Identity Service 会话（与 `asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d` 共享 `~/.config/asynx/config.json`）：
+需要执行 `whoami`、`doctor --verify` 或从统一工作台发起云端 Generation Task 时，使用 `sagein-community` 写入的 SageIn Agent 授权（需 `skill_jwt` 权限），自动用 PAT 换取短期 JWT（与其他 Asynx Skill 共享，JWT 缓存于 `~/.config/asynx/config.json`）：
 
 ```bash
-python3 "<skill-dir>/scripts/asynx.py" login
 python3 "<skill-dir>/scripts/asynx.py" whoami
-python3 "<skill-dir>/scripts/asynx.py" logout
 ```
 
-在无交互自动化环境可传入 `--no-login-ui` 或设置 `ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` 环境变量。
+在无交互自动化环境可设置 `ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` 环境变量。
 
 ## 配置检查与环境诊断
 

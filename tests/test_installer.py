@@ -143,35 +143,18 @@ class TestInstaller(unittest.TestCase):
         self.assertFalse(manager_dir.exists())
 
     def test_verify_with_fake_gateway(self) -> None:
-        from tests.fake_login_server import run_fake_login_server
+        from tests.fake_sagein_server import run_fake_sagein_server
 
         server, url, _ = run_fake_gateway()
         self.addCleanup(server.shutdown)
-        login_server, login_url, _ = run_fake_login_server(url)
-        self.addCleanup(login_server.shutdown)
-        login_server.seed_user("installer_user", "secret_123", "Installer")
-
-        # Login via FakeLoginServer and save full session config
-        import urllib.request
-        req = urllib.request.Request(
-            f"{login_url}/api/user/login",
-            data=json.dumps({"username": "installer_user", "password": "secret_123"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req) as resp:
-            session_data = json.loads(resp.read().decode("utf-8"))["data"]
-
-        self.config_file.write_text(
-            json.dumps({
-                "login_svr_url": login_url,
-                "token": session_data["token"],
-                "refreshToken": session_data["refreshToken"],
-                "asynx": session_data["asynx"],
-                "user": session_data["user"],
-            }),
-            encoding="utf-8",
-        )
+        cred = self.temp_home / "cred.json"
+        sagein, origin, _ = run_fake_sagein_server(url, cred)
+        self.addCleanup(sagein.shutdown)
+        self.config_file.write_text("{}", encoding="utf-8")
+        os.environ["SAGEIN_COMMUNITY_CREDENTIAL_FILE"] = str(cred)
+        os.environ["SAGEIN_COMMUNITY_ORIGIN"] = origin
+        self.addCleanup(os.environ.pop, "SAGEIN_COMMUNITY_CREDENTIAL_FILE", None)
+        self.addCleanup(os.environ.pop, "SAGEIN_COMMUNITY_ORIGIN", None)
 
         (self.temp_home / ".agents").mkdir(parents=True, exist_ok=True)
         ret = install.run(

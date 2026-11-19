@@ -10,14 +10,11 @@ from .artifacts import recent_payload
 from .batches import execute_batch
 from .cli_common import (
     add_auth_commands,
-    attach_global_auth_flags,
     handle_auth_command,
-    prepare_cli_auth,
 )
 from .client import AsynxClient
 from .config import (
     config_status,
-    configure,
     doctor,
     legacy_installation_notice,
     load_client,
@@ -220,11 +217,6 @@ def parser() -> argparse.ArgumentParser:
     _add_local_image_commands(commands)
     add_auth_commands(result, commands)
 
-    configure_command = commands.add_parser("configure", help="登录并配置 Asynx 会话与 Partner Token")
-    configure_command.add_argument(
-        "--base-url",
-        help="使用自托管 Asynx 服务地址；使用公共服务时无需设置",
-    )
     update = commands.add_parser("update", help="检查、安装或回滚 Skill 更新")
     update_commands = update.add_subparsers(dest="update_command", required=True)
     update_commands.add_parser("status", help="离线查看版本、安装位置和最近检查结果")
@@ -350,7 +342,6 @@ def parser() -> argparse.ArgumentParser:
     resume.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
     cancel = batch_commands.add_parser("cancel", help="取消批次中的 Task")
     cancel.add_argument("batch_id", nargs="?", help="批次 ID，省略时使用最近的活动批次")
-    attach_global_auth_flags(result)
     return result
 
 
@@ -368,7 +359,6 @@ def _ui_static_dir() -> Path:
 
 
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
-    prepare_cli_auth(args)
     auth_result = handle_auth_command(args)
     if auth_result is not None:
         return auth_result
@@ -416,8 +406,6 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         return update_rollback(already_locked=locked_root), 0
     if args.command == "image":
         return execute_local_image(args)
-    if args.command == "configure":
-        return configure(args.base_url), 0
     if args.command == "config" and args.config_command == "status":
         return config_status(), 0
     if args.command == "doctor":
@@ -529,7 +517,7 @@ def main(*, locked_root: Path | None = None) -> NoReturn:
     legacy_notice = legacy_installation_notice()
     if legacy_notice:
         payload["legacy_installation_notice"] = legacy_notice
-    if args is not None and args.command == "configure" and sys.stdout.isatty():
+    if args is not None and False:
         # configure is the one CLI interaction users perform themselves.
         # Keep redirected stdout JSON for callers that consume its existing contract.
         if not payload.get("ok"):

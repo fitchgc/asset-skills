@@ -6,11 +6,9 @@ from typing import Any, NoReturn
 
 from .cli_common import (
     add_auth_commands,
-    attach_global_auth_flags,
     handle_auth_command,
-    prepare_cli_auth,
 )
-from .config import config_status, configure, doctor, legacy_installation_notice
+from .config import config_status, doctor, legacy_installation_notice
 from .constants import VERSION
 from .errors import AsxError
 from .output import emit
@@ -76,8 +74,6 @@ def parser() -> argparse.ArgumentParser:
     doctor_cmd.add_argument("--verify", action="store_true")
     doctor_cmd.add_argument("--updates", action="store_true")
 
-    configure_cmd = commands.add_parser("configure", help="配置 Identity Service 登录会话")
-    configure_cmd.add_argument("--base-url")
 
     config_cmd = commands.add_parser("config", help="查看配置状态")
     config_sub = config_cmd.add_subparsers(dest="config_command", required=True)
@@ -93,12 +89,10 @@ def parser() -> argparse.ArgumentParser:
     update_apply_cmd.add_argument("--force", action="store_true")
     update_sub.add_parser("rollback")
 
-    attach_global_auth_flags(res)
     return res
 
 
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
-    prepare_cli_auth(args)
     auth_result = handle_auth_command(args)
     if auth_result is not None:
         return auth_result
@@ -134,8 +128,6 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             open_browser=not getattr(args, "no_open", False),
         )
 
-    if args.command == "configure":
-        return configure(args.base_url), 0
     if args.command == "config" and args.config_command == "status":
         return config_status(), 0
     if args.command == "doctor":

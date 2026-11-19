@@ -73,17 +73,13 @@ python3 "<skill-dir>/scripts/asynx.py" wait "<task-id>"
 | --- | --- |
 | 批量生成、追加、暂停或继续批次 | [批次操作](references/operations.md#批次) |
 | 交互式编辑、局部重绘、涂鸦批注或网页工作台 | [交互工作台](references/operations.md#交互工作台) |
-| 缩放、裁剪、切图、格式转换或应用已有 Mask | [本地图片工具](references/operations.md#本地图片工具)，不需要登录 |
+| 缩放、裁剪、切图、格式转换或应用已有 Mask | [本地图片工具](references/operations.md#本地图片工具)，不需要授权 |
 | 输入图片限制、Mask 编辑或特殊参数 | [输入与参数](references/operations.md#输入图片) |
 | 恢复中断、取消任务、找回下载文件 | [任务恢复](references/operations.md#任务恢复与取消) |
 | 配置、连接异常、安装、升级或旧入口清理 | [配置与维护](references/setup.md) |
 | 用户要求模型推荐、Prompt 优化，或需梳理多图关系、复杂图文布局 | [模型与提示词](references/model-prompting.md)，读取本身不要求查模型目录 |
 
-未登录（`need_login`）时，运行以下命令打开本地登录页面，由用户在浏览器中登录，不在对话中索取账号密码或令牌；已登录却报错时按维护参考诊断：
-
-```bash
-python3 "<skill-dir>/scripts/asynx.py" login
-```
+返回 `need_login` 时，说明本机没有有效的 SageIn Agent 授权：使用 `sagein-community` 技能完成设备授权，并确认勾选 `skill_jwt` 权限（返回 `scope_missing` 即缺少该权限）；不在对话中索取令牌。已授权却报错时按维护参考诊断。
 
 ## 结果与边界
 
@@ -93,6 +89,6 @@ python3 "<skill-dir>/scripts/asynx.py" login
 - 中断等待不等于取消。已开始的任务可能继续执行和计费；恢复结果不能通过重新生图替代，不无条件重试失败任务。
 - `next_action_args` 给出继续原任务的脚本参数；仅在需要继续时使用。下载失败可重试原下载，提交恢复或失败后的重新生成须符合用户要求的范围。
 - 返回 `warnings`、`update_notice` 或 `legacy_installation_notice` 时，先交付本次结果，再说明相关提示。不要提前查更新；未收到升级或清理指令时不替换、移动文件。
-- 账号密码、Partner Token 和 Refresh Token 不得进入对话、命令参数、Prompt、日志、项目文件或浏览器代码。通过脚本管理任务，不直接读取、修改或依赖本 Skill 的数据库及内部状态文件。
+- SageIn PAT（`sagein_pat_...`）和 JWT 不得进入对话、命令参数、Prompt、日志、项目文件或浏览器代码。通过脚本管理任务，不直接读取、修改或依赖本 Skill 的数据库及内部状态文件。
 
 用户要求自定义工作台或工作流时，可以调用公开 API 或封装本脚本，使用自己的数据库；遵守密钥和本地状态边界即可，不额外限定技术栈或引入用户未要求的服务。

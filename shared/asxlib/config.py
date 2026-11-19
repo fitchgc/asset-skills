@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import getpass
 import json
 import math
 import os
@@ -162,18 +161,18 @@ def validate_base_url(value: str) -> str:
     return candidate
 
 
-def load_credentials(*, allow_login_ui: bool = True) -> tuple[str, str]:
+def load_credentials() -> tuple[str, str]:
     from .auth import load_auth_session
 
-    session = load_auth_session(allow_login_ui=allow_login_ui)
+    session = load_auth_session()
     return session.ensure_valid_token(), session.base_url
 
 
-def load_client(*, allow_login_ui: bool = True) -> Any:
+def load_client() -> Any:
     from .auth import load_auth_session
     from .client import AsynxClient
 
-    session = load_auth_session(allow_login_ui=allow_login_ui)
+    session = load_auth_session()
     return AsynxClient(session.base_url, session=session)
 
 
@@ -237,19 +236,24 @@ def migrate_legacy_config() -> Path | None:
 
 
 def config_status() -> dict[str, Any]:
-    from .auth import decode_jwt, resolve_login_svr_url
+    from .auth import credential_file_path, decode_jwt, resolve_origin
 
     config, source = read_config_with_source()
     env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
     stored_token = config.get("token") if isinstance(config.get("token"), str) else None
-    stored_refresh = config.get("refreshToken") if isinstance(config.get("refreshToken"), str) else None
+    try:
+        origin = resolve_origin(config)
+        has_pat = credential_file_path(origin).is_file()
+    except AsxError:
+        origin = "<invalid>"
+        has_pat = False
     token = env_token.strip() if isinstance(env_token, str) and env_token.strip() else stored_token
 
     credential_source = (
         "environment"
         if isinstance(env_token, str) and env_token.strip()
-        else "session_file"
-        if (stored_token or stored_refresh)
+        else "sagein_pat"
+        if has_pat
         else "none"
     )
 
@@ -270,11 +274,6 @@ def config_status() -> dict[str, Any]:
         except AsxError:
             normalized_base_url = "<invalid>"
 
-    try:
-        login_svr_url = resolve_login_svr_url(config)
-    except AsxError:
-        login_svr_url = "<invalid>"
-
     token_expires_at: int | None = None
     token_kid: str | None = None
     if isinstance(token, str) and token.strip():
@@ -287,7 +286,6 @@ def config_status() -> dict[str, Any]:
         except Exception:
             pass
 
-    user = config.get("user") if isinstance(config.get("user"), dict) else None
     overrides = [
         name
         for name in (
@@ -300,8 +298,7 @@ def config_status() -> dict[str, Any]:
     canonical = config_path()
     configured = bool(
         (isinstance(env_token, str) and env_token.strip())
-        or (isinstance(stored_token, str) and stored_token.strip())
-        or (isinstance(stored_refresh, str) and stored_refresh.strip())
+        or has_pat
     )
     return {
         "ok": True,
@@ -310,15 +307,14 @@ def config_status() -> dict[str, Any]:
         "config_path": str(canonical),
         "loaded_config_path": str(source) if source else None,
         "config_exists": canonical.exists(),
-        "login_svr_url": login_svr_url,
+        "origin": origin,
+        "has_pat": has_pat,
         "has_token": bool(isinstance(token, str) and token.strip()),
-        "has_refresh_token": bool(isinstance(stored_refresh, str) and stored_refresh.strip()),
         "token_expires_at": token_expires_at,
         "token_kid": token_kid,
         "base_url": normalized_base_url,
         "base_url_valid": base_url_valid,
         "asynx": asynx_cfg or None,
-        "user": user,
         "skill_version": VERSION,
         "environment_overrides": overrides,
     }
@@ -418,7 +414,6 @@ def doctor(
     *,
     verify: bool = False,
     modality: str | None = None,
-    allow_login_ui: bool | None = None,
 ) -> dict[str, Any]:
     status = config_status()
     checks: list[dict[str, Any]] = []
@@ -426,15 +421,15 @@ def doctor(
 
     # 1. Config & credentials check
     config_ok = bool(status["configured"]) and (
-        status["credential_source"] == "session_file" or status["base_url_valid"]
+        status["credential_source"] == "sagein_pat" or status["base_url_valid"]
     )
     checks.append(
         {
             "name": "credentials",
             "ok": config_ok,
-            "message": "Partner token session configured"
+            "message": "SageIn PAT / partner token configured"
             if config_ok
-            else "Login session or partner token not configured",
+            else "SageIn PAT or partner token not configured",
         }
     )
     if not status["configured"]:
@@ -442,7 +437,7 @@ def doctor(
             {
                 "level": "error",
                 "code": "need_login",
-                "message": "Asynx login session is not configured. Run login/configure or set ASYNX_PARTNER_TOKEN.",
+                "message": "SageIn Agent credential not found. Authorize via sagein-community (with skill_jwt scope) or set ASYNX_PARTNER_TOKEN.",
             }
         )
     elif not config_ok:
@@ -529,11 +524,8 @@ def doctor(
     }
 
     if verify:
-        from .auth import is_login_ui_allowed
-
-        effective_allow_login = is_login_ui_allowed() if allow_login_ui is None else allow_login_ui
         try:
-            client = load_client(allow_login_ui=effective_allow_login)
+            client = load_client()
             identity, _id_req = client.partner_identity()
             models, request_id = client.models(modality=modality)
             if not config_ok:
@@ -543,7 +535,7 @@ def doctor(
                 for chk in checks:
                     if chk.get("name") == "credentials":
                         chk["ok"] = True
-                        chk["message"] = "Partner token session configured"
+                        chk["message"] = "SageIn PAT / partner token configured"
                 result["ok"] = not any(issue["level"] == "error" for issue in issues)
             result["verification"] = {
                 "ok": True,
@@ -597,46 +589,3 @@ def doctor(
             )
 
     return result
-
-
-def configure(
-    base_url_override: str | None = None,
-    *,
-    login_svr_url_override: str | None = None,
-) -> dict[str, Any]:
-    from .auth import login_and_provision, resolve_login_svr_url, validate_login_svr_url
-
-    if not sys.stdin.isatty():
-        raise AsxError(
-            "请在自己的终端运行登录配置命令，或使用交互式登录工作台。",
-            code="interactive_terminal_required",
-        )
-    migrated = migrate_legacy_config()
-    current = read_config()
-    default_login_url = resolve_login_svr_url(current, override=login_svr_url_override)
-    if base_url_override:
-        os.environ["ASYNX_BASE_URL"] = validate_base_url(base_url_override)
-    log(f"配置文件：{config_path()}")
-    if migrated:
-        log(f"已将旧配置保存到：{migrated}，原文件已保留。")
-    try:
-        entered_url = input(f"Identity Service 地址 [{default_login_url}]：").strip()
-        login_svr_url = entered_url or default_login_url
-        username = input("用户名：").strip()
-        password = getpass.getpass("密码：")
-    except (EOFError, KeyboardInterrupt):
-        raise AsxError("已取消登录配置。", code="interrupted", exit_code=130) from None
-
-    session, identity = login_and_provision(username, password, login_svr_url=login_svr_url)
-    log("登录成功，已保存会话并完成 Partner Identity 开通。")
-    if os.environ.get("ASYNX_PARTNER_TOKEN"):
-        log("注意：当前设置了 ASYNX_PARTNER_TOKEN 环境变量，运行时会优先使用它。")
-    return {
-        "ok": True,
-        "configured": True,
-        "login_svr_url": session.login_svr_url,
-        "base_url": session.base_url,
-        "user": session.user,
-        "partner_identity": identity,
-        "config_path": str(config_path().resolve()),
-    }
