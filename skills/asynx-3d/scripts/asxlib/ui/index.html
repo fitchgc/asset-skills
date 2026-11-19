@@ -1,129 +1,82 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Asynx 3D Inspector & Frame Sequence Renderer</title>
+  <title>Asynx 3D Workbench · 3D 检查与序列帧渲染</title>
+  <link rel="stylesheet" href="/plaiers.css">
   <style>
-    :root {
-      --bg: #09090b;
-      --card: #18181b;
-      --border: #27272a;
-      --text: #f4f4f5;
-      --text-muted: #a1a1aa;
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
-      --danger: #ef4444;
-      --accent: #10b981;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-    header { background: var(--card); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 10; }
-    .badge { background: #27272a; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--text-muted); text-transform: uppercase; }
-    button { background: var(--card); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; }
-    button:hover { background: #27272a; }
-    button.primary { background: var(--primary); border-color: var(--primary); color: white; }
-    button.primary:hover { background: var(--primary-hover); }
-    button.danger { background: transparent; border-color: var(--border); color: var(--danger); }
-    main { flex: 1; display: flex; overflow: hidden; position: relative; }
-    #viewport-container { flex: 1; position: relative; background: #000; overflow: hidden; }
-    #viewport-canvas { width: 100%; height: 100%; display: block; }
-    #sidebar { width: 360px; background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; z-index: 5; }
-    .section { padding: 16px; border-bottom: 1px solid var(--border); }
-    .section h3 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.5px; }
-    label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
-    input, select { width: 100%; background: #09090b; border: 1px solid var(--border); color: var(--text); padding: 8px; border-radius: 6px; font-size: 13px; margin-bottom: 10px; outline: none; }
-    .pbr-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .pbr-channel { border: 1px solid var(--border); border-radius: 6px; padding: 8px; font-size: 12px; text-align: center; background: #09090b; }
-    #loading-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 100; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
-    .spinner { width: 36px; height: 36px; border: 3px solid #27272a; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    #viewport-canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+    #viewport-canvas:active { cursor: grabbing; }
+    .stage-hint { position: absolute; left: 16px; bottom: 14px; font-size: 12px; color: var(--n500); pointer-events: none; }
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+    .kv dt { color: var(--n400); }
+    .kv dd { margin: 0; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
-<body>
-  <header>
-    <div style="display: flex; align-items: center; gap: 12px;">
-      <h2 style="font-size: 15px; font-weight: 600;">Asynx 3D Workbench</h2>
-      <span class="badge" id="mode-badge">Loading</span>
-    </div>
-    <div style="display: flex; align-items: center; gap: 10px;">
+<body class="pl-portal wb-app">
+  <header class="wb-top">
+    <h1 class="wb-title">3D 序列帧渲染</h1>
+    <span class="pl-tag sm" id="mode-badge">载入中</span>
+    <div class="wb-actions">
       <div id="account-bar-slot"></div>
-      <button class="danger" id="cancel-btn">Cancel</button>
-      <button class="primary" id="render-btn">Render & Export Atlas</button>
+      <button type="button" class="btn-text" id="cancel-btn">取消</button>
+      <button type="button" class="keycap sm" id="render-btn">渲染并导出图集</button>
     </div>
   </header>
 
-  <main>
-    <div id="viewport-container">
+  <main class="wb-main">
+    <div id="viewport-container" class="wb-stage">
       <canvas id="viewport-canvas"></canvas>
+      <span class="stage-hint">左右拖动旋转模型</span>
     </div>
 
-    <div id="sidebar">
-      <div class="section">
-        <h3>Model Info</h3>
-        <p id="model-stats" style="font-size: 12px; color: var(--text-muted); line-height: 1.6;">Loading 3D model...</p>
-      </div>
+    <aside class="wb-side">
+      <section class="wb-sec">
+        <h3>模型</h3>
+        <dl class="kv" id="model-stats"><dt>状态</dt><dd>正在载入模型…</dd></dl>
+      </section>
 
-      <div class="section">
-        <h3>Animation Playback</h3>
-        <label>Clip</label>
-        <select id="clip-select">
-          <option value="">No animation</option>
-        </select>
-        <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-          <button id="anim-play-btn" style="flex: 1;">Pause</button>
-          <button id="anim-reset-btn" style="flex: 1;">Reset</button>
-        </div>
-        <label>Playback Speed</label>
-        <input type="range" id="anim-speed" min="0.2" max="2.0" step="0.1" value="1.0">
-      </div>
-
-      <div class="section">
-        <h3>2D Frame Sequence Settings</h3>
-        <label>Camera View Angle</label>
-        <select id="view-angle">
-          <option value="isometric_8way">Isometric 8-Way (2.5D RPG)</option>
-          <option value="isometric_4way">Isometric 4-Way</option>
-          <option value="topdown_8way">Top-Down 8-Way</option>
-          <option value="topdown_4way">Top-Down 4-Way</option>
-          <option value="side_1way">Side 1-Way (Platformer)</option>
-        </select>
-        <div style="display: flex; gap: 8px;">
-          <div style="flex: 1;">
-            <label>Frame Width</label>
-            <input type="number" id="frame-w" value="128">
-          </div>
-          <div style="flex: 1;">
-            <label>Frame Height</label>
-            <input type="number" id="frame-h" value="128">
-          </div>
-        </div>
-        <label>Target FPS</label>
-        <input type="number" id="target-fps" value="10" min="1" max="60">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-          <input type="checkbox" id="in-place-root" checked style="width: auto; margin: 0;">
-          In-Place Root Stabilization
+      <section class="wb-sec">
+        <h3>动画预览</h3>
+        <label class="pl-field"><span>动画片段</span>
+          <select id="clip-select"><option value="">没有动画</option></select>
         </label>
-      </div>
-
-      <div class="section">
-        <h3>PBR Texture Channels</h3>
-        <div class="pbr-grid" id="pbr-channels">
-          <div class="pbr-channel">Base Color<br><span style="color:var(--text-muted)">Embedded</span></div>
-          <div class="pbr-channel">Metallic<br><span style="color:var(--text-muted)">Channel B</span></div>
-          <div class="pbr-channel">Roughness<br><span style="color:var(--text-muted)">Channel G</span></div>
-          <div class="pbr-channel">Normal<br><span style="color:var(--text-muted)">Tangent Space</span></div>
+        <div class="wb-row">
+          <button type="button" class="keycap ghost sm" id="anim-play-btn"></button>
+          <button type="button" class="btn-text" id="anim-reset-btn">回到初始姿势</button>
         </div>
-      </div>
-    </div>
+        <label class="pl-field"><span>播放速度</span><input type="range" id="anim-speed" min="0.2" max="2.0" step="0.1" value="1.0"></label>
+      </section>
+
+      <section class="wb-sec">
+        <h3>序列帧导出</h3>
+        <label class="pl-field"><span>相机视角</span>
+          <select id="view-angle">
+            <option value="isometric_8way">等距 8 方向（2.5D RPG）</option>
+            <option value="isometric_4way">等距 4 方向</option>
+            <option value="topdown_8way">俯视 8 方向</option>
+            <option value="topdown_4way">俯视 4 方向</option>
+            <option value="side_1way">侧视 1 方向（横版）</option>
+          </select>
+        </label>
+        <div class="wb-grid2">
+          <label class="pl-field"><span>帧宽（px）</span><input type="number" id="frame-w" value="128"></label>
+          <label class="pl-field"><span>帧高（px）</span><input type="number" id="frame-h" value="128"></label>
+        </div>
+        <label class="pl-field"><span>帧率</span><input type="number" id="target-fps" value="10" min="1" max="60"></label>
+        <label class="pl-check"><input type="checkbox" id="in-place-root" checked>原地播放（锁定根骨骼水平位移）</label>
+      </section>
+    </aside>
   </main>
 
-  <div id="loading-overlay">
-    <div class="spinner"></div>
-    <p id="loading-text">Rendering 3D Frame Sequence Atlas...</p>
+  <div id="loading-overlay" class="wb-busy" role="status">
+    <div class="wb-spinner"></div>
+    <p id="loading-text">正在渲染序列帧图集…</p>
   </div>
 
+  <script src="/plaiers-ui.js"></script>
   <script src="/account-bar.js"></script>
   <script src="/model3d-loader.js"></script>
   <script>
@@ -181,7 +134,7 @@
       const container = document.getElementById('viewport-container');
       const canvas = document.getElementById('viewport-canvas');
       scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x09090b);
+      scene.background = new THREE.Color(plColor('--n950'));
 
       camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
       camera.position.set(0, 1.0, 3.5);
@@ -215,14 +168,25 @@
 
       document.getElementById('anim-play-btn').onclick = () => {
         isPlayingAnim = !isPlayingAnim;
-        document.getElementById('anim-play-btn').textContent = isPlayingAnim ? 'Pause' : 'Play';
+        renderAnimPlayBtn();
       };
+      renderAnimPlayBtn();
       document.getElementById('anim-reset-btn').onclick = () => {
         if (modelRoot) modelRoot.rotation.set(0, 0, 0);
         if (currentAction) currentAction.reset();
       };
 
       animate();
+    }
+
+    function renderAnimPlayBtn() {
+      document.getElementById('anim-play-btn').innerHTML = isPlayingAnim
+        ? `${plIcon('wb-pause', 'i sm')}暂停`
+        : `${plIcon('pi-play', 'i sm')}播放`;
+    }
+
+    function escapeHtml(str) {
+      return String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     async function loadSessionModel() {
@@ -243,18 +207,22 @@
       scene.add(modelRoot);
 
       const st = loaded.stats || {};
-      const label = session.source_name ? `${session.source_name} | ` : '';
-      const suffix = st.isFallback
-        ? `Fallback Proxy (${st.fallbackReason || 'preview unavailable'})`
-        : `Format: ${st.format} | Vertices: ${st.vertices} | Faces: ${st.faces}${st.hasTextures ? ' | Textured' : ''}`;
-      document.getElementById('model-stats').textContent = `${label}${suffix}`;
+      const rows = [];
+      if (session.source_name) rows.push(['文件', session.source_name]);
+      if (st.isFallback) {
+        rows.push(['预览', `占位模型（${st.fallbackReason || '无法预览'}）`]);
+      } else {
+        rows.push(['格式', st.format], ['顶点', st.vertices], ['面数', st.faces], ['贴图', st.hasTextures ? '有' : '无']);
+      }
+      document.getElementById('model-stats').innerHTML = rows
+        .map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
 
       const clipSelect = document.getElementById('clip-select');
       const anims = Array.isArray(st.animations) ? st.animations : [];
       if (anims.length > 0) {
-        clipSelect.innerHTML = anims.map((name, i) => `<option value="${i}">${name}</option>`).join('');
+        clipSelect.innerHTML = anims.map((name, i) => `<option value="${i}">${escapeHtml(name)}</option>`).join('');
       } else {
-        clipSelect.innerHTML = '<option value="">No animation</option>';
+        clipSelect.innerHTML = '<option value="">没有动画</option>';
       }
       setupMixer(Array.isArray(st.clips) ? st.clips : []);
     }
@@ -290,7 +258,7 @@
 
     async function init() {
       if (!isEmbedded && window.AsxAccountBar) {
-        window.AsxAccountBar.mount('#account-bar-slot', { token, theme: 'dark' });
+        window.AsxAccountBar.mount('#account-bar-slot', { token });
       }
       if (isEmbedded) {
         const slot = document.getElementById('account-bar-slot');
@@ -303,7 +271,7 @@
         headers: { 'X-Asx-Session-Token': token },
       });
       session = await res.json();
-      document.getElementById('mode-badge').textContent = session.mode;
+      document.getElementById('mode-badge').textContent = session.mode === 'model3d_render_sequence' ? '序列帧渲染' : session.mode;
 
       initThree();
       await loadSessionModel();
@@ -419,7 +387,7 @@
     }
 
     document.getElementById('render-btn').onclick = async () => {
-      document.getElementById('loading-overlay').style.display = 'flex';
+      document.getElementById('loading-overlay').classList.add('open');
 
       const view = document.getElementById('view-angle').value;
       const directions = DIRECTIONS_BY_VIEW[view] || ['right'];
@@ -552,15 +520,15 @@
       const submitData = await submitRes.json();
       if (submitRes.ok && submitData.ok) {
         if (isEmbedded && window.parent !== window) {
-          document.getElementById('loading-overlay').style.display = 'none';
+          document.getElementById('loading-overlay').classList.remove('open');
           window.parent.postMessage({ type: 'asx-workbench-complete', result: submitData.result }, '*');
           return;
         }
-        document.getElementById('loading-text').textContent = 'Atlas Exported! Returning to agent...';
+        document.getElementById('loading-text').textContent = '图集已导出，正在交回给 Agent…';
         setTimeout(() => window.close(), 1000);
       } else {
-        alert('Render export failed: ' + (submitData.error?.message || 'Unknown error'));
-        document.getElementById('loading-overlay').style.display = 'none';
+        plToast('导出失败：' + (submitData.error?.message || '未知错误'), 'err', 6000);
+        document.getElementById('loading-overlay').classList.remove('open');
       }
     };
 

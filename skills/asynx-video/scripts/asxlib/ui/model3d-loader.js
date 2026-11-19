@@ -4,8 +4,10 @@
   function createFallbackProxy(THREE, reason) {
     const group = new THREE.Group();
     const boxGeom = new THREE.BoxGeometry(1.1, 1.4, 0.8);
+    // 占位盒属于界面而不是模型内容，颜色跟 plaiers.css 令牌走（没加载令牌时用同值兜底）
+    const token = (name, fallback) => (typeof window !== 'undefined' && window.plColor && window.plColor(name)) || fallback;
     const mat = new THREE.MeshStandardMaterial({
-      color: 0x3b82f6,
+      color: new THREE.Color(token('--n600', '#5C554F')),
       roughness: 0.4,
       metalness: 0.5,
       transparent: true,
@@ -15,7 +17,7 @@
     const edges = new THREE.EdgesGeometry(boxGeom);
     const wire = new THREE.LineSegments(
       edges,
-      new THREE.LineBasicMaterial({ color: 0x60a5fa })
+      new THREE.LineBasicMaterial({ color: new THREE.Color(token('--n300', '#CBC4BC')) })
     );
     group.add(mesh);
     group.add(wire);

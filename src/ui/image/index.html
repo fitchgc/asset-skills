@@ -3,628 +3,147 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Asynx Local UI Workbench</title>
+  <title>Asynx Local UI Workbench · 图片工作台</title>
+  <link rel="stylesheet" href="/plaiers.css">
   <style>
-    :root {
-      --bg: #09090b;
-      --card: #18181b;
-      --border: #27272a;
-      --border-dark: #3f3f46;
-      --text: #f4f4f5;
-      --text-muted: #a1a1aa;
-      --text-sub: #a1a1aa;
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
-      --danger: #ef4444;
-      --accent: #ef4444;
-      --tab-bg: #18181b;
-    }
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      -webkit-font-smoothing: antialiased;
-    }
-    body {
-      background: var(--bg);
-      color: var(--text);
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      user-select: none;
-    }
-    /* 顶部导航 */
-    header {
-      height: 48px;
-      background: #18181b;
-      border-bottom: 1px solid var(--border);
-      padding: 0 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-shrink: 0;
-      z-index: 60;
-    }
-    .header-left {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-    .tabs-group {
-      display: flex;
-      background: var(--tab-bg);
-      padding: 3px;
-      border-radius: 9px;
-      gap: 2px;
-    }
-    .tab-btn {
-      background: transparent;
-      border: none;
-      padding: 5px 14px;
-      border-radius: 7px;
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-muted);
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-    .tab-btn:hover {
-      color: var(--text);
-    }
-    .tab-btn.active {
-      background: #3b82f6;
-      color: #ffffff;
-      box-shadow: none;
-      font-weight: 600;
-    }
-    .header-info {
-      font-size: 13px;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .header-info .sep {
-      color: #52525b;
-    }
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .btn-header {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-sub);
-      padding: 5px 12px;
-      border-radius: 7px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .btn-header:hover {
-      border-color: #52525b;
-      color: var(--text);
-      background: #202025;
-    }
+    body { user-select: none; }
+    #session-title { font-weight: 700; color: var(--text); }
 
-    /* 主舞台区 */
-    main {
-      flex: 1;
-      position: relative;
-      display: flex;
-      overflow: hidden;
-      background: var(--bg);
-    }
-    #stage-viewport {
-      flex: 1;
-      position: relative;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
-
-    /* 棋盘格背景与图片容器 */
-    #image-frame-container {
-      position: absolute;
-      overflow: hidden;
-      box-shadow: 0 4px 24px rgba(255, 255, 255, 0.08);
-      border-radius: 4px;
-    }
-    .checkerboard {
-      background-color: #ffffff;
-      background-image: 
-        linear-gradient(45deg, #e4e4e7 25%, transparent 25%), 
-        linear-gradient(-45deg, #e4e4e7 25%, transparent 25%), 
-        linear-gradient(45deg, transparent 75%, #e4e4e7 75%), 
-        linear-gradient(-45deg, transparent 75%, #e4e4e7 75%);
-      background-size: 16px 16px;
-      background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-    }
-    #source-image-view {
-      display: block;
-      width: 100%;
-      height: 100%;
-      object-fit: fill;
-      user-select: none;
-      -webkit-user-drag: none;
-    }
-
-    /* 批注 Canvas 遮罩层 */
-    #stage-canvas {
-      position: absolute;
-      inset: 0;
-      z-index: 20;
-      width: 100%;
-      height: 100%;
-      touch-action: none;
-    }
-    #stage-canvas.tool-brush { cursor: crosshair; }
-    #stage-canvas.tool-annotation { cursor: crosshair; }
-    #stage-canvas.tool-rectangle { cursor: crosshair; }
-    #stage-canvas.tool-lasso { cursor: crosshair; }
+    /* 图片层与批注层 */
+    #image-frame-container { position: absolute; overflow: hidden; border-radius: var(--r-xs); outline: 2px solid var(--n800); }
+    #source-image-view { display: block; width: 100%; height: 100%; object-fit: fill; user-select: none; -webkit-user-drag: none; }
+    #stage-canvas { position: absolute; inset: 0; z-index: 20; width: 100%; height: 100%; touch-action: none; }
+    #stage-canvas:is(.tool-brush, .tool-annotation, .tool-rectangle, .tool-lasso) { cursor: crosshair; }
     #stage-canvas.tool-edit { cursor: text; }
     #stage-canvas.tool-delete { cursor: not-allowed; }
 
-    /* 浮动修改输入框（Text Draft Form） */
-    #text-draft-form {
-      position: absolute;
-      z-index: 50;
-      display: none;
-      height: 40px;
-      width: 280px;
-      align-items: center;
-      gap: 6px;
-      border-radius: 12px;
-      border: 1px solid var(--border-dark);
-      background: rgba(24, 24, 27, 0.96);
-      padding: 0 6px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-      backdrop-filter: blur(8px);
-    }
-    .text-draft-indicator {
-      margin-left: 2px;
-      height: 20px;
-      width: 2.5px;
-      border-radius: 9999px;
-      background-color: #ef4444;
-      flex-shrink: 0;
-    }
-    .text-draft-input {
-      height: 30px;
-      flex: 1;
-      min-width: 0;
-      border-radius: 8px;
-      border: none;
-      background: #202025;
-      padding: 0 10px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #ef4444;
-      outline: none;
-      transition: background-color 0.15s;
-    }
-    .text-draft-input::placeholder {
-      font-size: 12px;
-      font-weight: 400;
-      color: #71717a;
-    }
-    .text-draft-input:focus {
-      background: #18181b;
-    }
-    .btn-icon-check {
-      display: inline-flex;
-      height: 28px;
-      width: 28px;
-      flex-shrink: 0;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
-      background: #3b82f6;
-      color: #ffffff;
-      border: none;
-      cursor: pointer;
-      transition: background-color 0.15s;
-    }
-    .btn-icon-check:hover {
-      background: #2563eb;
-    }
-    .btn-icon-cancel {
-      display: inline-flex;
-      height: 28px;
-      width: 28px;
-      flex-shrink: 0;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
-      border: 1px solid #27272a;
-      background: #18181b;
-      color: #a1a1aa;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .btn-icon-cancel:hover {
-      border-color: #71717a;
-      color: #f4f4f5;
-    }
+    /* 浮动修改输入框：画完一处标记后在旁边写要怎么改，字色跟批注线一致 */
+    #text-draft-form { position: absolute; z-index: 50; display: none; width: 280px; height: 44px; align-items: center; gap: 6px; padding: 0 6px; background: var(--n900); border: 2px solid var(--n700); border-radius: var(--r-md); box-shadow: 4px 4px 0 var(--hard); }
+    .text-draft-indicator { flex: none; width: 3px; height: 20px; margin-left: 2px; border-radius: var(--r-pill); background: var(--mark); }
+    .text-draft-input { flex: 1; min-width: 0; height: 32px; padding: 0 10px; font: 500 13px/1 var(--cn); color: var(--mark); background: var(--n950); border: 1px solid var(--n800); border-radius: var(--r-sm); outline: none; }
+    .text-draft-input:focus { border-color: var(--coin); }
+    .text-draft-input::placeholder { color: var(--n500); font-weight: 400; }
+    #text-draft-form .pl-iconbtn { width: 30px; height: 30px; }
 
-    /* 底部悬浮控制台 Composer */
-    #region-composer {
-      position: absolute;
-      bottom: 16px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: min(940px, calc(100vw - 32px));
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      background: rgba(24, 24, 27, 0.96);
-      padding: 10px;
-      backdrop-filter: blur(12px);
-      box-shadow: 0 12px 32px rgba(255, 255, 255, 0.08);
-      z-index: 40;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    #region-prompt {
-      height: 68px;
-      min-height: 68px;
-      resize: none;
-      border-radius: 14px;
-      border: 1px solid #27272a;
-      background: #111114;
-      padding: 10px 14px;
-      font-size: 13px;
-      font-weight: 500;
-      color: #f4f4f5;
-      outline: none;
-      transition: border-color 0.15s, background-color 0.15s;
-    }
-    #region-prompt::placeholder {
-      font-size: 12px;
-      font-weight: 400;
-      color: #71717a;
-    }
-    #region-prompt:focus {
-      border-color: #71717a;
-      background: #18181b;
-    }
-    .composer-bottom {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .composer-tools {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      overflow-x: auto;
-    }
-    .tool-btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 500;
-      background: transparent;
-      color: #a1a1aa;
-      border: 1px solid #27272a;
-      cursor: pointer;
-      transition: all 0.15s;
-      white-space: nowrap;
-    }
-    .tool-btn:hover {
-      background: #202025;
-      color: #ffffff;
-    }
-    .tool-btn.active {
-      background: #3b82f6;
-      color: #ffffff;
-      border-color: #3b82f6;
-    }
-    .tool-divider {
-      width: 1px;
-      height: 18px;
-      background: #3f3f46;
-      margin: 0 4px;
-    }
-    .composer-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    .model-select-wrapper {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-    }
-    .model-select {
-      appearance: none;
-      -webkit-appearance: none;
-      background: #18181b;
-      border: 1px solid #27272a;
-      color: #f4f4f5;
-      padding: 6px 28px 6px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    .model-select:focus {
-      border-color: #71717a;
-    }
-    .model-select-icon {
-      position: absolute;
-      right: 8px;
-      pointer-events: none;
-      color: #a1a1aa;
-    }
-    .btn-submit {
-      background: #3b82f6;
-      color: #ffffff;
-      border: none;
-      padding: 7px 18px;
-      border-radius: 8px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background-color 0.15s;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .btn-submit:hover {
-      background: #2563eb;
-    }
-    .btn-submit:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-    }
+    /* 底部控制台（局部重绘） */
+    #region-composer { position: absolute; left: 50%; bottom: 16px; z-index: 40; transform: translateX(-50%); width: min(960px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--n900); border: 2px solid var(--n700); border-radius: var(--r-xl); box-shadow: 4px 4px 0 var(--hard); }
+    #region-prompt { min-height: 64px; height: 64px; resize: none; }
+    .composer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .composer-tools { display: flex; align-items: center; gap: 8px; min-width: 0; overflow-x: auto; }
+    .composer-tools .pl-seg { flex-wrap: nowrap; }
+    #brush-size-controls { display: none; }
+    .composer-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+    #model-select { width: auto; max-width: 200px; }
 
-    /* 图片处理模式侧边面板 (Tools) */
-    #tools-panel {
-      position: absolute;
-      right: 16px;
-      top: 16px;
-      bottom: 16px;
-      width: min(320px, calc(100% - 32px));
-      background: rgba(24, 24, 27, 0.96);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 16px;
-      box-shadow: 0 8px 30px rgba(255, 255, 255, 0.08);
-      display: none;
-      flex-direction: column;
-      gap: 16px;
-      z-index: 40;
-      backdrop-filter: blur(12px);
-    }
-    .panel-title {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text);
-    }
-    .recipe-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .recipe-btn {
-      text-align: left;
-      background: #202025;
-      border: 1px solid var(--border);
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.15s;
-    }
-    .recipe-btn { color: var(--text); font-family: inherit; flex-shrink: 0; }
-    .recipe-btn:hover {
-      background: #202025;
-      border-color: #3f3f46;
-    }
-    .field-row {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .field-row label {
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-    .field-row input {
-      background: #18181b;
-      border: 1px solid var(--border);
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      color: var(--text);
-      outline: none;
-      width: 100%;
-      min-width: 0;
-      font-family: inherit;
-    }
-    .field-row input::placeholder { color: #71717a; }
-    .field-row input:focus { border-color: #3b82f6; }
+    /* 图片处理面板 */
+    #tools-panel { position: absolute; top: 16px; right: 16px; bottom: 16px; z-index: 40; width: min(320px, calc(100% - 32px)); display: none; flex-direction: column; gap: 16px; padding: 20px; overflow-y: auto; background: var(--n900); border: 2px solid var(--n700); border-radius: var(--r-xl); box-shadow: 4px 4px 0 var(--hard); }
+    #tools-panel h2 { font: 900 17px/1.3 var(--cn); }
+    .recipe-list { display: grid; gap: 4px; margin: 0 -8px; }
+    .recipe-btn { display: grid; gap: 2px; padding: 10px 12px; text-align: left; background: none; border: 0; border-radius: var(--r-md); color: var(--text); font-size: 14px; font-weight: 700; }
+    .recipe-btn small { font-size: 12px; font-weight: 400; color: var(--n400); }
+    .recipe-btn:hover { background: var(--n850); }
+    .tools-divider { height: 1px; border: 0; margin: 0; background: var(--n800); }
 
-    /* 状态与加载指示器 */
-    #loading-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(9, 9, 11, 0.8);
-      z-index: 100;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 14px;
-      backdrop-filter: blur(4px);
-    }
-    .spinner {
-      width: 36px;
-      height: 36px;
-      border: 3px solid #27272a;
-      border-top-color: #3b82f6;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-text { max-width: 560px; }
   </style>
 </head>
-<body>
-  <header>
-    <div class="header-left">
-      <!-- 模式切换 Tabs -->
-      <div class="tabs-group" role="tablist">
-        <button class="tab-btn" id="tab-btn-view" onclick="setAppMode('view')">查看</button>
-        <button class="tab-btn" id="tab-btn-tools" onclick="setAppMode('tools')">图片处理</button>
-        <button class="tab-btn active" id="tab-btn-region" onclick="setAppMode('region_edit')">局部重绘</button>
-      </div>
-      <div class="header-info">
-        <span id="session-title" style="font-weight: 500; color: #f4f4f5;">局部重绘</span>
-        <span class="sep">·</span>
-        <span id="image-dimensions" style="color: #a1a1aa;">Loading</span>
-      </div>
+<body class="pl-portal wb-app">
+  <header class="wb-top">
+    <div class="pl-seg" role="group" aria-label="工作模式">
+      <button type="button" class="tab-btn" id="tab-btn-view" aria-pressed="false" onclick="setAppMode('view')">查看</button>
+      <button type="button" class="tab-btn" id="tab-btn-tools" aria-pressed="false" onclick="setAppMode('tools')">图片处理</button>
+      <button type="button" class="tab-btn" id="tab-btn-region" aria-pressed="true" onclick="setAppMode('region_edit')">局部重绘</button>
     </div>
-    <div class="header-actions">
+    <span id="session-title">局部重绘</span>
+    <span id="image-dimensions" class="wb-meta">载入中</span>
+    <div class="wb-actions">
       <div id="account-bar-slot"></div>
-      <span style="font-size: 12px; color: #a1a1aa; margin-right: 4px;">Asynx Local UI Workbench</span>
-      <button class="btn-header" id="cancel-btn">取消</button>
-      <button class="btn-header" id="finish-btn" style="background: #3b82f6; color: #ffffff; border-color: #3b82f6;">完成</button>
+      <button type="button" class="btn-text" id="cancel-btn">取消</button>
+      <button type="button" class="keycap ghost sm" id="finish-btn">完成</button>
     </div>
   </header>
 
-  <main>
-    <div id="stage-viewport">
-      <!-- 图片图层 -->
-      <div id="image-frame-container" class="checkerboard">
+  <main class="wb-main">
+    <div id="stage-viewport" class="wb-stage">
+      <div id="image-frame-container" class="wb-checker">
         <img id="source-image-view" alt="工作图" />
       </div>
 
-      <!-- 标注与绘制 Canvas -->
       <canvas id="stage-canvas" class="tool-annotation"></canvas>
 
       <!-- 浮动文字输入框（指向、框选、圈选绘制完成或编辑时弹出） -->
       <form id="text-draft-form">
         <span class="text-draft-indicator"></span>
         <input type="text" id="text-draft-input" class="text-draft-input" placeholder="这里要怎么改" autocomplete="off" />
-        <button type="submit" class="btn-icon-check" title="确认文字" aria-label="确认文字">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
-        </button>
-        <button type="button" class="btn-icon-cancel" id="text-draft-cancel-btn" title="取消文字" aria-label="取消文字">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+        <button type="submit" class="pl-iconbtn go" title="确认文字" aria-label="确认文字"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-check"></use></svg></button>
+        <button type="button" class="pl-iconbtn plain" id="text-draft-cancel-btn" title="取消文字" aria-label="取消文字"><svg class="i sm" aria-hidden="true"><use href="/plaiers-icons.svg#pi-close"></use></svg></button>
       </form>
 
-      <!-- 底部悬浮控制台 (局部重绘模式) -->
+      <!-- 底部控制台（局部重绘模式） -->
       <div id="region-composer">
-        <textarea id="region-prompt" placeholder="整体修改要求（可选）"></textarea>
+        <textarea id="region-prompt" class="pl-input" placeholder="整体修改要求（可选）"></textarea>
         <div class="composer-bottom">
           <div class="composer-tools">
-            <button type="button" class="tool-btn" id="tool-brush" onclick="setTool('brush')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 2 4 4-14 14H4v-4L18 2z"></path><path d="m14.5 5.5 4 4"></path></svg>
-              涂鸦
-            </button>
-            <div id="brush-size-controls" style="display: none; align-items: center; gap: 4px; margin-right: 4px;">
-              <span style="font-size: 11px; color: var(--text-muted); margin-left: 2px;">大小:</span>
-              <button type="button" class="tool-btn" style="padding: 2px 7px; font-size: 11px;" onclick="setBrushRadius(12, this)">细</button>
-              <button type="button" class="tool-btn active" style="padding: 2px 7px; font-size: 11px;" onclick="setBrushRadius(24, this)">中</button>
-              <button type="button" class="tool-btn" style="padding: 2px 7px; font-size: 11px;" onclick="setBrushRadius(48, this)">粗</button>
+            <div class="pl-seg" role="group" aria-label="标记工具">
+              <button type="button" class="tool-btn" id="tool-brush" aria-pressed="false" onclick="setTool('brush')"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-brush"></use></svg>涂鸦</button>
+              <button type="button" class="tool-btn" id="tool-annotation" aria-pressed="true" onclick="setTool('annotation')"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-point"></use></svg>指向</button>
+              <button type="button" class="tool-btn" id="tool-rectangle" aria-pressed="false" onclick="setTool('rectangle')"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-rect"></use></svg>框选</button>
+              <button type="button" class="tool-btn" id="tool-lasso" aria-pressed="false" onclick="setTool('lasso')"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-lasso"></use></svg>圈选</button>
+              <button type="button" class="tool-btn" id="tool-edit" aria-pressed="false" onclick="setTool('edit')"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-edit"></use></svg>编辑</button>
+              <button type="button" class="tool-btn" id="tool-delete" aria-pressed="false" onclick="setTool('delete')"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-erase"></use></svg>删除</button>
             </div>
-            <button type="button" class="tool-btn active" id="tool-annotation" onclick="setTool('annotation')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"></line><polyline points="7 7 17 7 17 17"></polyline></svg>
-              指向
-            </button>
-            <button type="button" class="tool-btn" id="tool-rectangle" onclick="setTool('rectangle')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
-              框选
-            </button>
-            <button type="button" class="tool-btn" id="tool-lasso" onclick="setTool('lasso')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle></svg>
-              圈选
-            </button>
-            <button type="button" class="tool-btn" id="tool-edit" onclick="setTool('edit')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path></svg>
-              编辑
-            </button>
-            <button type="button" class="tool-btn" id="tool-delete" onclick="setTool('delete')">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"></path><path d="M22 21H7"></path><path d="m5 11 9 9"></path></svg>
-              删除
-            </button>
-            <div class="tool-divider"></div>
-            <button type="button" class="tool-btn" onclick="clearMarks()">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-              清空
-            </button>
+            <div id="brush-size-controls" class="pl-seg" role="group" aria-label="笔刷大小">
+              <button type="button" aria-pressed="false" onclick="setBrushRadius(12, this)">细</button>
+              <button type="button" aria-pressed="true" onclick="setBrushRadius(24, this)">中</button>
+              <button type="button" aria-pressed="false" onclick="setBrushRadius(48, this)">粗</button>
+            </div>
+            <button type="button" class="btn-text" onclick="clearMarks()"><svg class="i sm" aria-hidden="true"><use href="/wb-icons.svg#wb-trash"></use></svg>清空标记</button>
           </div>
 
           <div class="composer-actions">
-            <div class="model-select-wrapper">
-              <select id="model-select" class="model-select">
-                <!-- 模型由 session.models 填充，默认支持 GPT Image 2 -->
-                <option value="gpt-image-2.5-sunburst">GPT Image 2</option>
-              </select>
-              <svg class="model-select-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-            </div>
-            <button type="button" class="btn-submit" id="submit-btn" onclick="handleSubmit()">
-              提交
-            </button>
+            <select id="model-select" class="pl-input sm" aria-label="模型">
+              <!-- 模型由 session.models 填充，默认支持 GPT Image 2 -->
+              <option value="gpt-image-2.5-sunburst">GPT Image 2</option>
+            </select>
+            <button type="button" class="keycap sm" id="submit-btn" onclick="handleSubmit()">开始重绘</button>
           </div>
         </div>
       </div>
 
-      <!-- 图片处理工具侧边面板 (图片处理模式) -->
+      <!-- 图片处理面板（图片处理模式） -->
       <div id="tools-panel">
-        <div class="panel-title">图片预处理</div>
+        <h2>图片预处理</h2>
         <div class="recipe-list">
-          <button class="recipe-btn" onclick="applyRecipe('remove_background')">🪄 扣除背景 (Remove BG)</button>
-          <button class="recipe-btn" onclick="applyRecipe('trim_transparent')">✂️ 裁切透明边缘 (Trim)</button>
-          <button class="recipe-btn" onclick="applyRecipe('inventory_icon')">📦 物品图标 (64x64 + 居中)</button>
-          <button class="recipe-btn" onclick="resetToOriginal()">↺ 还原为原始图片</button>
+          <button type="button" class="recipe-btn" onclick="applyRecipe('remove_background')">抠除背景<small>按左上角颜色去掉纯色背景</small></button>
+          <button type="button" class="recipe-btn" onclick="applyRecipe('trim_transparent')">裁掉透明边<small>只保留有内容的区域</small></button>
+          <button type="button" class="recipe-btn" onclick="applyRecipe('inventory_icon')">做成物品图标<small>裁透明边后缩放到 64 × 64</small></button>
+          <button type="button" class="recipe-btn" onclick="resetToOriginal()">还原原图<small>撤销以上所有处理</small></button>
         </div>
-        <hr style="border: none; border-top: 1px solid var(--border);" />
-        <div class="field-row">
-          <label>调整尺寸 (宽 / 高)</label>
-          <div style="display: flex; gap: 8px;">
-            <input type="number" id="resize-w" style="flex: 1;" placeholder="宽" />
-            <input type="number" id="resize-h" style="flex: 1;" placeholder="高" />
+        <hr class="tools-divider" />
+        <div class="pl-field">
+          <span>调整尺寸（宽 / 高）</span>
+          <div class="wb-grid2">
+            <input type="number" id="resize-w" placeholder="宽" aria-label="宽" />
+            <input type="number" id="resize-h" placeholder="高" aria-label="高" />
           </div>
-          <button class="recipe-btn" style="margin-top: 4px; text-align: center;" onclick="applyResize()">应用缩放</button>
         </div>
-        <div style="flex: 1;"></div>
-        <button class="btn-submit" style="width: 100%; justify-content: center;" onclick="submitToolImage()">保存修改</button>
+        <button type="button" class="keycap ghost sm" onclick="applyResize()">应用尺寸</button>
+        <div class="sp"></div>
+        <button type="button" class="keycap block" onclick="submitToolImage()">保存修改</button>
       </div>
     </div>
   </main>
 
-  <div id="loading-overlay">
-    <div class="spinner"></div>
-    <p id="loading-text" style="font-size: 13px; font-weight: 500; color: #f4f4f5;">处理中...</p>
+  <div id="loading-overlay" class="wb-busy" role="status">
+    <div class="wb-spinner"></div>
+    <p id="loading-text">处理中…</p>
   </div>
 
+  <script src="/plaiers-ui.js"></script>
   <script src="/account-bar.js"></script>
   <script>
     // 常量定义（参考 image-flow 规范）
-    const ANNOTATION_COLOR = '#ef4444';
+    const ANNOTATION_COLOR = '#ef4444'; // 和 plaiers.css 的 --mark 同值：批注预览会交给模型，颜色要稳定
     const ANNOTATION_LINE_WIDTH = 2.1;
     const MASK_STROKE_WIDTH = 2;
     const ANNOTATION_FONT_SIZE = 13;
@@ -704,7 +223,7 @@
     // 初始化
     async function init() {
       if (!isEmbedded && window.AsxAccountBar) {
-        window.AsxAccountBar.mount('#account-bar-slot', { token, theme: 'dark' });
+        window.AsxAccountBar.mount('#account-bar-slot', { token });
       }
       if (isEmbedded) {
         const slot = document.getElementById('account-bar-slot');
@@ -769,7 +288,7 @@
           ? (session.source_url.includes('?') ? session.source_url : session.source_url + '?token=' + encodeURIComponent(token))
           : ('/api/source?token=' + encodeURIComponent(token));
       } catch (err) {
-        alert('加载工作台失败: ' + err.message);
+        plToast('加载工作台失败：' + err.message, 'err', 8000);
       }
     }
 
@@ -810,9 +329,8 @@
     // 模式切换
     function setAppMode(mode) {
       appMode = mode;
-      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-      const activeBtn = document.getElementById('tab-btn-' + (mode === 'region_edit' ? 'region' : mode));
-      if (activeBtn) activeBtn.classList.add('active');
+      const activeId = 'tab-btn-' + (mode === 'region_edit' ? 'region' : mode);
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.setAttribute('aria-pressed', String(btn.id === activeId)));
 
       document.getElementById('session-title').textContent = 
         mode === 'view' ? '查看图片' : (mode === 'tools' ? '图片处理' : (mode === 'annotate' ? '自由批注' : '局部重绘'));
@@ -838,16 +356,13 @@
     let currentBrushRadius = 24;
     function setBrushRadius(r, btn) {
       currentBrushRadius = r;
-      document.querySelectorAll('#brush-size-controls .tool-btn').forEach(b => b.classList.remove('active'));
-      if (btn) btn.classList.add('active');
+      document.querySelectorAll('#brush-size-controls > button').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
     }
 
     // 切换批注工具
     function setTool(tool) {
       currentTool = tool;
-      document.querySelectorAll('.composer-tools > .tool-btn').forEach(btn => btn.classList.remove('active'));
-      const activeBtn = document.getElementById('tool-' + tool);
-      if (activeBtn) activeBtn.classList.add('active');
+      document.querySelectorAll('.composer-tools .tool-btn').forEach(btn => btn.setAttribute('aria-pressed', String(btn.id === 'tool-' + tool)));
 
       const brushControls = document.getElementById('brush-size-controls');
       if (brushControls) {
@@ -1594,8 +1109,8 @@
     // 提交局部重绘
     async function handleSubmit() {
       if (textDraft) commitTextDraft();
-      document.getElementById('loading-overlay').style.display = 'flex';
-      document.getElementById('loading-text').textContent = '正在提交...';
+      document.getElementById('loading-overlay').classList.add('open');
+      document.getElementById('loading-text').textContent = '正在重绘…';
 
       try {
         const sourceDataUrl = currentImageCanvas.toDataURL('image/png');
@@ -1638,8 +1153,8 @@
         const outFiles = taskRes.files || (taskRes.image && taskRes.image.path ? [taskRes.image.path] : []);
         const outPath = outFiles[0] || '';
         document.getElementById('loading-text').innerHTML = outPath
-          ? `✅ 修改完成！图片已保存至：<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#202025;border-radius:6px;font-size:12px;user-select:all;">${escapeHtml(outPath)}</code>`
-          : '✅ 修改完成！正在返回...';
+          ? `重绘完成，图片已保存到：<br><code class="pl-code">${escapeHtml(outPath)}</code>`
+          : '重绘完成，正在返回…';
         if (isEmbedded && window.parent !== window) {
           window.parent.postMessage({ type: 'asx-workbench-complete', result: taskRes }, '*');
           return;
@@ -1649,14 +1164,14 @@
           sourceImageView.src = '/api/result?token=' + encodeURIComponent(token) + '&path=' + encodeURIComponent(outPath);
           setAppMode('view');
           setTimeout(() => {
-            document.getElementById('loading-overlay').style.display = 'none';
+            document.getElementById('loading-overlay').classList.remove('open');
           }, 1500);
         } else {
           setTimeout(() => window.close(), 1200);
         }
       } catch (err) {
-        document.getElementById('loading-overlay').style.display = 'none';
-        alert('提交失败: ' + err.message);
+        document.getElementById('loading-overlay').classList.remove('open');
+        plToast('提交失败：' + err.message, 'err', 6000);
       }
     }
 
@@ -1730,8 +1245,8 @@
     }
 
     async function submitToolImage() {
-      document.getElementById('loading-overlay').style.display = 'flex';
-      document.getElementById('loading-text').textContent = '正在保存修改...';
+      document.getElementById('loading-overlay').classList.add('open');
+      document.getElementById('loading-text').textContent = '正在保存修改…';
       try {
         const payload = {
           mode: 'tools',
@@ -1757,27 +1272,27 @@
           return;
         }
         document.getElementById('loading-text').innerHTML = savedPath
-          ? `✅ 修改已成功保存！<br><code style="display:inline-block;margin-top:6px;padding:4px 8px;background:#202025;border-radius:6px;font-size:12px;user-select:all;">${escapeHtml(savedPath)}</code>`
-          : '✅ 修改已成功保存！';
+          ? `修改已保存到：<br><code class="pl-code">${escapeHtml(savedPath)}</code>`
+          : '修改已保存';
 
         // 同步将底图更新为当前已编辑图像，方便后续继续微调或局部重绘
         sourceImage.src = currentImageCanvas.toDataURL('image/png');
         sourceImageView.src = sourceImage.src;
 
         setTimeout(() => {
-          document.getElementById('loading-overlay').style.display = 'none';
+          document.getElementById('loading-overlay').classList.remove('open');
         }, 1200);
       } catch (err) {
-        document.getElementById('loading-overlay').style.display = 'none';
-        alert('保存失败: ' + err.message);
+        document.getElementById('loading-overlay').classList.remove('open');
+        plToast('保存失败：' + err.message, 'err', 6000);
       }
     }
 
     const finishBtn = document.getElementById('finish-btn');
     if (finishBtn) {
       finishBtn.onclick = async () => {
-        document.getElementById('loading-overlay').style.display = 'flex';
-        document.getElementById('loading-text').textContent = '正在完成并保存...';
+        document.getElementById('loading-overlay').classList.add('open');
+        document.getElementById('loading-text').textContent = '正在保存并完成…';
         try {
           const payload = {
             mode: 'tools',
@@ -1797,14 +1312,14 @@
           const result = await res.json();
           if (!res.ok || !result.ok) throw new Error(result.error?.message || '保存失败');
           if (isEmbedded && window.parent !== window) {
-            document.getElementById('loading-overlay').style.display = 'none';
+            document.getElementById('loading-overlay').classList.remove('open');
             window.parent.postMessage({ type: 'asx-workbench-complete', result: result.result }, '*');
             return;
           }
           setTimeout(() => window.close(), 600);
         } catch (err) {
-          document.getElementById('loading-overlay').style.display = 'none';
-          alert('保存失败: ' + err.message);
+          document.getElementById('loading-overlay').classList.remove('open');
+          plToast('保存失败：' + err.message, 'err', 6000);
         }
       };
     }

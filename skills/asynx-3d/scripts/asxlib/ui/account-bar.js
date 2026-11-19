@@ -3,7 +3,6 @@
 
   let _state = {
     token: '',
-    theme: 'light',
     container: null,
     auth: null,
     menuOpen: false,
@@ -45,233 +44,28 @@
     return `并发 ${active}/${limit}`;
   }
 
+  // 颜色、字体、圆角都取 plaiers.css 的令牌；宿主页面需先引入 plaiers.css
   function injectStyles() {
     if (document.getElementById('asx-account-bar-styles')) return;
     const style = document.createElement('style');
     style.id = 'asx-account-bar-styles';
     style.textContent = `
-      .asx-acct-root {
-        position: relative;
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
-        font-size: 12px;
-      }
+      .asx-acct-root { position: relative; display: inline-flex; align-items: center; font-family: var(--cn); }
       .asx-acct-pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 4px 10px;
-        border-radius: 999px;
-        border: 1px solid #e4e4e7;
-        background: #fafafa;
-        color: #18181b;
-        cursor: pointer;
-        font-size: 12px;
-        line-height: 1.2;
-        transition: all 0.15s ease;
+        display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 4px;
+        border-radius: var(--r-pill); border: 2px solid var(--n700); background: var(--n850);
+        color: var(--text); font: 700 13px/1 var(--cn); white-space: nowrap; cursor: pointer;
       }
-      .asx-acct-pill:hover {
-        border-color: #a1a1aa;
-        background: #f4f4f5;
-      }
-      .asx-acct-root.dark .asx-acct-pill {
-        background: #27272a;
-        border-color: #3f3f46;
-        color: #f4f4f5;
-      }
-      .asx-acct-root.dark .asx-acct-pill:hover {
-        background: #3f3f46;
-      }
+      .asx-acct-pill:hover { border-color: var(--n500); }
       .asx-acct-avatar {
-        width: 20px;
-        height: 20px;
-        border-radius: 999px;
-        background: #18181b;
-        color: #ffffff;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 11px;
-        font-weight: 700;
-        flex-shrink: 0;
+        width: 26px; height: 26px; border-radius: var(--r-pill); flex: none;
+        display: inline-grid; place-items: center; font: 900 12px/1 var(--cn);
+        background: var(--start); color: var(--cocoa);
       }
-      .asx-acct-root.dark .asx-acct-avatar {
-        background: #3b82f6;
-      }
-      .asx-acct-meta {
-        color: #71717a;
-        font-variant-numeric: tabular-nums;
-      }
-      .asx-acct-root.dark .asx-acct-meta {
-        color: #a1a1aa;
-      }
-      .asx-acct-menu {
-        position: absolute;
-        top: calc(100% + 6px);
-        right: 0;
-        min-width: 240px;
-        background: #ffffff;
-        border: 1px solid #e4e4e7;
-        border-radius: 12px;
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
-        padding: 8px;
-        z-index: 200;
-        color: #18181b;
-        display: none;
-      }
-      .asx-acct-root.dark .asx-acct-menu {
-        background: #18181b;
-        border-color: #3f3f46;
-        color: #f4f4f5;
-      }
-      .asx-acct-menu.open { display: block; }
-      .asx-acct-menu-hdr {
-        padding: 6px 8px 8px;
-        border-bottom: 1px solid #e4e4e7;
-        margin-bottom: 6px;
-        font-size: 12px;
-        line-height: 1.5;
-      }
-      .asx-acct-root.dark .asx-acct-menu-hdr {
-        border-bottom-color: #27272a;
-      }
-      .asx-acct-menu-item {
-        width: 100%;
-        text-align: left;
-        border: none;
-        background: transparent;
-        color: inherit;
-        padding: 7px 10px;
-        border-radius: 7px;
-        font-size: 12px;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-      .asx-acct-menu-item:hover {
-        background: #f4f4f5;
-      }
-      .asx-acct-root.dark .asx-acct-menu-item:hover {
-        background: #27272a;
-      }
-      .asx-acct-menu-item.danger {
-        color: #ef4444;
-      }
-      .asx-acct-modal-backdrop {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.52);
-        z-index: 9999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 16px;
-      }
-      .asx-acct-modal {
-        width: 100%;
-        max-width: 400px;
-        background: #ffffff;
-        color: #18181b;
-        border: 1px solid #e4e4e7;
-        border-radius: 14px;
-        padding: 20px;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
-      }
-      .asx-acct-modal.dark {
-        background: #18181b;
-        color: #f4f4f5;
-        border-color: #3f3f46;
-      }
-      .asx-acct-modal h3 {
-        font-size: 15px;
-        font-weight: 600;
-        margin-bottom: 12px;
-      }
-      .asx-acct-modal label {
-        display: block;
-        font-size: 12px;
-        color: #71717a;
-        margin-bottom: 4px;
-      }
-      .asx-acct-modal.dark label {
-        color: #a1a1aa;
-      }
-      .asx-acct-modal input {
-        width: 100%;
-        padding: 8px 10px;
-        border-radius: 8px;
-        border: 1px solid #d4d4d8;
-        background: #ffffff;
-        color: #18181b;
-        font-size: 13px;
-        margin-bottom: 10px;
-        outline: none;
-      }
-      .asx-acct-modal.dark input {
-        background: #09090b;
-        border-color: #3f3f46;
-        color: #f4f4f5;
-      }
-      .asx-acct-modal-err {
-        font-size: 12px;
-        color: #ef4444;
-        margin-bottom: 10px;
-        min-height: 16px;
-      }
-      .asx-acct-modal-actions {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        margin-top: 8px;
-      }
-      .asx-acct-btn {
-        padding: 7px 14px;
-        border-radius: 8px;
-        border: 1px solid #d4d4d8;
-        background: transparent;
-        color: inherit;
-        font-size: 12px;
-        font-weight: 500;
-        cursor: pointer;
-      }
-      .asx-acct-btn.primary {
-        background: #18181b;
-        border-color: #18181b;
-        color: #ffffff;
-      }
-      .asx-acct-modal.dark .asx-acct-btn.primary {
-        background: #3b82f6;
-        border-color: #3b82f6;
-      }
-      .asx-acct-tabs {
-        display: flex;
-        gap: 6px;
-        margin-bottom: 12px;
-      }
-      .asx-acct-tab {
-        flex: 1;
-        padding: 6px;
-        border-radius: 7px;
-        border: 1px solid #d4d4d8;
-        background: transparent;
-        color: inherit;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      .asx-acct-tab.active {
-        background: #18181b;
-        color: #ffffff;
-        border-color: #18181b;
-      }
-      .asx-acct-modal.dark .asx-acct-tab { border-color: #3f3f46; }
-      .asx-acct-modal.dark .asx-acct-tab.active {
-        background: #3b82f6;
-        border-color: #3b82f6;
-      }
+      .asx-acct-root.off .asx-acct-avatar { background: var(--n700); color: var(--n300); }
+      .asx-acct-root.off .asx-acct-pill { color: var(--n300); }
+      .asx-acct-budget { font-family: var(--en); font-weight: 400; font-size: 15px; letter-spacing: .03em; color: var(--coin); }
+      .asx-acct-meta { color: var(--n400); font-weight: 500; font-variant-numeric: tabular-nums; }
     `;
     document.head.appendChild(style);
   }
@@ -297,7 +91,7 @@
     if (!_state.container) return;
     const auth = _state.auth;
     const root = document.createElement('div');
-    root.className = 'asx-acct-root' + (_state.theme === 'dark' ? ' dark' : '');
+    root.className = 'asx-acct-root' + (!auth || !auth.authenticated ? ' off' : '');
 
     if (!auth || !auth.authenticated) {
       const reason = (auth && auth.error && auth.error.message) || '请通过 sagein-community 授权（需 skill_jwt 权限）';
@@ -311,8 +105,7 @@
       root.innerHTML = `
         <button type="button" class="asx-acct-pill" id="asx-acct-refresh" title="点击刷新">
           <span class="asx-acct-avatar">A</span>
-          <span class="asx-acct-meta" title="剩余额度">${escapeHtml(formatBudget(auth.identity))}</span>
-          <span class="asx-acct-meta">·</span>
+          <span class="asx-acct-budget" title="剩余额度">${escapeHtml(formatBudget(auth.identity))}</span>
           <span class="asx-acct-meta" title="并发任务数">${escapeHtml(formatConcurrency(auth.identity))}</span>
         </button>
       `;
@@ -339,7 +132,6 @@
     injectStyles();
     const opts = options || {};
     _state.token = opts.token || '';
-    _state.theme = opts.theme || 'light';
     _state.onAuthChange = opts.onAuthChange || null;
     _state.container = typeof target === 'string' ? document.querySelector(target) : target;
 

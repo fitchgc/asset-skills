@@ -1,0 +1,227 @@
+/* PLAIERS 视觉语言 · 本地工作台共用层
+   来源：tanqunzhao/Plaiers 的 docs/ui/README.md（现行规范）、app/plaiers-tokens.css、
+   app/plaiers-discovery.css、app/plaiers-components.css。令牌与组件取值照抄，只删掉网站专用的部分。
+   用法：<body class="pl-portal wb-app">，页面 CSS 只写布局和本页独有的东西，颜色、字号、圆角、阴影一律引用令牌。
+   这个文件是唯一写颜色字面量的地方；缺的颜色先补进令牌，并写清语义。 */
+
+@font-face { font-family: 'Anton'; src: url('/fonts/Anton-Regular.ttf') format('truetype'); font-display: swap; }
+
+/* ── 令牌 ── */
+:root {
+  /* 品牌色 */
+  --start: #FA7301;      /* 开局橙：主操作、当前状态 */
+  --coin: #FFC21A;       /* 金币黄：额度、强调数字、键盘焦点 */
+  --cocoa: #3B1F0A;      /* 橙、黄、奶油底上的字 */
+  --screen: #2A1709;     /* 屏幕框：托住作品画面 */
+  --cream: #FFF8EE;
+  --play: #F27294;
+  --create: #49C2F2;
+  --pixel: #B8F03C;
+  --white: #FFFFFF;
+
+  /* 中性色（深色主题） */
+  --n950: #131110; --n900: #1D1A18; --n850: #24201E; --n800: #2B2724; --n700: #403B37;
+  --n600: #5C554F; --n500: #746B63; --n400: #A39B92; --n300: #CBC4BC;
+  --bg: var(--n950);
+  --text: #F5F1EC;
+
+  /* 功能色：状态同时配文字，不只靠颜色；错误不用橙色 */
+  --ok: #B8F03C;
+  --danger: #FF7A70;
+  --surface-ok: rgba(184, 240, 60, .12);
+  --surface-warn: rgba(255, 194, 26, .10);
+  --surface-danger: rgba(226, 59, 59, .14);
+  --danger-line: rgba(255, 122, 112, .5);
+  --scrim: rgba(10, 9, 8, .72);
+  --scrim-strong: rgba(19, 17, 16, .88);
+
+  /* 工作台专用 */
+  --mark: #EF4444;       /* 局部重绘批注线：和画布常量 ANNOTATION_COLOR 一致，导出的批注预览会交给模型，别改 */
+  --checker-a: var(--white);  /* 透明底棋盘格：浅色，深色界面上才看得清透明区域 */
+  --checker-b: var(--n300);
+
+  /* 键帽按钮底边（实色硬阴影） */
+  --edge-start: #B84A00;
+  --edge-coin: #C98A00;
+  --edge-ghost: #0A0908;
+  --hard: #000000;
+
+  /* 字体：中文和界面用思源黑体（本机没装时退到苹方 / 微软雅黑），Anton 只给英文短词和独立数字 */
+  --cn: 'Source Han Sans CN', 'Source Han Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --en: 'Anton', 'Source Han Sans CN', Impact, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* 圆角 */
+  --r-xs: 4px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-xxl: 24px; --r-pill: 999px;
+
+  /* 动效 */
+  --dur-fast: 120ms; --dur-mid: 240ms; --dur-slow: 400ms;
+  --ease-pop: cubic-bezier(.34, 1.56, .64, 1);
+}
+
+/* ── 基础 ── */
+.pl-portal, .pl-portal * { box-sizing: border-box; }
+.pl-portal { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.6 var(--cn); -webkit-font-smoothing: antialiased; }
+.pl-portal :is(h1, h2, h3, h4, p) { margin: 0; line-height: 1.3; }
+.pl-portal :is(button, input, select, textarea) { font: inherit; color: inherit; }
+.pl-portal button { cursor: pointer; }
+.pl-portal :focus-visible { outline: 3px solid var(--coin); outline-offset: 2px; }
+.pl-portal [hidden] { display: none; }
+.pl-portal .num { font-family: var(--en); letter-spacing: .03em; font-weight: 400; }
+.pl-portal .muted { color: var(--n400); }
+.pl-portal .sp { flex: 1; }
+.pl-portal svg.i { width: 20px; height: 20px; flex: none; display: inline-block; vertical-align: middle; --plaiers-icon-accent: var(--start); }
+.pl-portal svg.i.sm { width: 16px; height: 16px; }
+.pl-portal input[type=range] { accent-color: var(--start); }
+.pl-portal input[type=checkbox] { accent-color: var(--start); width: 16px; height: 16px; margin: 0; }
+.pl-portal ::selection { background: var(--start); color: var(--cocoa); }
+
+/* ── 键帽按钮 ── 橙 = 主操作（一组只一个），ghost = 次操作；禁用灰底 */
+.pl-portal .keycap { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font: 900 16px/1 var(--cn); padding: 14px 26px 13px; border-radius: var(--r-pill); background: var(--start); color: var(--cocoa); border: 0; box-shadow: 0 5px 0 var(--edge-start); white-space: nowrap; transition: transform var(--dur-fast), box-shadow var(--dur-fast); }
+.pl-portal .keycap:hover { transform: translateY(-1px); }
+.pl-portal .keycap:active { transform: translateY(4px); box-shadow: 0 1px 0 var(--edge-start); }
+.pl-portal .keycap svg.i { --plaiers-icon-accent: var(--cocoa); }
+.pl-portal .keycap.ghost { background: var(--n850); color: var(--text); box-shadow: 0 5px 0 var(--edge-ghost); border: 2px solid var(--n700); }
+.pl-portal .keycap.ghost svg.i { --plaiers-icon-accent: var(--start); }
+.pl-portal .keycap.sm { font-size: 14px; padding: 10px 18px 9px; box-shadow: 0 4px 0 var(--edge-start); }
+.pl-portal .keycap.ghost.sm { padding: 8px 16px 7px; box-shadow: 0 4px 0 var(--edge-ghost); }
+.pl-portal .keycap.ghost:active { box-shadow: 0 1px 0 var(--edge-ghost); }
+.pl-portal .keycap.block { width: 100%; }
+.pl-portal .keycap:disabled, .pl-portal .keycap.off { background: var(--n800); color: var(--n500); border-color: var(--n800); box-shadow: 0 4px 0 var(--edge-ghost); cursor: not-allowed; transform: none; }
+.pl-portal .keycap:disabled svg.i { --plaiers-icon-accent: var(--n500); }
+.pl-portal .keycap.loading::before { content: ''; width: 12px; height: 12px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: pl-spin .7s linear infinite; }
+
+/* 文字按钮：取消、更多、低强调动作 */
+.pl-portal .btn-text { background: none; border: 0; color: var(--n400); padding: 6px 8px; border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: 6px; font-size: 14px; white-space: nowrap; }
+.pl-portal .btn-text:hover { color: var(--text); background: var(--n850); }
+.pl-portal .btn-text:disabled { color: var(--n500); background: none; cursor: not-allowed; }
+
+/* 图标按钮：关闭、播放这类只有图标的小按钮（36px，触屏够大） */
+.pl-portal .pl-iconbtn { display: inline-grid; place-items: center; flex: none; width: 36px; height: 36px; padding: 0; border: 2px solid var(--n700); border-radius: var(--r-pill); background: var(--n850); color: var(--n300); }
+.pl-portal .pl-iconbtn:hover { color: var(--text); border-color: var(--n500); }
+.pl-portal .pl-iconbtn.plain { border-color: transparent; background: none; }
+.pl-portal .pl-iconbtn.plain:hover { background: var(--n850); }
+.pl-portal .pl-iconbtn.go { background: var(--start); border-color: var(--start); color: var(--cocoa); }
+.pl-portal .pl-iconbtn.go svg.i { --plaiers-icon-accent: var(--cocoa); }
+
+/* ── 标签 ── 类型、筛选、元信息；.on = 选中（金币黄底可可棕字） */
+.pl-portal .pl-tag { display: inline-flex; align-items: center; gap: 6px; font: 500 13px/1 var(--cn); padding: 7px 12px 6px; border-radius: var(--r-pill); background: var(--n850); color: var(--n300); border: 1px solid var(--n700); white-space: nowrap; }
+.pl-portal button.pl-tag:hover { border-color: var(--n500); color: var(--text); }
+.pl-portal .pl-tag.on { background: var(--coin); border-color: var(--coin); color: var(--cocoa); font-weight: 700; }
+.pl-portal .pl-tag.sm { font-size: 12px; padding: 4px 8px 3px; }
+.pl-portal .pl-tag .num { font-size: 13px; color: var(--n400); }
+.pl-portal .pl-tag.on .num { color: var(--cocoa); }
+
+/* 斜切标签：只放在画面左上角 */
+.pl-portal .flag { display: inline-block; font: 900 12px/1 var(--cn); padding: 6px 10px 5px; background: var(--coin); color: var(--cocoa); transform: skewX(-12deg); border-radius: var(--r-xs); white-space: nowrap; }
+.pl-portal .flag > i { display: inline-block; transform: skewX(12deg); font-style: normal; }
+.pl-portal .flag.cream { background: var(--cream); }
+.pl-portal .flag.cocoa { background: var(--cocoa); color: var(--cream); }
+
+/* ── 分段选择 ── 互斥的几个选项（模式、工具、视图），选中奶油底 */
+.pl-portal .pl-seg { display: inline-flex; flex-wrap: wrap; gap: 2px; border: 2px solid var(--n800); background: var(--n900); padding: 3px; border-radius: var(--r-pill); }
+.pl-portal .pl-seg > button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--n400); font-size: 13px; line-height: 1.2; border-radius: var(--r-pill); padding: 6px 13px; white-space: nowrap; }
+.pl-portal .pl-seg > button:hover { color: var(--text); }
+.pl-portal .pl-seg > button[aria-pressed=true] { background: var(--cream); color: var(--cocoa); font-weight: 700; }
+.pl-portal .pl-seg > button[aria-pressed=true] svg.i { --plaiers-icon-accent: var(--start); }
+
+/* ── 页签（下划线）── 当前页签用开局橙 */
+.pl-portal .pl-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 2px solid var(--n800); }
+.pl-portal .pl-tabs > button { margin-bottom: -2px; padding: 9px 12px; font: 700 14px/1.3 var(--cn); color: var(--n400); background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; }
+.pl-portal .pl-tabs > button:hover { color: var(--text); }
+.pl-portal .pl-tabs > button[aria-selected=true] { color: var(--text); border-bottom-color: var(--start); }
+
+/* ── 表单字段 ── */
+.pl-portal .pl-field { display: grid; gap: 6px; min-width: 0; font-size: 13px; }
+.pl-portal .pl-field > span:first-child { font-weight: 700; color: var(--n300); }
+.pl-portal .pl-field small { font-size: 12px; color: var(--n400); }
+.pl-portal :is(.pl-input, .pl-field input:not([type=checkbox], [type=radio], [type=range]), .pl-field select, .pl-field textarea) {
+  width: 100%; min-width: 0; min-height: 40px; padding: 8px 12px;
+  font: 400 14px/1.5 var(--cn); color: var(--text); background: var(--n950);
+  border: 1px solid var(--n600); border-radius: var(--r-sm); color-scheme: dark; outline: none;
+  transition: border-color var(--dur-fast);
+}
+.pl-portal :is(textarea.pl-input, .pl-field textarea) { min-height: 88px; resize: vertical; }
+.pl-portal :is(select.pl-input, .pl-field select) { height: 40px; padding-block: 0; }
+.pl-portal :is(.pl-input, .pl-field :is(input, select, textarea))::placeholder { color: var(--n500); }
+.pl-portal :is(.pl-input, .pl-field :is(input, select, textarea)):hover { border-color: var(--n500); }
+.pl-portal :is(.pl-input, .pl-field :is(input, select, textarea)):focus { border-color: var(--coin); }
+.pl-portal :is(.pl-input, .pl-field :is(input, select, textarea)):disabled { color: var(--n500); background: var(--n900); border-color: var(--n800); cursor: not-allowed; }
+.pl-portal .pl-input.sm { min-height: 32px; height: 32px; padding: 4px 10px; font-size: 13px; }
+.pl-portal .pl-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text); cursor: pointer; }
+.pl-portal .pl-check.sm { font-size: 13px; color: var(--n300); }
+
+/* 搜索框 */
+.pl-portal .pl-search { flex: 0 1 420px; min-width: 0; height: 40px; border-radius: var(--r-pill); background: var(--n850); border: 1px solid var(--n700); display: flex; align-items: center; gap: 8px; padding: 0 14px; color: var(--n500); }
+.pl-portal .pl-search:focus-within { border-color: var(--coin); }
+.pl-portal .pl-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--text); font-size: 14px; }
+.pl-portal .pl-search input::placeholder { color: var(--n500); }
+
+/* ── 提示条（页内）与 toast（浮在页面上） ── 状态都配文字，不只靠颜色 */
+.pl-portal .pl-notice { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.5; color: var(--text); background: var(--n850); border: 1px solid var(--n700); border-left-width: 4px; border-radius: var(--r-sm); overflow-wrap: anywhere; }
+.pl-portal .pl-notice.ok { border-color: var(--ok); background: var(--surface-ok); }
+.pl-portal .pl-notice.warn { border-color: var(--coin); background: var(--surface-warn); }
+.pl-portal .pl-notice.err { border-color: var(--danger); background: var(--surface-danger); }
+.pl-portal .pl-notice > b { flex: none; font-weight: 900; }
+.pl-toast { position: fixed; left: 50%; bottom: 28px; z-index: 1000; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; max-width: min(520px, calc(100vw - 32px)); padding: 12px 18px; font: 700 14px/1.45 var(--cn); color: var(--text); background: var(--n850); border: 2px solid var(--n700); border-radius: var(--r-lg); box-shadow: 4px 4px 0 var(--hard); overflow-wrap: anywhere; animation: pl-pop var(--dur-mid) var(--ease-pop) both; }
+.pl-toast::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--n400); }
+.pl-toast.ok::before { background: var(--ok); }
+.pl-toast.warn::before { background: var(--coin); }
+.pl-toast.err { border-color: var(--danger-line); }
+.pl-toast.err::before { background: var(--danger); }
+
+/* ── 空状态 ── 一句话加一个动作，不做大空框 */
+.pl-portal .pl-empty { display: grid; justify-items: center; align-content: center; gap: 8px; padding: 32px 16px; text-align: center; color: var(--n400); font-size: 14px; }
+.pl-portal .pl-empty > strong { font: 900 17px/1.35 var(--cn); color: var(--text); }
+
+/* ── 菜单 / 浮层 ── */
+.pl-portal .menu { background: var(--n900); border: 2px solid var(--n700); border-radius: var(--r-lg); box-shadow: 4px 4px 0 var(--hard); padding: 6px; }
+
+/* ── 弹层（遮罩 + 窗） ── */
+.pl-portal .pl-scrim { position: fixed; inset: 0; z-index: 500; display: none; place-items: center; padding: 16px; background: var(--scrim); }
+.pl-portal .pl-scrim.open { display: grid; }
+.pl-portal .pl-dialog { color: var(--text); background: var(--n900); border: 2px solid var(--n700); border-radius: var(--r-xxl); box-shadow: 6px 6px 0 var(--hard); overflow: hidden; }
+.pl-portal .pl-dialog-head { display: flex; align-items: center; gap: 12px; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--n800); }
+.pl-portal .pl-dialog-head h2 { flex: 1; min-width: 0; font: 900 17px/1.3 var(--cn); color: var(--cream); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 代码 / 路径 */
+.pl-portal .pl-code { display: inline-block; max-width: 100%; padding: 4px 8px; font: 12px/1.5 var(--mono); color: var(--coin); background: var(--n950); border: 1px solid var(--n800); border-radius: var(--r-sm); overflow-wrap: anywhere; user-select: all; }
+
+/* ── 工作台布局 ── 全屏工具页：顶栏 + 舞台 + 侧栏 */
+.pl-portal.wb-app { height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.pl-portal .wb-top { flex: none; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: var(--n900); border-bottom: 1px solid var(--n700); position: relative; z-index: 60; }
+.pl-portal .wb-title { display: flex; align-items: center; gap: 10px; min-width: 0; font: 900 16px/1.3 var(--cn); white-space: nowrap; }
+.pl-portal .wb-title::before { content: ''; width: 10px; height: 10px; background: var(--start); transform: skewX(-12deg); flex: none; }
+.pl-portal .wb-meta { min-width: 0; font-size: 13px; color: var(--n400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-portal .wb-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; flex: none; }
+.pl-portal .wb-main { flex: 1; min-height: 0; display: flex; overflow: hidden; position: relative; }
+.pl-portal .wb-stage { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--n950); }
+.pl-portal .wb-side { width: 360px; flex: none; display: flex; flex-direction: column; overflow-y: auto; background: var(--n900); border-left: 1px solid var(--n700); }
+.pl-portal .wb-sec { display: grid; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--n800); }
+.pl-portal .wb-sec:last-child { border-bottom: 0; }
+.pl-portal .wb-sec > h3, .pl-portal .wb-sec-head > h3 { font: 700 15px/1.3 var(--cn); color: var(--text); }
+.pl-portal .wb-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pl-portal .wb-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pl-portal .wb-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pl-portal .wb-note { font-size: 13px; line-height: 1.6; color: var(--n400); overflow-wrap: anywhere; }
+.pl-portal .wb-checker {
+  background-color: var(--checker-a);
+  background-image: linear-gradient(45deg, var(--checker-b) 25%, transparent 25%), linear-gradient(-45deg, var(--checker-b) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, var(--checker-b) 75%), linear-gradient(-45deg, transparent 75%, var(--checker-b) 75%);
+  background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* 处理中遮罩 */
+.pl-portal .wb-busy { position: fixed; inset: 0; z-index: 900; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; background: var(--scrim-strong); text-align: center; font: 700 15px/1.6 var(--cn); color: var(--text); }
+.pl-portal .wb-busy.open { display: flex; }
+.pl-portal .wb-spinner { width: 40px; height: 40px; border-radius: 50%; border: 4px solid var(--n700); border-top-color: var(--start); animation: pl-spin .8s linear infinite; }
+
+@keyframes pl-spin { to { transform: rotate(360deg); } }
+@keyframes pl-pop { from { opacity: 0; transform: translate(-50%, 12px) scale(.96); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+
+/* 减少动态效果：去掉弹跳、位移和循环，只留透明度 */
+@media (prefers-reduced-motion: reduce) {
+  .pl-portal *, .pl-toast { transition: none !important; }
+  .pl-portal .keycap:hover, .pl-portal .keycap:active { transform: none; }
+  .pl-toast { animation: none; }
+  .pl-portal .wb-spinner, .pl-portal .keycap.loading::before { animation: none; }
+}
