@@ -13,11 +13,14 @@ Plaiers 安装器从注册表按固定版本取得本 Skill 后，在包根目�
   "agent_id": "codex-desktop-1",
   "jwt_command": ["node", "/abs/plaiers-community/scripts/get-skill-jwt.mjs",
     "--agent-id", "codex-desktop-1", "--origin", "https://dev.plaiers.ai",
-    "--config-dir", "/abs/.config/sagein-community"]
+    "--config-dir", "/abs/.config/sagein-community"],
+  "skill_id": "plaiers/asynx-image-pro",
+  "skill_version": "<64 位 SHA-256 锁定版本>"
 }
 ```
 
 - `jwt_command`：安装时记录的完整 argv。前两项是可执行文件和脚本，后面只允许成对出现的 `--agent-id`、`--origin`、`--config-dir`、`--credential-file`、`--account-id`。`--origin` 必须等于 `origin`，必须有 `--agent-id`。
+- `skill_id` / `skill_version`：安装器记录的技能库 ID 与锁定版本，仅供 `update status` 查询技能库（见 ADR-0007），不影响取 JWT。缺失时 `update status` 返回 `not_registry_install`。
 - 上下文里不得有 PAT。出现 `sagein_pat_` / `cg_pat_` 字样时，整个上下文被拒绝。
 - `PLAIERS_SKILL_CONTEXT` 可指向另一份上下文文件，供测试和开发使用，格式和校验相同。
 - 找不到上下文或上下文无效时返回 `need_login`（`details.reason_code` 为 `missing_context` / `invalid_context`），并提示经 `search_skills` / `get_skill` 安装。没有任何回退：不扫描 `bindings/`，不读 `credentials/`，不读 `SAGEIN_COMMUNITY_*` 环境变量，没有默认 origin。

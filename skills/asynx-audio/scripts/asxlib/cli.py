@@ -196,15 +196,6 @@ def parser() -> argparse.ArgumentParser:
     models.add_argument("--guide", help="查看指定模型的参数指南")
 
     # Updates
-    update = commands.add_parser("update", help="检查与更新 Skill")
-    update_sub = update.add_subparsers(dest="update_command", required=True)
-    update_sub.add_parser("status")
-    update_check_cmd = update_sub.add_parser("check")
-    update_check_cmd.add_argument("--force", action="store_true")
-    update_apply_cmd = update_sub.add_parser("apply")
-    update_apply_cmd.add_argument("--target", default="all")
-    update_apply_cmd.add_argument("--force", action="store_true")
-    update_sub.add_parser("rollback")
 
     return res
 
@@ -221,20 +212,10 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
     if args.command == "doctor":
         payload = doctor(verify=args.verify, modality="audio")
         if args.updates:
-            from .updates import update_check
-            payload["updates"] = update_check()
+            from .updates import update_status_for_doctor
+            payload["updates"] = update_status_for_doctor()
         return payload, 0 if payload["ok"] else 2
 
-    if args.command == "update":
-        from .updates import update_apply, update_check, update_rollback, update_status
-        if args.update_command == "status":
-            return update_status(), 0
-        if args.update_command == "check":
-            checked = update_check(force=args.force)
-            return checked, 0 if checked["ok"] else 2
-        if args.update_command == "apply":
-            return update_apply(target=args.target, force=args.force, already_locked=locked_root), 0
-        return update_rollback(already_locked=locked_root), 0
 
     if args.command == "recent":
         modality = None if getattr(args, "all_modalities", False) else "audio"

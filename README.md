@@ -81,7 +81,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 ### 更新与卸载
 
-- **升级**：可直接在对话中要求 Agent“检查 Asynx Skill 更新”或重新运行 `python3 install.py`。
+- **升级**：经 Plaiers 技能库安装的副本，运行 `asynx.py update status` 查看技能库当前版本，征得同意后用 Plaiers 安装器安装新的锁定版本（Skill 不会自行改写文件）；仓库本地安装的副本，`git pull` 后重新运行 `python3 install.py`。
 - **卸载**：在仓库根目录执行 `python3 install.py --uninstall` 即可完成干净卸载。
 
 > 如需使用软链接接入（开发者联动）、解压预打包 zip 归档或从源码重新构建，请参阅 [其他安装方式与 CLI 脚本直接调用指南](CLI_USAGE.md)。

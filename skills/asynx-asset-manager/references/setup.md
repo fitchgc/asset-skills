@@ -29,11 +29,12 @@ python3 install.py --skill asset-manager
 python3 install.py --skill all
 ```
 
-已安装副本可通过 `update` 子命令检查与更新：
-
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" update status
-python3 "<skill-dir>/scripts/asynx.py" update check
-python3 "<skill-dir>/scripts/asynx.py" update apply
-python3 "<skill-dir>/scripts/asynx.py" update rollback
 ```
+
+`update status`（`update check` 等同）向安装时记录的 Plaiers 站点技能库查询：返回 `installed_version`（已装的锁定版本）、`current_version`（技能库当前版本）、`withdrawn`（已装版本是否已撤回）和 `update_available`。它会联网，只在用户要求检查更新时运行；其他命令不会在后台检查更新。
+
+有新版本时，结果里的 `update.install_command` 是 Plaiers 安装器（`install-capability-skill.mjs`）安装该锁定版本的命令。**先征得用户同意再运行**；安装器会备份旧副本，失败时自动回滚。本 Skill 不会改写自己的文件，`update apply` / `update rollback` 已移除。
+
+已装版本被撤回时，照实告知用户；当前副本保持不变，不会被自动删除，是否替换或移除由用户决定。不是通过技能库安装的副本（如仓库 `install.py` 的本地安装）返回 `not_registry_install`，需在仓库根目录 `git pull` 后重新运行安装器。

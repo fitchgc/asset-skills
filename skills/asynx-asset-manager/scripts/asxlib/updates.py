@@ -1,465 +1,149 @@
-"""Stable release discovery and explicit updates; never uses Asynx credentials."""
+"""Registry-driven update status (see ADR-0007).
+
+The installed package never rewrites its own files and never checks for updates in the background.
+`update status` asks the Plaiers skill registry (the site recorded in the local credential context)
+whether the installed pinned version is still published and what the current version is. Applying an
+update is an explicit, user-confirmed run of the Plaiers installer with the new pinned version.
+"""
 
 from __future__ import annotations
 
 import json
-import os
+import re
 import shlex
-import sys
-import tempfile
-import time
-from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
-from urllib.error import HTTPError
-from urllib.parse import urlsplit
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from asx_runtime import file_lock
-
-from .config import cache_path, config_path, state_path
+from .auth import context_path, load_credential_context
 from .constants import VERSION
 from .errors import AsxError
-from .update_files import (
-    MAX_PACKAGE_BYTES,
-    RECEIPT,
-    REPOSITORY,
-    extract_package,
-    installation_problem,
-    lock_targets,
-    read_json,
-    read_version,
-    replace_installations,
-    restore_transaction,
-    validate_manifest,
-    version_tuple,
-    write_json,
-)
 
-CHECK_INTERVAL_SECONDS = 6 * 60 * 60
-LATEST_RELEASE_URL = f"https://api.github.com/repos/{REPOSITORY}/releases/latest"
-RELEASE_BASE_URL = f"https://github.com/{REPOSITORY}/releases"
-_DOWNLOAD_HOSTS = {
-    "api.github.com",
-    "github.com",
-    "release-assets.githubusercontent.com",
-    "objects.githubusercontent.com",
-}
+REGISTRY_TIMEOUT_SECONDS = 10
+MAX_REGISTRY_RESPONSE_BYTES = 1024 * 1024
+_ID = re.compile(r"plaiers/[a-z0-9]+(?:-[a-z0-9]+)*\Z")
+_VERSION = re.compile(r"[0-9a-f]{64}\Z")
+_INSTALLER = "install-capability-skill.mjs"
+_DEV_ORIGIN = "https://dev.plaiers.ai"
+_LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 
 
-def skill_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def skill_name() -> str:
-    name = skill_root().name
-    if name.startswith("asynx-"):
-        return name
-    return "asynx-image-pro"
-
-
-def update_cache_path() -> Path:
-    return cache_path().with_name(f"{skill_name()}-updates.json")
-
-
-def journal_path() -> Path:
-    return update_cache_path().with_name(f"{skill_name()}-update-transaction.json")
-
-
-def known_installations() -> dict[str, Path]:
-    user_home = Path.home().resolve()
-    name = skill_name()
-    return {
-        "codex": user_home / ".agents" / "skills" / name,
-        "claude": user_home / ".claude" / "skills" / name,
-        "codex-legacy": user_home / ".codex" / "skills" / name,
-    }
-
-
-def _candidates() -> dict[str, Path]:
-    candidates = known_installations()
-    current = skill_root()
-    if current not in candidates.values():
-        candidates["current"] = current
-    return candidates
-
-
-def update_command() -> str:
-    script = skill_root() / "scripts" / "asynx.py"
-    if os.name == "nt":
-        return f'py "{script}" update apply'
-    return f"python3 {shlex.quote(str(script))} update apply"
-
-
-def _cache() -> dict[str, Any]:
-    try:
-        return read_json(update_cache_path())
-    except AsxError:
-        return {}
-
-
-def _cached_release(cache: dict[str, Any]) -> dict[str, str] | None:
-    release = cache.get("release")
-    if not isinstance(release, dict) or not isinstance(release.get("version"), str):
-        return None
-    try:
-        return _release_descriptor(release["version"])
-    except AsxError:
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, D102
         return None
 
 
-def _newer(latest: str, installed: str | None) -> bool:
+def _registry_origin(origin: str) -> str:
+    parts = urlsplit(origin)
+    if origin == _DEV_ORIGIN or (parts.scheme == "http" and parts.hostname in _LOOPBACK):
+        return origin
+    raise AsxError(
+        "技能库目前只在 dev 站点提供，当前安装记录的站点不支持更新查询",
+        code="registry_unsupported_origin",
+        details={"origin": origin},
+    )
+
+
+def installed_identity() -> dict[str, Any]:
+    """Pinned registry identity recorded by the Plaiers installer next to the package."""
+    context = load_credential_context()
     try:
-        return installed is not None and version_tuple(latest) > version_tuple(
-            installed
+        raw = json.loads(Path(context["path"]).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:  # validated just above; a race leaves it unreadable
+        raise AsxError("无法读取本机安装记录", code="invalid_install_context") from exc
+    skill_id, version = raw.get("skill_id"), raw.get("skill_version")
+    if not isinstance(skill_id, str) or not _ID.fullmatch(skill_id) or not isinstance(version, str) or not _VERSION.fullmatch(version):
+        raise AsxError(
+            "本 Skill 不是通过技能库安装的锁定版本，无法查询更新。请通过 plaiers-community 用 search_skills / get_skill 选定版本后重新安装。",
+            code="not_registry_install",
+            details={"context_path": context["path"]},
         )
-    except AsxError:
-        return False
+    return {"id": skill_id, "version": version, "origin": context["origin"], "jwt_command": context["jwt_command"]}
+
+
+def _get(origin: str, params: dict[str, str]) -> tuple[int, dict[str, Any]]:
+    url = f"{origin}/api/skills/get?{urlencode(params)}"
+    request = Request(url, headers={"Accept": "application/json", "User-Agent": f"asx-skill/{VERSION}"})
+    try:
+        with build_opener(_NoRedirect()).open(request, timeout=REGISTRY_TIMEOUT_SECONDS) as response:
+            status, body = response.status, response.read(MAX_REGISTRY_RESPONSE_BYTES + 1)
+    except HTTPError as exc:
+        status, body = exc.code, exc.read(MAX_REGISTRY_RESPONSE_BYTES + 1)
+        exc.close()
+    except (URLError, OSError, TimeoutError) as exc:
+        raise AsxError("暂时无法连接技能库，仍可使用当前版本", code="registry_unavailable", details={"origin": origin}) from exc
+    if len(body) > MAX_REGISTRY_RESPONSE_BYTES:
+        raise AsxError("技能库响应过大", code="registry_unavailable", details={"origin": origin})
+    try:
+        data = json.loads(body.decode("utf-8")) if body else {}
+    except (UnicodeError, ValueError):
+        data = {}
+    return status, data if isinstance(data, dict) else {}
+
+
+def install_command(identity: dict[str, Any], version: str) -> list[str]:
+    """Plaiers installer argv for a pinned version, reusing the recorded credential selection."""
+    bridge = identity["jwt_command"]
+    installer = str(Path(bridge[1]).with_name(_INSTALLER))
+    return [bridge[0], installer, "install", "--id", identity["id"], "--version", version, *bridge[2:]]
 
 
 def update_status() -> dict[str, Any]:
-    cache = _cache()
-    release = _cached_release(cache)
-    latest = release["version"] if release else None
-    installations = []
-    for agent, root in _candidates().items():
-        if not root.is_dir():
-            continue
-        version = read_version(root)
-        problem = installation_problem(root)
-        installations.append(
-            {
-                "agent": agent,
-                "path": str(root),
-                "version": version,
-                "current": root == skill_root(),
-                "managed": problem in {None, "local_changes"},
-                "update_blocked_by": problem,
-                "update_available": _newer(latest, version) if latest else None,
-            }
+    identity = installed_identity()
+    origin = _registry_origin(identity["origin"])
+    pinned_status, _ = _get(origin, {"id": identity["id"], "version": identity["version"]})
+    current_status, current = _get(origin, {"id": identity["id"]})
+    if pinned_status == 404 and current_status == 404:
+        raise AsxError(
+            "技能库未开放或已下架本 Skill，仍可使用当前版本",
+            code="registry_disabled",
+            details={"origin": origin, "id": identity["id"]},
         )
-    journal = read_json(journal_path())
-    checked_at = cache.get("checked_at")
-    fresh = (
-        isinstance(checked_at, (float, int))
-        and 0 <= time.time() - checked_at < CHECK_INTERVAL_SECONDS
-    )
-    return {
+    if pinned_status not in {200, 404, 410} or current_status not in {200, 404, 410}:
+        raise AsxError("暂时无法确认是否有更新，仍可使用当前版本", code="registry_unavailable", details={"origin": origin})
+    current_version = current.get("version") if current_status == 200 else None
+    if current_version is not None and (not isinstance(current_version, str) or not _VERSION.fullmatch(current_version) or current.get("id") != identity["id"]):
+        raise AsxError("技能库返回了无效的版本信息", code="registry_unavailable", details={"origin": origin})
+    withdrawn = pinned_status == 410
+    update_available = current_version is not None and current_version != identity["version"]
+    result: dict[str, Any] = {
         "ok": True,
-        "current_version": VERSION,
-        "latest_version": latest,
-        "update_available": (
-            _newer(latest, VERSION) or any(i["update_available"] for i in installations)
-        )
-        if latest
-        else None,
-        "check_status": cache.get("check_status", "not_checked"),
-        "checked_at": checked_at,
-        "cache_stale": not fresh,
-        "check_interval_hours": 6,
-        "automatic_check_enabled": os.environ.get("ASYNX_UPDATE_CHECK", "").lower()
-        != "off",
-        "installed_copies": installations,
-        "recovery_required": journal.get("status") in {"committing", "rolling_back"},
-        "rollback_available": journal.get("status") == "committed",
-        "release_url": release["release_url"] if release else None,
-        "update_command": update_command(),
+        "id": identity["id"],
+        "origin": origin,
+        "installed_version": identity["version"],
+        "current_version": current_version,
+        "withdrawn": withdrawn,
+        "installed_available": pinned_status == 200,
+        "update_available": update_available,
+        "package_version": VERSION,
     }
+    if withdrawn:
+        result["withdrawn_notice"] = "已安装的版本已被撤回。当前副本保持不变，不会被自动删除；是否替换或移除请先征得用户同意。"
+    if update_available:
+        command = install_command(identity, current_version)
+        result["update"] = {
+            "requires_user_consent": True,
+            "install_command": command,
+            "install_command_shell": " ".join(shlex.quote(part) for part in command),
+            "message": "有新的锁定版本。征得用户同意后，用 Plaiers 安装器安装该版本；本 Skill 不会改写自己的文件。",
+        }
+    return result
 
 
-def _validate_download_url(url: str) -> None:
-    parts = urlsplit(url)
-    if (
-        parts.scheme != "https"
-        or parts.hostname not in _DOWNLOAD_HOSTS
-        or parts.username is not None
-        or parts.password is not None
-        or parts.fragment
-        or parts.port not in {None, 443}
-    ):
-        raise AsxError("更新下载地址不受支持", code="invalid_update_url")
-
-
-class _ReleaseRedirect(HTTPRedirectHandler):
-    def redirect_request(
-        self,
-        req: Request,
-        fp: Any,
-        code: int,
-        msg: str,
-        headers: Any,
-        newurl: str,
-    ) -> Request | None:
-        _validate_download_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _fetch(url: str, *, limit: int, timeout: float) -> bytes:
-    _validate_download_url(url)
-    request = Request(
-        url,
-        headers={
-            "User-Agent": f"asx-skill/{VERSION}",
-            "Accept": "application/json, application/octet-stream",
-        },
+def update_apply_removed() -> dict[str, Any]:
+    """`update apply` / `update rollback` no longer exist: the package never rewrites itself."""
+    raise AsxError(
+        "Skill 不再自行更新或回滚。请先运行 update status，征得用户同意后用其中给出的 Plaiers 安装器命令（install-capability-skill.mjs）安装新的锁定版本；安装器会备份旧副本，失败时自动回滚。",
+        code="update_apply_removed",
+        details={"status_command": "update status"},
     )
-    started = time.monotonic()
+
+
+def update_status_for_doctor() -> dict[str, Any]:
+    """Explicit `doctor --updates`: report problems inside the payload instead of failing the diagnosis."""
     try:
-        with build_opener(_ReleaseRedirect()).open(
-            request, timeout=timeout
-        ) as response:
-            length = response.headers.get("Content-Length")
-            if length and int(length) > limit:
-                raise AsxError("更新响应超过大小限制", code="update_response_too_large")
-            chunks = bytearray()
-            while True:
-                chunk = response.read(min(64 * 1024, limit + 1 - len(chunks)))
-                if not chunk:
-                    return bytes(chunks)
-                chunks.extend(chunk)
-                if len(chunks) > limit:
-                    raise AsxError(
-                        "更新响应超过大小限制", code="update_response_too_large"
-                    )
-                if time.monotonic() - started > timeout:
-                    raise TimeoutError("update download timed out")
-    except HTTPError as exc:
-        status = exc.code
-        exc.close()
-        code = "no_stable_release" if status == 404 else "update_check_unavailable"
-        raise AsxError(
-            "尚无稳定发布版" if status == 404 else "暂时无法检查更新", code=code
-        ) from exc
-
-
-def _release_descriptor(version: str) -> dict[str, str]:
-    version_tuple(version)
-    base = f"{RELEASE_BASE_URL}/download/v{version}"
-    name = skill_name()
-    return {
-        "version": version,
-        "release_url": f"{RELEASE_BASE_URL}/tag/v{version}",
-        "manifest_url": f"{base}/{name}-{version}.json",
-        "archive_url": f"{base}/{name}-{version}.zip",
-    }
-
-
-def _latest_release(*, timeout: float) -> dict[str, str]:
-    data = json.loads(_fetch(LATEST_RELEASE_URL, limit=256 * 1024, timeout=timeout))
-    if not isinstance(data, dict) or data.get("draft") or data.get("prerelease"):
-        raise AsxError("未找到有效的稳定发布版", code="invalid_update_manifest")
-    tag = data.get("tag_name")
-    if not isinstance(tag, str) or not tag.startswith("v"):
-        raise AsxError("发布版本号无效", code="invalid_update_version")
-    descriptor = _release_descriptor(tag[1:])
-    assets = data.get("assets")
-    if not isinstance(assets, list):
-        raise AsxError("发布文件不完整", code="invalid_update_manifest")
-    names = {
-        a.get("name")
-        for a in assets
-        if isinstance(a, dict) and isinstance(a.get("name"), str)
-    }
-    name = skill_name()
-    if not {f"{name}-{tag[1:]}.zip", f"{name}-{tag[1:]}.json"} <= names:
-        raise AsxError("发布文件不完整", code="invalid_update_manifest")
-    return descriptor
-
-
-def update_check(*, force: bool = False, automatic: bool = False) -> dict[str, Any]:
-    path = update_cache_path()
-    try:
-        with file_lock(path.with_suffix(".lock")):
-            cache = _cache()
-            checked_at = cache.get("checked_at")
-            fresh = (
-                isinstance(checked_at, (int, float))
-                and 0 <= time.time() - checked_at < CHECK_INTERVAL_SECONDS
-            )
-            if not fresh or force:
-                try:
-                    release = _latest_release(timeout=2.0 if automatic else 10.0)
-                    cache = {
-                        "checked_at": time.time(),
-                        "check_status": "available",
-                        "release": release,
-                    }
-                except (AsxError, OSError, ValueError) as exc:
-                    cache = {
-                        "checked_at": time.time(),
-                        "check_status": "unavailable",
-                        "error_code": exc.code
-                        if isinstance(exc, AsxError)
-                        else "update_check_unavailable",
-                    }
-                write_json(path, cache)
-        result = update_status()
-        result["ok"] = result["check_status"] == "available"
-        result["cached"] = fresh and not force
-        if not result["ok"]:
-            result["error"] = {
-                "code": cache.get("error_code", "update_check_unavailable"),
-                "message": "目前暂无稳定发布版，仍可使用当前版本。"
-                if cache.get("error_code") == "no_stable_release"
-                else "暂时无法确认是否有更新，仍可使用当前版本。",
-            }
-        return result
-    except OSError as exc:
-        raise AsxError(
-            "更新检查正在进行或缓存不可写", code="update_check_unavailable"
-        ) from exc
-
-
-def automatic_update_notice() -> dict[str, Any] | None:
-    if (
-        os.environ.get("ASYNX_UPDATE_CHECK", "").lower() == "off"
-        or not (skill_root() / RECEIPT).is_file()
-    ):
-        return None
-    try:
-        result = update_check(automatic=True)
-        if result["ok"] and result["update_available"]:
-            return {
-                "current_version": VERSION,
-                "latest_version": result["latest_version"],
-                "message": f"Asynx 图片 {result['latest_version']} 已发布，可运行 update apply 升级。",
-                "update_command": result["update_command"],
-                "release_url": result["release_url"],
-                "outdated_copies": [
-                    i for i in result["installed_copies"] if i["update_available"]
-                ],
-            }
-    except Exception:  # noqa: BLE001 - optional update notices must never discard a completed image result
-        return None
-    return None
-
-
-def _selected_targets(selection: str) -> list[Path]:
-    candidates = _candidates()
-    if selection == "current":
-        return [skill_root()]
-    if selection == "all":
-        return [
-            p
-            for p in dict.fromkeys(candidates.values())
-            if p.is_dir() and installation_problem(p) != "source_checkout"
-        ]
-    names = ("codex", "codex-legacy") if selection == "codex" else (selection,)
-    return [candidates[n] for n in names if n in candidates and candidates[n].is_dir()]
-
-
-def _allowed_targets() -> list[Path]:
-    return [
-        p
-        for p in dict.fromkeys(_candidates().values())
-        if installation_problem(p) != "source_checkout"
-    ]
-
-
-def update_apply(
-    *,
-    target: str = "all",
-    force: bool = False,
-    already_locked: Path | None = None,
-) -> dict[str, Any]:
-    targets = _selected_targets(target)
-    allowed = _allowed_targets()
-    try:
-        with ExitStack() as stack:
-            stack.enter_context(file_lock(journal_path().with_suffix(".lock")))
-            # Recover a killed update before preparing another one. No Asynx state is opened.
-            journal = read_json(journal_path())
-            recovery = journal.get("status") in {"committing", "rolling_back"}
-            locked = list(dict.fromkeys([*targets, *allowed])) if recovery else targets
-            lock_targets(stack, locked, already_locked)
-            restored = restore_transaction(journal_path(), allowed)
-            if restored:
-                return {
-                    "ok": True,
-                    "updated": False,
-                    "recovered": restored,
-                    "message": "已恢复上次中断的安装，请重新运行 update apply。",
-                }
-            if not targets:
-                raise AsxError(
-                    "未找到可更新的已安装副本，请先运行安装器",
-                    code="no_installed_skills",
-                )
-            for root in targets:
-                if any(
-                    p.resolve().is_relative_to(root.resolve())
-                    for p in (config_path(), state_path(), cache_path())
-                ):
-                    raise AsxError(
-                        "配置或任务数据位于 Skill 安装目录内，请先移到用户数据目录",
-                        code="update_data_inside_installation",
-                    )
-                problem = installation_problem(root)
-                if problem and (not force or problem != "local_changes"):
-                    raise AsxError(
-                        "检测到本地改动，请备份后使用 --force 更新"
-                        if problem == "local_changes"
-                        else "此副本未由当前安装器管理，请使用原安装器更新一次",
-                        code=problem,
-                        details={"path": str(root)},
-                    )
-            release = _latest_release(timeout=10.0)
-            version = release["version"]
-            targets = [p for p in targets if _newer(version, read_version(p))]
-            if not targets:
-                return {
-                    "ok": True,
-                    "updated": False,
-                    "latest_version": version,
-                    "message": "已是最新稳定版。",
-                }
-            manifest = validate_manifest(
-                json.loads(
-                    _fetch(release["manifest_url"], limit=256 * 1024, timeout=15.0)
-                ),
-                version,
-            )
-            minimum = tuple(int(x) for x in manifest["python_min"].split("."))
-            if sys.version_info[:2] < minimum:
-                raise AsxError(
-                    f"新版本需要 Python {manifest['python_min']} 或更高版本",
-                    code="unsupported_update_python",
-                )
-            with tempfile.TemporaryDirectory(prefix="asx-release-") as directory:
-                temporary = Path(directory)
-                archive = temporary / manifest["archive"]
-                archive.write_bytes(
-                    _fetch(
-                        release["archive_url"], limit=MAX_PACKAGE_BYTES, timeout=60.0
-                    )
-                )
-                package = extract_package(archive, temporary / "unpacked", manifest)
-                result = replace_installations(
-                    package, targets, journal_path(), force=force
-                )
-            return result
-    except (OSError, ValueError) as exc:
-        raise AsxError(
-            "升级未完成，现有文件已保留或恢复；请稍后重试", code="update_failed"
-        ) from exc
-
-
-def update_rollback(*, already_locked: Path | None = None) -> dict[str, Any]:
-    allowed = _allowed_targets()
-    try:
-        with ExitStack() as stack:
-            stack.enter_context(file_lock(journal_path().with_suffix(".lock")))
-            lock_targets(stack, allowed, already_locked)
-            journal = read_json(journal_path())
-            restored = restore_transaction(
-                journal_path(), allowed, explicit=journal.get("status") == "committed"
-            )
-            return {
-                "ok": True,
-                "restored": restored,
-                "message": "已恢复上一个版本。" if restored else "没有需要恢复的更新。",
-            }
-    except OSError as exc:
-        raise AsxError(
-            "无法恢复更新，请检查安装目录权限和更新记录", code="update_rollback_failed"
-        ) from exc
+        return update_status()
+    except AsxError as exc:
+        return exc.payload()

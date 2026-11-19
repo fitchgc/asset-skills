@@ -19,9 +19,10 @@ if __name__ == "__main__":
         and root.parent.name == "skills"
         and root.parent.parent.name in {".agents", ".claude", ".codex"}
     )
-    changing = sys.argv[1:3] in (["update", "apply"], ["update", "rollback"])
+    # The package never rewrites itself; every command holds a shared lock so the Plaiers installer
+    # (or a local install.py run) can tell the copy is in use.
     guard = (
-        file_lock(runtime_lock_path(root), exclusive=changing)
+        file_lock(runtime_lock_path(root), exclusive=False)
         if managed
         else nullcontext()
     )

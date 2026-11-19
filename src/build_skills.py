@@ -169,7 +169,6 @@ def build_skill(modality_key: str) -> Path:
 
     receipt = {
         "files": file_hashes,
-        "repository": "dawnx/asynx-skills",
         "schema": 1,
         "version": version,
     }

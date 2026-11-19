@@ -217,15 +217,6 @@ def parser() -> argparse.ArgumentParser:
     _add_local_image_commands(commands)
     add_auth_commands(result, commands)
 
-    update = commands.add_parser("update", help="检查、安装或回滚 Skill 更新")
-    update_commands = update.add_subparsers(dest="update_command", required=True)
-    update_commands.add_parser("status", help="离线查看版本、安装位置和最近检查结果")
-    check = update_commands.add_parser("check", help="检查稳定版更新，结果缓存 6 小时")
-    check.add_argument("--force", action="store_true", help="立即联网检查，忽略缓存")
-    apply = update_commands.add_parser("apply", help="升级已安装副本，并保留旧版本备份")
-    apply.add_argument("--target", choices=("all", "current", "codex", "claude"), default="all", help="更新范围，默认所有已安装副本")
-    apply.add_argument("--force", action="store_true", help="备份后覆盖安装目录中的本地改动")
-    update_commands.add_parser("rollback", help="恢复最近一次更新的全部副本，或恢复中断的更新")
     config = commands.add_parser("config", help="查看本机 Asynx 配置")
     config_commands = config.add_subparsers(dest="config_command", required=True)
     config_commands.add_parser("status", help="安全查看配置状态，不显示完整 Token")
@@ -236,7 +227,7 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="连接 Asynx 验证凭据；默认诊断不会联网",
     )
-    doctor_command.add_argument("--updates", action="store_true", help="同时检查 Skill 更新，使用 6 小时缓存")
+    doctor_command.add_argument("--updates", action="store_true", help="同时向 Plaiers 技能库查询已装版本是否有更新或已撤回（联网）")
     models = commands.add_parser("models", help="列出可用图片模型")
     models.add_argument("--operation", choices=("all", "generate", "edit"), default="all")
     models.add_argument("--guide", help="查看指定模型的参数指南")
@@ -393,17 +384,6 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
                 static_dir=ui_static,
                 open_browser=open_browser,
             )
-    if args.command == "update":
-        from .updates import update_apply, update_check, update_rollback, update_status
-
-        if args.update_command == "status":
-            return update_status(), 0
-        if args.update_command == "check":
-            checked = update_check(force=args.force)
-            return checked, 0 if checked["ok"] else 2
-        if args.update_command == "apply":
-            return update_apply(target=args.target, force=args.force, already_locked=locked_root), 0
-        return update_rollback(already_locked=locked_root), 0
     if args.command == "image":
         return execute_local_image(args)
     if args.command == "config" and args.config_command == "status":
@@ -411,9 +391,8 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
     if args.command == "doctor":
         payload = doctor(verify=args.verify, modality="image")
         if args.updates:
-            from .updates import update_check
-
-            payload["updates"] = update_check()
+            from .updates import update_status_for_doctor
+            payload["updates"] = update_status_for_doctor()
         return payload, 0 if payload["ok"] else 2
     if args.command == "recent":
         modality = None if getattr(args, "all_modalities", False) else "image"
@@ -488,15 +467,6 @@ def main(*, locked_root: Path | None = None) -> NoReturn:
     try:
         args = parser().parse_args()
         payload, exit_code = execute(args, locked_root=locked_root)
-        if exit_code == 0 and payload.get("ok") and (
-            (args.command in {"generate", "edit", "wait"} and payload.get("status") == "succeeded")
-            or (args.command == "batch" and payload.get("batch", {}).get("status") == "completed")
-        ):
-            from .updates import automatic_update_notice
-
-            notice = automatic_update_notice()
-            if notice:
-                payload["update_notice"] = notice
     except AsxError as exc:
         payload, exit_code = exc.payload(), exc.exit_code
     except KeyboardInterrupt:

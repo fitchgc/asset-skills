@@ -10,8 +10,8 @@
     "scripts/asxlib/artifacts.py": "6624851145cefabe4fbd1f955d0a05b73a0e756d6b9ed39b18f9af46c742fc2e",
     "scripts/asxlib/auth.py": "4029cf2289df5870bb3e0ed411b64b64655133d9a02a9967a125cd14a4ba8f98",
     "scripts/asxlib/batches.py": "5780a1a2d8762c3aca9e8598dded7ef10d5dfc6788e274f8fe61755ad81f3095",
-    "scripts/asxlib/cli.py": "1199e273eec36fe5b6c58d07d879a666edd5ba00f89bba417626c8ddde88b30e",
-    "scripts/asxlib/cli_common.py": "1729810f2ef4752329e962979272695e6270b264b7cc0b2a5a41f9fe27f7dc20",
+    "scripts/asxlib/cli.py": "8aca5fb2722890131bfabd17f94005db51f53378a221d49b30b2f5914cdc3eb0",
+    "scripts/asxlib/cli_common.py": "4ebc494a91d91e1ed0314436073837b1082ef68e4850c5d795ecdc4a93a1e613",
     "scripts/asxlib/client.py": "1790fad9e4500ffd255b9a15395ccc5062a8c7fdebabe0f900e61330bf02a446",
     "scripts/asxlib/config.py": "c231afd50ffda16ce4bcab9d62a26b9b9b38c696397ed8c37ae5086ef9d6cff8",
     "scripts/asxlib/constants.py": "5baadff1facb296ce7618a29c7aee6347a911e4f3aa2754f3be48b9bb1bff010",
@@ -36,11 +36,10 @@
     "scripts/asxlib/ui/plaiers.css": "27df8e7b8fe9517b8b83c1e717feffdf1d6bfc30accc8f9828d88c964bfd9d5d",
     "scripts/asxlib/ui/wb-icons.svg": "566391b04852fbd57ce9435a886670f884a77c328f3e27005e91294ed4a9ccc9",
     "scripts/asxlib/ui_server.py": "2ff3a2e63d97ef9d5a4f28d4fb7a727d0791870fc4a6fd6bdc27b7cbb433164d",
-    "scripts/asxlib/update_files.py": "02a87bf73080e39790d715310a196787ff0fb38545256e1063605d8ca28a096f",
-    "scripts/asxlib/updates.py": "d9721bba3a4cd9554f639e3c60874cb7f798f376273aeb2b7c2577a2b91d308b",
-    "scripts/asynx.py": "58b0d00cd2030778feb193a3f98c7c98dd7de66c0a9957c1be41b2852f038cf8"
+    "scripts/asxlib/update_files.py": "f2946465349b87f3bd6d779dda2175e398b50a86cb82de33e772867b875920c5",
+    "scripts/asxlib/updates.py": "7e876e5e966d70dd62d4571ae2f0d4ca185f48e8edaf49e57e23fbc5d45d7438",
+    "scripts/asynx.py": "3a3d1e04958192e8a027051b1431972b65a5eacaec3778100f23c33676e9ed67"
   },
-  "repository": "dawnx/asynx-skills",
   "schema": 1,
   "version": "1.0.0"
 }

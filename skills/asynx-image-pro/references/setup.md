@@ -40,23 +40,17 @@ python3 install.py --uninstall
 
 其他 Agent 应使用其支持的 Skill 安装方式，不能假设本安装器能自动检测它们。
 
-## 更新与回滚
+## 更新
 
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" update status
-python3 "<skill-dir>/scripts/asynx.py" update check
-python3 "<skill-dir>/scripts/asynx.py" update check --force
-python3 "<skill-dir>/scripts/asynx.py" update apply
-python3 "<skill-dir>/scripts/asynx.py" update rollback
 ```
 
-`status` 离线查看版本和位置；`check` 使用 6 小时缓存，`--force` 立即联网。任务成功后的自动检查也使用缓存，新版提示可以重复出现。用户要求关闭时可设置 `ASYNX_UPDATE_CHECK=off`，但不要把当前子进程的临时设置说成已永久关闭。
+`update status`（`update check` 等同）向安装时记录的 Plaiers 站点技能库查询：返回 `installed_version`（已装的锁定版本）、`current_version`（技能库当前版本）、`withdrawn`（已装版本是否已撤回）和 `update_available`。它会联网，只在用户要求检查更新时运行；其他命令不会在后台检查更新。
 
-用户要求升级时直接执行 `apply`；默认更新工具识别的已登记安装副本，`--target current` 仅更新当前副本，也支持 `codex` / `claude`。更新不需要登录，保留配置、任务数据和图片。检测到本地修改或非本工具管理的副本时，说明原因，不自动加 `--force`；后者可通过原安装工具更新。
+有新版本时，结果里的 `update.install_command` 是 Plaiers 安装器（`install-capability-skill.mjs`）安装该锁定版本的命令。**先征得用户同意再运行**；安装器会备份旧副本，失败时自动回滚。本 Skill 不会改写自己的文件，`update apply` / `update rollback` 已移除。
 
-升级失败会尝试恢复；需要恢复上一版或处理中断的更新时使用 `rollback`。完成后提示重新打开会话或刷新 Skill 列表。
-
-更新只使用已发布的稳定 Release。仓库中尚未发布的改动，需要在仓库根目录 `git pull` 后重新运行安装器；不要声称 `update apply` 会安装未发布提交。
+已装版本被撤回时，照实告知用户；当前副本保持不变，不会被自动删除，是否替换或移除由用户决定。不是通过技能库安装的副本（如仓库 `install.py` 的本地安装）返回 `not_registry_install`，需在仓库根目录 `git pull` 后重新运行安装器。
 
 ## 旧版 asx 迁移
 
