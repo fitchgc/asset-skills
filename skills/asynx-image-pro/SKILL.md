@@ -27,6 +27,8 @@ python3 "<skill-dir>/scripts/asynx.py" edit --prompt "<修改要求>" --from-tas
 
 ## 交互工作台 (Local UI Workbench)
 
+> 本节命令由可选的**本地工作台包**（`asynx-asset-manager`，技能库 ID `plaiers/asynx-asset-manager`）提供，本 Skill 只含生成、查询与下载。未安装时命令返回 `workbench_not_installed`，生成主流程不受影响；用户需要时，经同意后用 `get_skill` 获取并用 Plaiers 安装器装成同一版本（版本不一致返回 `workbench_version_mismatch`）。
+
 当用户要求“编辑刚才的图片”、“修改特定区域”、“画一下 Mask”、“调起涂鸦批注/编辑界面”或进行可视化选区与指向修改时，**直接启动本地交互式编辑工作台**：
 
 ```bash

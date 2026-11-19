@@ -16,7 +16,7 @@ from .client import AsynxClient
 from .config import config_status, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
 from .errors import AsxError
-from .local_video import execute_local_video
+from .workbench import require_workbench, workbench_ui_dir
 from .output import emit, log
 from .state import SCHEMA_VERSION, connect_db as connect_ledger_db, task_paths as ledger_task_paths
 from .tasks import (
@@ -204,6 +204,14 @@ def parser() -> argparse.ArgumentParser:
     return res
 
 
+
+def execute_local_video(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Local post-processing lives in the optional workbench package (ADR-0007)."""
+    require_workbench("本地视频处理")
+    from .local_video import execute_local_video as run
+
+    return run(args)
+
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
     auth_result = handle_auth_command(args)
     if auth_result is not None:
@@ -212,10 +220,8 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         return execute_local_video(args)
 
     if args.command == "ui":
+        ui_static = workbench_ui_dir("视频工作台", "video")
         from .ui_server import launch_workbench
-        ui_static = Path(__file__).resolve().parent / "ui"
-        if not ui_static.is_dir():
-            ui_static = Path(__file__).resolve().parents[2] / "src" / "ui" / "video"
 
         video_path = getattr(args, "video", None)
         from_task = getattr(args, "from_task", None)

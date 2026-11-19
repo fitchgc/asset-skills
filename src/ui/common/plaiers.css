@@ -4,7 +4,7 @@
    用法：<body class="pl-portal wb-app">，页面 CSS 只写布局和本页独有的东西，颜色、字号、圆角、阴影一律引用令牌。
    这个文件是唯一写颜色字面量的地方；缺的颜色先补进令牌，并写清语义。 */
 
-@font-face { font-family: 'Anton'; src: url('/fonts/Anton-Regular.ttf') format('truetype'); font-display: swap; }
+/* 不打包字体文件：Anton 只在本机已安装时使用，否则退到系统 Impact / 无衬线字体（ADR-0007）。 */
 
 /* ── 令牌 ── */
 :root {
@@ -46,7 +46,7 @@
   --edge-ghost: #0A0908;
   --hard: #000000;
 
-  /* 字体：中文和界面用思源黑体（本机没装时退到苹方 / 微软雅黑），Anton 只给英文短词和独立数字 */
+  /* 字体：中文和界面用思源黑体（本机没装时退到苹方 / 微软雅黑），Anton（本机有才用）只给英文短词和独立数字 */
   --cn: 'Source Han Sans CN', 'Source Han Sans SC', 'Noto Sans CJK SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --en: 'Anton', 'Source Han Sans CN', Impact, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

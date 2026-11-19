@@ -17,7 +17,7 @@ from .client import AsynxClient
 from .config import config_status, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
 from .errors import AsxError
-from .local_audio import execute_local_audio
+from .workbench import require_workbench, workbench_ui_dir
 from .output import emit, log
 from .state import SCHEMA_VERSION, connect_db as connect_ledger_db, task_paths as ledger_task_paths
 from .tasks import (
@@ -199,6 +199,14 @@ def parser() -> argparse.ArgumentParser:
 
     return res
 
+
+
+def execute_local_audio(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Local post-processing lives in the optional workbench package (ADR-0007)."""
+    require_workbench("本地音频处理")
+    from .local_audio import execute_local_audio as run
+
+    return run(args)
 
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
     auth_result = handle_auth_command(args)

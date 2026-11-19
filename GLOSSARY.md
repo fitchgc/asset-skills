@@ -13,14 +13,24 @@ _Avoid_: 资源文件、附件、通用数字资产
 _Avoid_: 资产类型、文件格式、频道
 
 **Asset Skill（资产技能）**:
-面向 AI Agent 的特定资产模态创作、处理或项目资产管理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`），包含声明式工作流引导、自包含 CLI 脚本与按需启动的本地交互工作台。
+面向 AI Agent 的特定资产模态创作、处理或项目资产管理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`），作为 Plaiers 技能库的 `kind: "capability"` 按锁定版本分发，包含声明式工作流引导与自包含 CLI 脚本。分为**核心包**和**工作台包**。
+
+**核心包（Core Package）**:
+单一模态的 Asset Skill（图片、音频、视频、3D），只含生成、查询、下载所需的纯文本文件；不含浏览器工作台、本地后处理模块、字体或第三方库。
+
+**工作台包（Workbench Package）**:
+可选安装的 `asynx-asset-manager`，同时承载资产管理器、全部 Local UI Workbench 和各模态 Local Post-Processing，只打包一次。核心包在用户调用这些功能时从同一 Skills 目录加载它，并要求版本一致；未安装时返回 `workbench_not_installed`。
+_Avoid_: UI 插件、扩展包
+
+**共享运行环境（Shared Runtime）**:
+按 `(系统, 架构, Python 版本)` 共享、按哈希锁定的隔离 Pillow 环境，只在用户同意后由 `runtime prepare` 准备；核心主流程不依赖它。
 _Avoid_: 插件、子代理、微服务
 
 **SageIn Agent 授权（Agent PAT → JWT）**:
 用户通过 Plaiers 社区设备授权（含 `skill_jwt` 权限），本地保存长效 `sagein_pat_...`。Skill 不读取 PAT，只运行**本机凭据上下文**记录的 `get-skill-jwt.mjs` 命令取得短期 JWT（Partner Token），并从 `/api/agent/asynx-config` 获取网关接入参数。JWT 只是访问凭据，不代表付费同意。
 
 **本机凭据上下文（`.plaiers-context.json`）**:
-Plaiers 安装器写在已安装 Skill 根目录的文件，记录凭据桥接的完整 argv（`--agent-id`、`--origin`、`--config-dir`，可选 `--credential-file`、`--account-id`）。不含 PAT，不参与包完整性校验。缺少它时 Skill 返回 `need_login`，不回退到其他凭据。
+Plaiers 安装器写在已安装 Skill 根目录的文件，记录凭据桥接的完整 argv（`--agent-id`、`--origin`、`--config-dir`，可选 `--credential-file`、`--account-id`）。另记录技能库 ID 与锁定版本（`skill_id`、`skill_version`），供 `update status` 查询。不含 PAT，不参与包完整性校验。缺少它时 Skill 返回 `need_login`，不回退到其他凭据。
 _Avoid_: 授权中心、Key 管理台
 
 **Asset Gateway（资产网关）**:

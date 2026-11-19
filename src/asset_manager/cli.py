@@ -105,10 +105,9 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
 
     if args.command == "ui":
         from .ui_server import launch_workbench
+        from .workbench import workbench_ui_dir
 
-        ui_static = Path(__file__).resolve().parent / "ui"
-        if not ui_static.is_dir():
-            ui_static = Path(__file__).resolve().parents[2] / "src" / "ui" / "asset_manager"
+        ui_static = workbench_ui_dir("资产管理工作台", None)
         workspace_root = str(Path(args.root).expanduser().resolve())
         return launch_workbench(
             mode="asset_manager",

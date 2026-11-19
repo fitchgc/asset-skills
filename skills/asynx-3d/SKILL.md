@@ -39,6 +39,8 @@ python3 "<skill-dir>/scripts/asynx.py" convert --from-task "<task-id>" --output-
 
 ## 本地纯 Python 后处理 (Keyless Local Post-Processing)
 
+> 本节命令由可选的**本地工作台包**（`asynx-asset-manager`，技能库 ID `plaiers/asynx-asset-manager`）提供，本 Skill 只含生成、查询与下载。未安装时命令返回 `workbench_not_installed`，生成主流程不受影响；用户需要时，经同意后用 `get_skill` 获取并用 Plaiers 安装器装成同一版本（版本不一致返回 `workbench_version_mismatch`）。
+
 无需授权，无需安装 Blender 或第三方 DCC 软件：
 
 ```bash
@@ -53,6 +55,8 @@ python3 "<skill-dir>/scripts/asynx.py" model3d extract-textures "character.glb" 
 ```
 
 ## 交互工作台 (Local UI Workbench)
+
+> 同样由可选的本地工作台包提供，未安装时返回 `workbench_not_installed`。
 
 ```bash
 # WebGL 3D 模型轨道旋转、动画播放与 PBR 通道检查工作台

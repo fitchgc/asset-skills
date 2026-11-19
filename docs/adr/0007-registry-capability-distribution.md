@@ -17,6 +17,19 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
 - **Slim packages.** No vendored third-party code and no binaries. Pillow lives in one shared, hash-locked
   runtime per `(os, arch, python)` and is prepared only by an explicit, user-approved `runtime prepare`
   (supersedes the vendor parts of ADR-0001).
+- **Core and workbench packages.** Each modality ships a core package with generation, query and
+  download only. The asset-manager package doubles as the single workbench package: it carries the
+  asset manager, every Local UI Workbench (`ui/`, `ui/<modality>/`), `ui_server.py`, `thumb_cache.py`
+  and every `local_*` module. A core package locates it on demand: `ASYNX_WORKBENCH_DIR`, else a sibling
+  `plaiers-asynx-asset-manager` / `asynx-asset-manager` in the same skills directory. It then appends the
+  workbench `scripts/asxlib` to its own `asxlib.__path__`, so core modules keep precedence. A missing
+  workbench returns `workbench_not_installed` (with the `get_skill` ID). A different version returns
+  `workbench_version_mismatch`. The version is checked only when a workbench feature is used. Merging
+  the asset manager avoids a sixth package that would duplicate the same UI and local modules.
+- **No bundled fonts.** `Anton-Regular.ttf` is removed. The CSS uses Anton only when installed locally,
+  otherwise Impact/sans-serif. Publishing the font as a binary resource waits on Q1.
+- **Build checks.** Every package must have ≤ 200 files and ≤ 4 MiB, and every file must be UTF-8.
+  `.DS_Store`/caches are pruned; any violation fails the build.
 - **Credentials.** JWTs come only from the `get-skill-jwt.mjs` argv recorded in `.plaiers-context.json`
   (supersedes the credential-lookup parts of ADR-0005).
 - **Updates.** The GitHub release poller, the background update check and in-place `update apply` /
@@ -30,3 +43,5 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
 - Repository `install.py` copies remain possible for development; they are not registry installs and
   `update status` reports `not_registry_install` for them.
 - Binary resources (font) and dependency declaration wait for the registry protocol (PR #10 Q1).
+- Final registry IDs/directory names wait on Q2. The workbench ID and directory names are constants in
+  `shared/asxlib/workbench.py`.

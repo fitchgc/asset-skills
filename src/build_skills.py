@@ -50,6 +50,15 @@ CROSS_MODAL_MODULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("model3d", ("model3d_tasks.py", "local_model3d.py")),
 )
 
+# The workbench package (Local UI Workbench + local post-processing) is the asset-manager package;
+# core modality packages ship without these modules and load them from it on demand (ADR-0007).
+WORKBENCH_KEY = "asset_manager"
+WORKBENCH_ONLY_MODULES = frozenset({"ui_server.py", "thumb_cache.py", "local_images.py", "local_audio.py",
+                                    "local_video.py", "local_model3d.py"})
+# Plaiers skill registry limits (UTF-8 text only).
+REGISTRY_MAX_FILES = 200
+REGISTRY_MAX_BYTES = 4 * 1024 * 1024
+
 _IGNORED_CACHE_PATTERNS = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".DS_Store")
 
 
@@ -69,6 +78,31 @@ def _prune_cache_artifacts(root: Path) -> None:
                 path.unlink()
             except OSError:
                 pass
+
+
+class PackageCheckError(SystemExit):
+    pass
+
+
+def check_package(skill_dir: Path) -> dict[str, int]:
+    """Fail the build unless the package fits the registry: ≤ 200 files, ≤ 4 MiB, every file UTF-8 text."""
+    files = [p for p in sorted(skill_dir.rglob("*")) if p.is_file() and p.name != ".asx-install.json"]
+    problems: list[str] = []
+    total = 0
+    for path in files:
+        data = path.read_bytes()
+        total += len(data)
+        try:
+            data.decode("utf-8")
+        except UnicodeDecodeError:
+            problems.append(f"non-UTF-8 file: {path.relative_to(skill_dir).as_posix()}")
+    if len(files) > REGISTRY_MAX_FILES:
+        problems.append(f"{len(files)} files > {REGISTRY_MAX_FILES}")
+    if total > REGISTRY_MAX_BYTES:
+        problems.append(f"{total} bytes > {REGISTRY_MAX_BYTES}")
+    if problems:
+        raise PackageCheckError(f"{skill_dir.name}: " + "; ".join(problems))
+    return {"files": len(files), "bytes": total}
 
 
 def get_version() -> str:
@@ -111,8 +145,10 @@ def build_skill(modality_key: str) -> Path:
         shutil.rmtree(stale_vendor)
 
     # 3. Copy shared/asxlib/ to scripts/asxlib/
+    is_workbench = modality_key == WORKBENCH_KEY
     for py_file in sorted((SHARED_DIR / "asxlib").glob("*.py")):
-        shutil.copy2(py_file, asxlib_dir / py_file.name)
+        if is_workbench or py_file.name not in WORKBENCH_ONLY_MODULES:
+            shutil.copy2(py_file, asxlib_dir / py_file.name)
 
     # Create __init__.py in asxlib if missing
     init_py = asxlib_dir / "__init__.py"
@@ -133,20 +169,20 @@ def build_skill(modality_key: str) -> Path:
     modality_src = SRC_DIR / src_module_name
     if modality_src.exists():
         for py_file in sorted(modality_src.glob("*.py")):
-            shutil.copy2(py_file, asxlib_dir / py_file.name)
+            if is_workbench or py_file.name not in WORKBENCH_ONLY_MODULES:
+                shutil.copy2(py_file, asxlib_dir / py_file.name)
 
-    # 6. Copy UI bundle (modality-specific + shared common UI assets + embedded sub-workbenches)
+    # 6. UI bundle only in the workbench package: asset-manager UI + shared common assets + every
+    #    modality workbench under ui/<modality>/. No fonts (system-font fallback, ADR-0007).
     target_ui = asxlib_dir / "ui"
-    if target_ui.exists():
-        shutil.rmtree(target_ui)
-    target_ui.mkdir(parents=True, exist_ok=True)
-    ui_src = SRC_DIR / "ui" / modality_key
-    if ui_src.exists():
-        shutil.copytree(ui_src, target_ui, dirs_exist_ok=True, ignore=_IGNORED_CACHE_PATTERNS)
-    common_ui = SRC_DIR / "ui" / "common"
-    if common_ui.is_dir():
-        shutil.copytree(common_ui, target_ui, dirs_exist_ok=True, ignore=_IGNORED_CACHE_PATTERNS)
-    if modality_key == "asset_manager":
+    if is_workbench:
+        target_ui.mkdir(parents=True, exist_ok=True)
+        ui_src = SRC_DIR / "ui" / modality_key
+        if ui_src.exists():
+            shutil.copytree(ui_src, target_ui, dirs_exist_ok=True, ignore=_IGNORED_CACHE_PATTERNS)
+        common_ui = SRC_DIR / "ui" / "common"
+        if common_ui.is_dir():
+            shutil.copytree(common_ui, target_ui, dirs_exist_ok=True, ignore=_IGNORED_CACHE_PATTERNS)
         for sub_ui in ("image", "video", "3d"):
             sub_ui_src = SRC_DIR / "ui" / sub_ui
             if sub_ui_src.is_dir():
@@ -158,6 +194,7 @@ def build_skill(modality_key: str) -> Path:
                 )
 
     _prune_cache_artifacts(skill_dir)
+    check_package(skill_dir)
 
     # 7. Generate .asx-install.json receipt
     version = get_version()

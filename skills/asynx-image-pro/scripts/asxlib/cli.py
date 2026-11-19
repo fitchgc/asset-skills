@@ -27,7 +27,7 @@ from .constants import (
     VERSION,
 )
 from .errors import AsxError
-from .local_images import execute_local_image
+from .workbench import require_workbench, workbench_ui_dir
 from .output import emit, log
 from .state import SCHEMA_VERSION
 from .tasks import (
@@ -341,21 +341,24 @@ def _client() -> AsynxClient:
 
 
 def _ui_static_dir() -> Path:
-    bundled = Path(__file__).resolve().parent / "ui"
-    if bundled.is_dir():
-        return bundled
-    # Development fallback
-    repo_ui = Path(__file__).resolve().parents[2] / "src" / "ui" / "image"
-    return repo_ui if repo_ui.is_dir() else bundled
+    return workbench_ui_dir("图片工作台", "image")
 
+
+
+def execute_local_image(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Local post-processing lives in the optional workbench package (ADR-0007)."""
+    require_workbench("本地图片处理")
+    from .local_images import execute_local_image as run
+
+    return run(args)
 
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
     auth_result = handle_auth_command(args)
     if auth_result is not None:
         return auth_result
     if args.command == "ui":
-        from .ui_server import launch_workbench
         ui_static = _ui_static_dir()
+        from .ui_server import launch_workbench
         open_browser = not getattr(args, "no_open", False)
         if args.ui_command == "region-edit":
             return launch_workbench(
@@ -430,6 +433,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         return run_submission(client, args, "image.generate")
     if args.command == "edit":
         if getattr(args, "ui", False):
+            ui_static = _ui_static_dir()
             from .ui_server import launch_workbench
             img_path = args.image[0] if args.image else None
             if not img_path and getattr(args, "from_task", None):
@@ -444,7 +448,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
                 mode="region_edit",
                 source_path=img_path,
                 output_dir=args.output_dir,
-                static_dir=_ui_static_dir(),
+                static_dir=ui_static,
                 client=client,
                 open_browser=not getattr(args, "no_open", False),
             )

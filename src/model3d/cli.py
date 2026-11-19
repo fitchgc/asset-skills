@@ -16,7 +16,7 @@ from .client import AsynxClient
 from .config import config_status, doctor, legacy_installation_notice, load_client
 from .constants import DEFAULT_OUTPUT_DIR, KNOWN_STATUSES, VERSION
 from .errors import AsxError
-from .local_model3d import execute_local_model3d
+from .workbench import require_workbench, workbench_ui_dir
 from .model3d_tasks import CONVERT_FORMATS, RIG_TYPES, SKELETON_PROFILES, build_3d_task
 from .output import emit, log
 from .state import SCHEMA_VERSION, connect_db as connect_ledger_db, task_paths as ledger_task_paths
@@ -217,6 +217,14 @@ def parser() -> argparse.ArgumentParser:
     return res
 
 
+
+def execute_local_model3d(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Local post-processing lives in the optional workbench package (ADR-0007)."""
+    require_workbench("本地 3D 处理")
+    from .local_model3d import execute_local_model3d as run
+
+    return run(args)
+
 def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tuple[dict[str, Any], int]:
     auth_result = handle_auth_command(args)
     if auth_result is not None:
@@ -225,10 +233,8 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
         return execute_local_model3d(args)
 
     if args.command == "ui":
+        ui_static = workbench_ui_dir("3D 工作台", "3d")
         from .ui_server import launch_workbench
-        ui_static = Path(__file__).resolve().parent / "ui"
-        if not ui_static.is_dir():
-            ui_static = Path(__file__).resolve().parents[2] / "src" / "ui" / "3d"
 
         model_file = getattr(args, "model_file", None)
         from_task = getattr(args, "from_task", None)
