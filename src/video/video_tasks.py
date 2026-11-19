@@ -8,6 +8,7 @@ from typing import Any
 
 from .client import AsynxClient
 from .errors import AsxError
+from .optional_deps import import_pillow
 
 DEFAULT_VIDEO_MODEL = "kling-video-v1"
 
@@ -19,18 +20,16 @@ def _encode_media_file(path_str: str) -> str:
 
     suffix = path.suffix.removeprefix(".").lower()
     if suffix in ("png", "jpg", "jpeg", "webp"):
+        # Image inputs are decoded and re-encoded before submission; never sent unchecked.
+        image_module, image_file = import_pillow("Image", "ImageFile", feature="视频参考图的解码校验")
+        image_file.LOAD_TRUNCATED_IMAGES = True
         try:
-            import PIL.Image
-            import PIL.ImageFile
-
-            PIL.ImageFile.LOAD_TRUNCATED_IMAGES = True
-            with PIL.Image.open(path) as img:
+            with image_module.open(path) as img:
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
-                clean_data = buf.getvalue()
-                return "data:image/png;base64," + base64.b64encode(clean_data).decode("utf-8")
-        except Exception:
-            pass
+        except Exception as exc:
+            raise AsxError(f"图片文件无效：{path}", code="invalid_image_content") from exc
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("utf-8")
 
     data = path.read_bytes()
     mime = "image/png" if suffix == "png" else "image/jpeg" if suffix in ("jpg", "jpeg") else "video/mp4"

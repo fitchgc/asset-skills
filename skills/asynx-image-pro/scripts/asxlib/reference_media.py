@@ -26,6 +26,7 @@ from .constants import (
     REFERENCE_WEBP_QUALITY,
 )
 from .errors import AsxError
+from .optional_deps import import_pillow
 
 _DATA_URL = re.compile(
     r"\Adata:(?P<mime>image/[A-Za-z0-9][A-Za-z0-9.+-]*);base64,(?P<data>.+)\Z",
@@ -47,41 +48,18 @@ class PreparedImage:
 
 
 def _pillow() -> tuple[Any, Any, Any]:
-    try:
-        image_module: Any = importlib.import_module("PIL.Image")
-        image_ops: Any = importlib.import_module("PIL.ImageOps")
-        unidentified = importlib.import_module("PIL").UnidentifiedImageError
-    except (ImportError, AttributeError):
-        # Retry by searching vendor or alternative Python site-packages
-        import glob
-        import sys
-        candidates = [
-            *glob.glob("/opt/homebrew/lib/python*/site-packages"),
-            *glob.glob("/usr/local/lib/python*/site-packages"),
-            *glob.glob(str(Path.home() / "Library/Python/*/lib/python/site-packages")),
-            *glob.glob(str(Path.home() / ".local/lib/python*/site-packages")),
-        ]
-        for cand in candidates:
-            if cand not in sys.path:
-                sys.path.append(cand)
-        try:
-            for mod_name in list(sys.modules.keys()):
-                if mod_name == "PIL" or mod_name.startswith("PIL."):
-                    sys.modules.pop(mod_name, None)
-            image_module = importlib.import_module("PIL.Image")
-            image_ops = importlib.import_module("PIL.ImageOps")
-            unidentified = importlib.import_module("PIL").UnidentifiedImageError
-        except (ImportError, AttributeError) as exc:
-            raise AsxError(
-                "参考图处理需要 Pillow；请重新运行 install.py 安装运行依赖",
-                code="pillow_not_installed",
-            ) from exc
+    image_module, image_ops, pil = import_pillow(
+        "Image", "ImageOps", "", feature="参考图和 Mask 的解码校验"
+    )
     image_module.MAX_IMAGE_PIXELS = MAX_SAFE_IMAGE_PIXELS
-    return image_module, image_ops, unidentified
+    return image_module, image_ops, pil.UnidentifiedImageError
 
 
 def _parse_basic_image_header(data: bytes) -> tuple[str, int, int, bool]:
-    """Pure-Python header parser for PNG, JPEG, and WebP when Pillow C-extensions mismatch."""
+    """Read format and size from PNG/JPEG/WebP headers without decoding.
+
+    Only used for optional result metadata; inputs are never validated this way.
+    """
     import struct
     if data.startswith(b"\x89PNG\r\n\x1a\n") and len(data) >= 26:
         w, h, _bit_depth, color_type = struct.unpack(">IIBB", data[16:26])
@@ -255,21 +233,7 @@ def prepare_image(value: str, *, keep_original: bool = False) -> PreparedImage:
     if value.casefold().startswith(("http://", "https://")):
         return PreparedImage(_validated_remote_url(value), None, None, None, None, False)
     data, _declared_type = _read_source(value, max_bytes=MAX_REFERENCE_SOURCE_BYTES)
-    try:
-        image, content_type, _frame_count = _decoded_image(data)
-    except AsxError as exc:
-        if exc.code != "pillow_not_installed":
-            raise
-        content_type, width, height, _has_alpha = _parse_basic_image_header(data)
-        if width <= 0 or height <= 0 or width * height > MAX_SAFE_IMAGE_PIXELS:
-            raise AsxError("Image resolution is too large", code="image_pixel_limit_exceeded") from exc
-        if (
-            len(data) > MAX_REFERENCE_BYTES
-            or max(width, height) > MAX_REFERENCE_DIMENSION
-            or width * height > MAX_REFERENCE_PIXELS
-        ):
-            raise
-        return PreparedImage(_data_url(content_type, data), content_type, len(data), width, height, False, (width, height))
+    image, content_type, _frame_count = _decoded_image(data)
     width, height = image.size
     if keep_original:
         if (
@@ -314,46 +278,33 @@ def prepare_mask(value: str, *, source: PreparedImage | None) -> PreparedImage:
     if value.casefold().startswith(("http://", "https://")):
         return PreparedImage(_validated_remote_url(value), None, None, None, None, False)
     data, _declared_type = _read_source(value, max_bytes=MAX_MASK_BYTES)
-    try:
-        image, content_type, _frame_count = _decoded_image(data)
-        if content_type != "image/png":
-            raise AsxError("Image edit mask must be PNG", code="invalid_image_mask")
-        width, height = image.size
-        target = _mask_target_size(width, height, source)
-        if target != (width, height):
-            image_module, _ops, _unid = _pillow()
-            image = image.convert("RGBA").resize(target, image_module.Resampling.NEAREST)
-            output = io.BytesIO()
-            image.save(output, format="PNG", optimize=True)
-            data = output.getvalue()
-            width, height = target
-        if (
-            len(data) > MAX_MASK_BYTES
-            or max(width, height) > MAX_REFERENCE_DIMENSION
-            or width * height > MAX_REFERENCE_PIXELS
-        ):
-            raise AsxError("Image edit mask exceeds the size limits", code="invalid_image_mask")
-        if "A" not in image.getbands() and "transparency" not in image.info:
-            raise AsxError("Image edit mask must contain alpha", code="invalid_image_mask")
-        alpha = image.convert("RGBA").getchannel("A")
-        minimum, maximum = alpha.getextrema()
-        if minimum != 0 or maximum != 255:
-            raise AsxError(
-                "Image edit mask must contain transparent and opaque regions",
-                code="invalid_image_mask",
-            )
-    except AsxError as exc:
-        if exc.code != "pillow_not_installed":
-            raise
-        content_type, width, height, has_alpha = _parse_basic_image_header(data)
-        if content_type != "image/png" or not has_alpha:
-            raise AsxError("Image edit mask must be PNG with alpha", code="invalid_image_mask") from exc
-        if (
-            len(data) > MAX_MASK_BYTES
-            or max(width, height) > MAX_REFERENCE_DIMENSION
-            or width * height > MAX_REFERENCE_PIXELS
-        ):
-            raise AsxError("Image edit mask exceeds the size limits", code="invalid_image_mask") from exc
+    image, content_type, _frame_count = _decoded_image(data)
+    if content_type != "image/png":
+        raise AsxError("Image edit mask must be PNG", code="invalid_image_mask")
+    width, height = image.size
+    target = _mask_target_size(width, height, source)
+    if target != (width, height):
+        image_module, _ops, _unid = _pillow()
+        image = image.convert("RGBA").resize(target, image_module.Resampling.NEAREST)
+        output = io.BytesIO()
+        image.save(output, format="PNG", optimize=True)
+        data = output.getvalue()
+        width, height = target
+    if (
+        len(data) > MAX_MASK_BYTES
+        or max(width, height) > MAX_REFERENCE_DIMENSION
+        or width * height > MAX_REFERENCE_PIXELS
+    ):
+        raise AsxError("Image edit mask exceeds the size limits", code="invalid_image_mask")
+    if "A" not in image.getbands() and "transparency" not in image.info:
+        raise AsxError("Image edit mask must contain alpha", code="invalid_image_mask")
+    alpha = image.convert("RGBA").getchannel("A")
+    minimum, maximum = alpha.getextrema()
+    if minimum != 0 or maximum != 255:
+        raise AsxError(
+            "Image edit mask must contain transparent and opaque regions",
+            code="invalid_image_mask",
+        )
     if source and source.width and source.height:
         if width > source.width or height > source.height:
             raise AsxError("Image edit mask cannot be larger than the source", code="invalid_image_mask")

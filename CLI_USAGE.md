@@ -139,7 +139,7 @@ export ASYNX_NO_OPEN_BROWSER=1
 配置完成后，使用 `doctor` 命令诊断当前系统环境与依赖是否完备：
 
 ```bash
-# 离线检查配置文件、权限、Pillow 与 ffmpeg 工具链
+# 离线检查配置文件、权限、可选运行环境（Pillow，未准备时为 not_prepared）与 ffmpeg 工具链
 python3 skills/asynx-image-pro/scripts/asynx.py doctor
 
 # 联网验证授权/JWT 与网关连通性

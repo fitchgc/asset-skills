@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 from .constants import DEFAULT_BASE_URL, DEFAULT_INITIAL_POLL_DELAY_SECONDS, VERSION
 from .errors import AsxError
+from .optional_deps import optional_runtime_status
 from .output import log
 
 
@@ -359,23 +360,6 @@ def check_media_tools() -> dict[str, Any]:
     }
 
 
-def check_pillow() -> dict[str, Any]:
-    try:
-        import PIL
-        from PIL import Image
-        return {
-            "available": True,
-            "version": getattr(PIL, "__version__", "unknown"),
-            "path": getattr(PIL, "__file__", None),
-        }
-    except ImportError:
-        return {
-            "available": False,
-            "version": None,
-            "install_hint": "本地图像处理依赖 Pillow，可运行 pip install pillow 安装",
-        }
-
-
 def check_state_ledger() -> dict[str, Any]:
     from .state import SCHEMA_VERSION, connect_db
     try:
@@ -454,25 +438,18 @@ def doctor(
             }
         )
 
-    # 3. Pillow check
-    pil_info = check_pillow()
+    # 3. Optional runtime (Pillow): not prepared is a normal state, never a failure
+    optional_runtime = optional_runtime_status()
     checks.append(
         {
-            "name": "pillow",
-            "ok": pil_info["available"],
-            "message": f"Pillow {pil_info.get('version')} available"
-            if pil_info["available"]
-            else pil_info.get("install_hint", "Pillow not available"),
+            "name": "optional_runtime",
+            "ok": True,
+            "status": optional_runtime["status"],
+            "message": f"Pillow {optional_runtime.get('version')} available"
+            if optional_runtime["status"] == "ready"
+            else optional_runtime["message"],
         }
     )
-    if not pil_info["available"] and modality == "image":
-        issues.append(
-            {
-                "level": "warning",
-                "code": "pillow_missing",
-                "message": pil_info.get("install_hint"),
-            }
-        )
 
     # 4. Media tools (ffmpeg/ffprobe) check
     media_tools = check_media_tools()
@@ -502,7 +479,7 @@ def doctor(
         "home": str(Path.home()),
         "config": status,
         "ledger": ledger,
-        "pillow": pil_info,
+        "optional_runtime": optional_runtime,
         "media_tools": media_tools,
         "checks": checks,
         "issues": issues,

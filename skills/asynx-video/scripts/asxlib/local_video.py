@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AsxError
+from .optional_deps import import_pillow
 from .state import connect_db, new_local_task_id, record_artifact_with_lineage
 
 _VIDEO_FORMATS = {"mp4", "webm", "gif", "mov", "mkv"}
@@ -127,17 +128,13 @@ def video_spritesheet(
     dst_dir = Path(output_dir).expanduser().resolve()
     dst_dir.mkdir(parents=True, exist_ok=True)
 
+    (pil_image,) = import_pillow("Image", feature="拼合序列帧图集")
     extracted = extract_frames(src, dst_dir / ".tmp_frames", fps=fps)
     frame_paths = extracted["frames"]
     if not frame_paths:
         raise AsxError("未从视频中提取到任何帧", code="empty_frames")
 
-    try:
-        import PIL.Image
-    except ImportError:
-        raise AsxError("拼合精灵表需要 Pillow", code="pillow_missing")
-
-    first_frame = PIL.Image.open(frame_paths[0])
+    first_frame = pil_image.open(frame_paths[0])
     orig_w, orig_h = first_frame.size
     target_w = frame_width or orig_w
     target_h = frame_height or orig_h
@@ -148,7 +145,7 @@ def video_spritesheet(
 
     atlas_w = cols * target_w
     atlas_h = rows * target_h
-    atlas_img = PIL.Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
+    atlas_img = pil_image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
 
     manifest_frames: dict[str, Any] = {}
     frame_duration = round(1.0 / (fps or 10.0), 3)
@@ -159,9 +156,9 @@ def video_spritesheet(
         x = c * target_w
         y = r * target_h
 
-        img = PIL.Image.open(f_path).convert("RGBA")
+        img = pil_image.open(f_path).convert("RGBA")
         if (img.width, img.height) != (target_w, target_h):
-            img = img.resize((target_w, target_h), PIL.Image.Resampling.LANCZOS)
+            img = img.resize((target_w, target_h), pil_image.Resampling.LANCZOS)
 
         atlas_img.paste(img, (x, y))
         frame_name = f"frame-{i:04d}.png"

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 import math
 from pathlib import Path
 from typing import Any
 
 from .constants import MAX_REFERENCE_SOURCE_BYTES, MAX_SAFE_IMAGE_PIXELS
 from .errors import AsxError
+from .optional_deps import import_pillow
 from .state import connect_db, new_local_task_id, record_artifact_with_lineage
 
 _FORMATS = {
@@ -20,17 +20,10 @@ _INPUT_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 def _pillow() -> tuple[Any, Any, Any, Any, Any]:
-    try:
-        image: Any = importlib.import_module("PIL.Image")
-        image_chops: Any = importlib.import_module("PIL.ImageChops")
-        image_color: Any = importlib.import_module("PIL.ImageColor")
-        image_ops: Any = importlib.import_module("PIL.ImageOps")
-        unidentified = importlib.import_module("PIL").UnidentifiedImageError
-    except (ImportError, AttributeError) as exc:
-        raise AsxError(
-            "本地图片处理需要 Pillow；请重新运行 install.py 安装运行依赖",
-            code="pillow_not_installed",
-        ) from exc
+    image, image_chops, image_color, image_ops, pil = import_pillow(
+        "Image", "ImageChops", "ImageColor", "ImageOps", "", feature="本地图片处理"
+    )
+    unidentified = pil.UnidentifiedImageError
     image.MAX_IMAGE_PIXELS = MAX_SAFE_IMAGE_PIXELS
     return image, image_chops, image_color, image_ops, unidentified
 
