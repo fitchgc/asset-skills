@@ -104,11 +104,11 @@ def build_skill(modality_key: str) -> Path:
         if script_file.name == "asynx.py":
             (scripts_dir / script_file.name).chmod(0o755)
 
-    # 2. Copy shared/vendor to scripts/vendor if present
-    shared_vendor = SHARED_DIR / "vendor"
-    target_vendor = scripts_dir / "vendor"
-    if shared_vendor.exists() and not target_vendor.exists():
-        shutil.copytree(shared_vendor, target_vendor, ignore=_IGNORED_CACHE_PATTERNS)
+    # 2. Third-party packages are never bundled; Pillow comes from the shared runtime
+    #    (`asynx.py runtime prepare`). Drop any stale bundled copy.
+    stale_vendor = scripts_dir / "vendor"
+    if stale_vendor.exists():
+        shutil.rmtree(stale_vendor)
 
     # 3. Copy shared/asxlib/ to scripts/asxlib/
     for py_file in sorted((SHARED_DIR / "asxlib").glob("*.py")):

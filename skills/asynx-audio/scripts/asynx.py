@@ -9,11 +9,6 @@ from pathlib import Path
 
 from asx_runtime import LockBusyError, file_lock, runtime_lock_path
 
-_VENDOR = Path(__file__).resolve().parent / "vendor"
-if _VENDOR.is_dir():
-    sys.path.insert(0, str(_VENDOR))
-
-
 if __name__ == "__main__":
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):

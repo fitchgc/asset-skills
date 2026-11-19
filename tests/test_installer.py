@@ -91,7 +91,6 @@ class TestInstaller(unittest.TestCase):
                 "--no-verify",
             ],
             home=self.temp_home,
-            install_dependencies=False,
         )
         self.assertEqual(ret, 0)
 
@@ -163,7 +162,6 @@ class TestInstaller(unittest.TestCase):
                 "audio",
             ],
             home=self.temp_home,
-            install_dependencies=False,
         )
         self.assertEqual(ret, 0)
 

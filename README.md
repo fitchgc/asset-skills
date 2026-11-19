@@ -42,7 +42,7 @@ Cloud use requires a Plaiers Agent grant with the `skill_jwt` scope. The Plaiers
      - **Ubuntu / Debian**：`sudo apt update && sudo apt install -y ffmpeg`
      - **Windows**：`winget install Gyan.FFmpeg` 或 `choco install ffmpeg`
 3. **图像与 3D 处理**：
-   - 生成、查询、下载主流程不需要 `Pillow`。本地参考图与 Mask 校验、本地图片处理和精灵图集拼合才需要它；缺失时在提交前返回 `dependency_missing`，`details.prepare_command` 给出准备命令。
+   - 生成、查询、下载主流程不需要 `Pillow`。本地参考图与 Mask 校验、本地图片处理和精灵图集拼合才需要它；缺失时在提交前返回 `dependency_missing`。征得用户同意后运行 `scripts/asynx.py runtime prepare`，所有 Skill 共用一份按哈希锁定的运行环境，详见 [CLI_USAGE.md](CLI_USAGE.md)。
    - 3D 离线模型元数据解析与规范校验基于纯 Python 实现，**无需安装 Blender**。
 
 ---

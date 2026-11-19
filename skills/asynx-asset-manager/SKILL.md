@@ -61,3 +61,11 @@ python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project"
 
 - 所有命令向标准输出打印结构化 JSON；向用户总结时使用自然语言概括分类数量、受管状态与上下游血缘，不直接转发原始 JSON。
 - 不直接读写或手工修改 `~/.local/state/asx/state.db` 或 `~/.config/asynx/config.json`，统一通过脚本命令访问。
+
+## 可选运行环境（Pillow）
+
+生成、查询、下载不需要 Pillow。本地参考图、Mask、本地图片处理和图集拼合需要共享运行环境；缺失时命令在提交前返回 `dependency_missing`（或校验失败时返回 `runtime_invalid`），`details.prepare_command` 给出准备命令。
+
+- `prepare` 会联网下载按哈希锁定的 Pillow，**运行前必须先征得用户同意**；不要自动运行，也不要改用 `pip install`。
+- 所有 Asset Skill 共用同一份运行环境，已准备时再次 `prepare` 不会重复下载。
+- `python3 scripts/asynx.py runtime status` 只读查看状态；`runtime remove` 删除当前平台的运行环境。

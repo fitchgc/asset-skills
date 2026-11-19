@@ -19,7 +19,9 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
-sys.path.insert(0, str(REPO_ROOT / "shared" / "vendor"))
+from tests.interpreter_pillow import add_interpreter_pillow  # noqa: E402
+
+add_interpreter_pillow()
 
 import PIL.Image
 

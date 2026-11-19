@@ -149,6 +149,23 @@ python3 skills/asynx-image-pro/scripts/asynx.py doctor --verify
 python3 skills/asynx-image-pro/scripts/asynx.py config status
 ```
 
+#### 可选运行环境（Pillow）
+
+生成、查询、下载不需要 Pillow。本地参考图和 Mask 校验、本地图片处理、图集拼合需要所有 Skill 共用的运行环境，按平台（`<os>-<arch>-py<主.次>`）存放在 `${XDG_DATA_HOME:-~/.local/share}/plaiers/asynx-runtime/`（Windows 为 `%LOCALAPPDATA%\plaiers\asynx-runtime\`）。它不会修改系统 Python、用户 site-packages 或 pip 配置。
+
+```bash
+# 只读查看：ready / not_prepared / invalid / unsupported
+python3 skills/asynx-image-pro/scripts/asynx.py runtime status
+
+# 联网下载按哈希锁定的 Pillow（需用户同意）；已准备时不重复下载，校验失败的旧环境会被整体替换
+python3 skills/asynx-image-pro/scripts/asynx.py runtime prepare
+
+# 删除当前平台的运行环境
+python3 skills/asynx-image-pro/scripts/asynx.py runtime remove
+```
+
+锁定的版本和每个平台 wheel 的 SHA-256 记录在 `shared/asxlib/runtime_lock.py`，维护者用 `python3 -S src/lock_runtime.py --version <版本>` 重新生成。
+
 ---
 
 ## 三、命令行使用指南 (CLI Usage)

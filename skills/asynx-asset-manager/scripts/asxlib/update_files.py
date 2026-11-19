@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import zipfile
-from collections.abc import Callable
 from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -21,7 +20,6 @@ from .errors import AsxError
 
 REPOSITORY = "dawnx/asynx-skills"
 RECEIPT = ".asx-install.json"
-PILLOW_REQUIREMENT = "Pillow>=10.2,<13"
 MAX_PACKAGE_BYTES = 16 * 1024 * 1024
 MAX_UNPACKED_BYTES = 64 * 1024 * 1024
 _VERSION = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\Z")
@@ -91,10 +89,7 @@ def inventory(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
-        if (
-            relative.parts[:2] == ("scripts", "vendor")
-            or "__pycache__" in relative.parts
-        ):
+        if "__pycache__" in relative.parts:
             continue
         if relative.as_posix() == RECEIPT or path.name == ".DS_Store":
             continue
@@ -166,7 +161,7 @@ def extract_package(archive: Path, destination: Path, manifest: dict[str, Any]) 
                     or parts[0] != expected_skill
                     or len(parts) < 2
                     or any(
-                        part in {".", "..", ".git", "vendor", RECEIPT} for part in parts
+                        part in {".", "..", ".git", RECEIPT} for part in parts
                     )
                     or any("\\" in part or ":" in part for part in parts)
                     or any(
@@ -232,57 +227,6 @@ def validate_manifest(value: Any, version: str) -> dict[str, Any]:
     ):
         raise AsxError("发布信息无效", code="invalid_update_manifest")
     return value
-
-
-def prepare_dependencies(stage: Path, previous: Path) -> None:
-    vendor = previous / "scripts" / "vendor"
-    new_vendor = stage / "scripts" / "vendor"
-    if vendor.is_dir() and not vendor.is_symlink():
-        # Only the existing dependency directory is reused; skill code comes from the verified archive.
-        shutil.copytree(vendor, new_vendor, symlinks=False)
-    else:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--disable-pip-version-check",
-                "--only-binary=:all:",
-                "--target",
-                str(new_vendor),
-                PILLOW_REQUIREMENT,
-            ],
-            capture_output=True,
-            check=False,
-            timeout=180,
-        )
-        if result.returncode:
-            raise AsxError(
-                "图片依赖安装失败，现有安装未修改", code="update_dependencies_failed"
-            )
-    check = subprocess.run(
-        [
-            sys.executable,
-            "-I",
-            "-B",
-            "-c",
-            (
-                "import sys; sys.path.insert(0, sys.argv[1]); import PIL; from PIL import Image, features; "
-                "v=tuple(int(x) for x in PIL.__version__.split('.')[:2]); "
-                "assert (10,2) <= v < (13,0); assert features.check('webp'); "
-                "Image.new('RGB',(1,1)).close()"
-            ),
-            str(new_vendor),
-        ],
-        capture_output=True,
-        check=False,
-        timeout=30,
-    )
-    if check.returncode:
-        raise AsxError(
-            "图片依赖检查失败，请重新运行安装器", code="update_dependencies_failed"
-        )
 
 
 def smoke_test(stage: Path, version: str) -> None:
@@ -395,7 +339,6 @@ def replace_installations(
     journal_path: Path,
     *,
     force: bool = False,
-    dependencies: Callable[[Path, Path], None] | None = None,
 ) -> dict[str, Any]:
     entries: list[dict[str, Any]] = []
     version = read_version(package)
@@ -421,10 +364,9 @@ def replace_installations(
             entries.append(entry)
             stage = work / "new"
             shutil.copytree(package, stage)
-            (dependencies or prepare_dependencies)(stage, target)
             smoke_test(stage, version)
             record_install(stage)
-        # An edit while downloads/dependencies were being prepared must not be overwritten.
+        # An edit while the update was being prepared must not be overwritten.
         if any(inventory(Path(e["target"])) != e["before"] for e in entries):
             raise AsxError(
                 "更新准备期间安装文件发生变化，请重新检查", code="local_changes"

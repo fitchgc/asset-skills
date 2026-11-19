@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import math
 import re
 import warnings
@@ -10,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import AsxError
-from .optional_deps import prepare_command
+from .optional_deps import pillow_or_none, prepare_command
 from .reference_media import _parse_basic_image_header
 
 
@@ -55,10 +54,8 @@ def attach_image_details(
     details: list[dict[str, Any]] = []
     notices: list[dict[str, Any]] = []
     expected = re.fullmatch(r"([1-9]\d{0,4}):([1-9]\d{0,4})", expected_ratio or "")
-    try:
-        image_module: Any = importlib.import_module("PIL.Image")
-    except (ImportError, OSError, AttributeError):
-        image_module = None
+    image_module: Any = pillow_or_none()
+    if image_module is None:
         if files:
             notices.append({
                 "code": "optional_metadata_unavailable",

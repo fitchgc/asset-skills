@@ -55,3 +55,7 @@ python3 "<skill-dir>/scripts/asynx.py" task list
 python3 "<skill-dir>/scripts/asynx.py" task status "<task-id>" --refresh
 python3 "<skill-dir>/scripts/asynx.py" wait "<task-id>"
 ```
+
+## 可选运行环境（Pillow）
+
+本 Skill 的功能不需要 Pillow。`runtime status|prepare|remove` 管理所有 Asset Skill 共用的可选运行环境，只在其他 Skill 需要、且用户同意后才运行 `prepare`。

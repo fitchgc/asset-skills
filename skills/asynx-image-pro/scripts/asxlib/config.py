@@ -443,13 +443,22 @@ def doctor(
     checks.append(
         {
             "name": "optional_runtime",
-            "ok": True,
+            "ok": optional_runtime["status"] != "invalid",
             "status": optional_runtime["status"],
-            "message": f"Pillow {optional_runtime.get('version')} available"
+            "message": f"Shared runtime ready ({optional_runtime.get('requirement')})"
             if optional_runtime["status"] == "ready"
-            else optional_runtime["message"],
+            else optional_runtime.get("message"),
         }
     )
+    if optional_runtime["status"] == "invalid":
+        issues.append(
+            {
+                "level": "warning",
+                "code": "runtime_invalid",
+                "message": optional_runtime.get("message"),
+                "details": {"reason": optional_runtime.get("reason"), "path": optional_runtime.get("path")},
+            }
+        )
 
     # 4. Media tools (ffmpeg/ffprobe) check
     media_tools = check_media_tools()

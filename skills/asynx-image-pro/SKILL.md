@@ -92,3 +92,11 @@ python3 "<skill-dir>/scripts/asynx.py" wait "<task-id>"
 - SageIn PAT（`sagein_pat_...`）和 JWT 不得进入对话、命令参数、Prompt、日志、项目文件或浏览器代码。通过脚本管理任务，不直接读取、修改或依赖本 Skill 的数据库及内部状态文件。
 
 用户要求自定义工作台或工作流时，可以调用公开 API 或封装本脚本，使用自己的数据库；遵守密钥和本地状态边界即可，不额外限定技术栈或引入用户未要求的服务。
+
+## 可选运行环境（Pillow）
+
+生成、查询、下载不需要 Pillow。本地参考图、Mask、本地图片处理和图集拼合需要共享运行环境；缺失时命令在提交前返回 `dependency_missing`（或校验失败时返回 `runtime_invalid`），`details.prepare_command` 给出准备命令。
+
+- `prepare` 会联网下载按哈希锁定的 Pillow，**运行前必须先征得用户同意**；不要自动运行，也不要改用 `pip install`。
+- 所有 Asset Skill 共用同一份运行环境，已准备时再次 `prepare` 不会重复下载。
+- `python3 scripts/asynx.py runtime status` 只读查看状态；`runtime remove` 删除当前平台的运行环境。

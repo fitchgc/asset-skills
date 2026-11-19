@@ -4,20 +4,16 @@
 from __future__ import annotations
 
 import argparse
-import atexit
 import importlib.util
 import os
 import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 from types import ModuleType
 from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parent
 SKILLS_DIR = ROOT / "skills"
-PILLOW_REQUIREMENT = "Pillow>=10.2,<13"
 
 SKILL_NAME_ALIASES: dict[str, str] = {
     "image": "asynx-image-pro",
@@ -48,9 +44,6 @@ ALL_SKILL_NAMES: list[str] = [
     "asynx-3d",
     "asynx-asset-manager",
 ]
-
-SKILLS_NEEDING_PILLOW = {"asynx-image-pro", "asynx-video", "asynx-3d", "asynx-asset-manager"}
-
 
 def _resolve_skill_names(selection: str) -> list[str]:
     raw = [item.strip().lower() for item in selection.split(",") if item.strip()]
@@ -165,62 +158,6 @@ def _target_path(target: str, home: Path, skill_name: str = "asynx-image-pro") -
     raise ValueError(f"不支持的安装目标：{target}，请使用 codex、claude 或 both。")
 
 
-_DEPENDENCY_CACHE: dict[str, Path] = {}
-
-
-def _download_dependencies() -> Path | None:
-    """pip-install Pillow once per run; every skill copies from this directory."""
-    cached = _DEPENDENCY_CACHE.get(PILLOW_REQUIREMENT)
-    if cached is not None:
-        return cached
-    target = Path(tempfile.mkdtemp(prefix="asynx-vendor-"))
-    atexit.register(shutil.rmtree, target, ignore_errors=True)
-    print("正在安装图片处理依赖（只下载一次，供所有 Skill 共用）……", file=sys.stderr)
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--upgrade",
-            "--target",
-            str(target),
-            PILLOW_REQUIREMENT,
-        ],
-        check=False,
-        capture_output=True,
-    )
-    if result.returncode:
-        return None
-    _DEPENDENCY_CACHE[PILLOW_REQUIREMENT] = target
-    return target
-
-
-def _install_dependencies(destination: Path, source: Path | None = None) -> None:
-    vendor = destination / "scripts" / "vendor"
-    vendor.mkdir(parents=True, exist_ok=True)
-    downloaded = _download_dependencies()
-    if downloaded is not None:
-        shutil.copytree(downloaded, vendor, dirs_exist_ok=True)
-        return
-    bundled = source / "scripts" / "vendor" if source else None
-    if bundled is not None and bundled.is_dir() and any(bundled.iterdir()):
-        shutil.copytree(bundled, vendor, dirs_exist_ok=True)
-        print(
-            f"警告：依赖联网安装未成功，已使用仓库内置依赖。如遇图片处理异常请检查网络或执行 pip install {PILLOW_REQUIREMENT}。",
-            file=sys.stderr,
-        )
-        return
-    if any(vendor.iterdir()):
-        print(
-            f"警告：依赖联网安装未成功，将沿用已安装的依赖。如遇图片处理异常请检查网络或执行 pip install {PILLOW_REQUIREMENT}。",
-            file=sys.stderr,
-        )
-        return
-    raise RuntimeError("依赖安装失败，请检查网络连接以及当前 Python 是否已安装 pip，然后重新运行安装命令。")
-
-
 def _check_legacy_installations(home: Path, targets: list[str]) -> None:
     candidates = [_target_path(target, home, "asx") for target in targets]
     if "codex" in targets:
@@ -250,12 +187,7 @@ def _check_system_tools(skills: list[str]) -> None:
         )
 
 
-def _install_skill(
-    skill_name: str,
-    destination: Path,
-    *,
-    install_dependencies: bool = True,
-) -> None:
+def _install_skill(skill_name: str, destination: Path) -> None:
     skill_source = _ensure_skill_built(skill_name)
     if destination.exists() and not destination.is_dir():
         raise RuntimeError(f"安装位置被同名文件占用，请先检查该文件：{destination}")
@@ -269,15 +201,12 @@ def _install_skill(
         skill_source,
         destination,
         dirs_exist_ok=True,
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "vendor"),
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
 
     script = destination / "scripts" / "asynx.py"
     if script.exists():
         script.chmod(script.stat().st_mode | 0o111)
-
-    if install_dependencies and skill_name in SKILLS_NEEDING_PILLOW:
-        _install_dependencies(destination, skill_source)
 
     client = _load_client_module(destination)
     update_files = importlib.import_module(f"{client.__name__}.update_files")
@@ -404,7 +333,6 @@ def run(
     argv: list[str] | None = None,
     *,
     home: Path | None = None,
-    install_dependencies: bool = True,
 ) -> int:
     args = _parser().parse_args(argv)
     user_home = (home or Path.home()).resolve()
@@ -448,7 +376,7 @@ def run(
         label = "Codex" if target == "codex" else "Claude Code"
         for skill in target_skills:
             destination = _target_path(target, user_home, skill)
-            _install_skill(skill, destination, install_dependencies=install_dependencies)
+            _install_skill(skill, destination)
             if first_installed is None:
                 first_installed = destination
             print(f"已安装到 {label}：{destination}")
@@ -483,6 +411,10 @@ def run(
     else:
         print("已跳过授权和连接检查；使用云端能力前，请先通过 sagein-community 完成授权（勾选 skill_jwt 权限）。")
 
+    print(
+        "\n提示：生成、查询、下载无需额外依赖。参考图、Mask 与本地图片处理需要共享运行环境（Pillow），"
+        "需要时征得同意后运行：python3 <Skill 目录>/scripts/asynx.py runtime prepare"
+    )
     print("\n安装完成！使用示例：")
     if "codex" in targets:
         print("Codex 中可输入：")
