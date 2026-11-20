@@ -516,7 +516,8 @@ def ensure_batch_schema(connection: sqlite3.Connection, *, default_modality: str
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             cancel_requested INTEGER NOT NULL DEFAULT 0,
-            modality TEXT NOT NULL DEFAULT 'image'
+            modality TEXT NOT NULL DEFAULT 'image',
+            gateway TEXT
         );
         CREATE TABLE IF NOT EXISTS batch_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -549,6 +550,10 @@ def ensure_batch_schema(connection: sqlite3.Connection, *, default_modality: str
         connection.execute(
             "ALTER TABLE batches ADD COLUMN modality TEXT NOT NULL DEFAULT 'image'"
         )
+    if "gateway" not in columns:
+        # The gateway a batch was created on. Batches from earlier releases keep NULL and are bound
+        # through their items' charge confirmations and tasks instead.
+        connection.execute("ALTER TABLE batches ADD COLUMN gateway TEXT")
     connection.commit()
 
 

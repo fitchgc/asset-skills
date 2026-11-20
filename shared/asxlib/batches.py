@@ -58,7 +58,6 @@ from .tasks import (
     client_identity,
     download_assets,
     index_downloaded_artifacts,
-    require_task_gateway,
     submit_confirmed,
 )
 
@@ -234,13 +233,36 @@ def _item_request(batch: sqlite3.Row, body_json: str) -> tuple[str, dict[str, An
 
 
 def _require_batch_gateway(connection: sqlite3.Connection, client: AsynxClient, batch_id: str) -> None:
-    other = connection.execute(
-        "SELECT t.local_id, t.base_url FROM tasks t JOIN batch_items i ON i.idempotency_key = t.idempotency_key "
-        "WHERE i.batch_id = ? AND t.base_url != ? LIMIT 1",
-        (batch_id, client.base_url),
-    ).fetchone()
+    """A batch is only continued, extended or canceled on the gateway it was created on.
+
+    Checked before any write. The binding is the gateway recorded on the batch at creation; batches from
+    earlier releases fall back to their items' charge confirmations and tasks, so a batch that paused
+    before its first submission (no task rows yet) is still bound.
+    """
+    current = str(client.base_url).rstrip("/")
+    recorded = connection.execute("SELECT gateway FROM batches WHERE id = ?", (batch_id,)).fetchone()
+    gateways = [str(recorded[0])] if recorded is not None and recorded[0] else []
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'charge_consents'"
+    ).fetchone():
+        gateways += [str(row[0]) for row in connection.execute(
+            "SELECT DISTINCT c.gateway FROM charge_consents c JOIN batch_items i "
+            "ON i.idempotency_key = c.idempotency_key WHERE i.batch_id = ?",
+            (batch_id,),
+        )]
+    gateways += [str(row[0]) for row in connection.execute(
+        "SELECT DISTINCT t.base_url FROM tasks t JOIN batch_items i ON i.idempotency_key = t.idempotency_key "
+        "WHERE i.batch_id = ? AND t.base_url IS NOT NULL AND t.base_url != ''",
+        (batch_id,),
+    )]
+    other = next((gateway for gateway in gateways if gateway.rstrip("/") != current), None)
     if other is not None:
-        require_task_gateway(client, {"local_id": other["local_id"], "base_url": other["base_url"]})
+        raise AsxError(
+            "这个批次是在另一个资产网关上创建的，不会在当前网关上提交、查询、追加或取消，批次状态保持不变。",
+            code="task_gateway_mismatch",
+            exit_code=2,
+            details={"batch_id": batch_id, "batch_gateway": other, "current_gateway": str(client.base_url)},
+        )
 
 
 def _insert_items(
@@ -342,8 +364,9 @@ def create_batch(
     try:
         connection.execute(
             "INSERT INTO batches "
-            "(id, operation, name, status, model, output_dir, template_json, created_at, updated_at, cancel_requested, modality) "
-            "VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, 0, ?)",
+            "(id, operation, name, status, model, output_dir, template_json, created_at, updated_at, "
+            "cancel_requested, modality, gateway) "
+            "VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, 0, ?, ?)",
             (
                 batch_id,
                 operation,
@@ -354,6 +377,7 @@ def create_batch(
                 now,
                 now,
                 modality,
+                str(client.base_url),
             ),
         )
         _insert_items(

@@ -310,6 +310,58 @@ class LedgerIdentityTest(unittest.TestCase):
         self.assertEqual(other.received_requests, [])
         self.assertEqual(len(self.attempts()), 2)
 
+    def test_batch_paused_before_its_first_submission_stays_on_its_gateway(self) -> None:
+        """PR #10 P2 follow-up (2026-11-20): a confirmed batch that paused on quota_exhausted before its first
+        task intent has pending items and charge confirmations but no task rows. The gateway check only joined
+        tasks, so on another gateway `batch poll` failed all three items and completed the batch. The batch is
+        bound to its gateway when it is created; earlier batches without that column are bound through their
+        charge confirmations."""
+        exhausted = {"api_key": {"status": "quota_exhausted"}}
+        self.gateway.partner_identity_response = exhausted
+        code, out = self.cli(self.a, "batch", "create", "--prompt", PRIVATE_PROMPT, "--total", "3", "--limit", "1",
+                             "--output-dir", str(self.temp / "batch"), *CONFIRM)
+        ledger = self.ledger_of("agent-a", "account-a")
+        with closing(sqlite3.connect(ledger)) as connection:
+            batch_id, gateway = connection.execute("SELECT id, gateway FROM batches").fetchone()
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM tasks").fetchone(), (0,), out)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM charge_consents").fetchone(), (3,), out)
+        self.assertEqual(gateway, self.gateway_url)
+        self.assertEqual(self.batch_state(ledger, batch_id)[1], ["pending"] * 3, out)
+        self.assertEqual(self.attempts(), [])
+        quotes = len(self.requests("POST", "/v1/tasks/quote"))
+
+        other, other_url, _ = run_fake_gateway()
+        self.addCleanup(other.server_close)
+        self.addCleanup(other.shutdown)
+        commands = ((("batch", "poll", batch_id, "--limit", "5"), ("batch", "status", batch_id, "--refresh"),
+                     ("batch", "wait", batch_id, "--interval", "1"), ("batch", "add", batch_id, "--total", "1", *CONFIRM),
+                     ("batch", "cancel", batch_id)))
+        for legacy in (False, True):
+            if legacy:  # a batch written before batches.gateway existed: its confirmations still bind it
+                with closing(sqlite3.connect(ledger)) as connection:
+                    connection.execute("UPDATE batches SET gateway = NULL")
+                    connection.commit()
+            before = self.ledger_rows(ledger)
+            self.site.asynx_config["baseUrl"] = other_url
+            for command in commands:
+                code, out = self.cli(self.a, *command)
+                self.assertEqual((code, out["error"]["code"]), (2, "task_gateway_mismatch"), (legacy, command, out))
+                self.assertEqual(self.ledger_rows(ledger), before, (legacy, command))
+            self.assertEqual(other.received_requests, [])
+            self.assertEqual(self.attempts(), [])
+            self.assertEqual(len(self.requests("POST", "/v1/tasks/quote")), quotes)
+            self.site.asynx_config["baseUrl"] = self.gateway_url
+
+        # Back on its own gateway with quota: the same confirmations submit the pending items.
+        self.gateway.partner_identity_response = {"api_key": {"status": "active", "concurrency_limit": 5},
+                                                  "usage": {"active_tasks": 0},
+                                                  "budget": {"remaining_amount": "50.00000000"}}
+        code, out = self.cli(self.a, "batch", "poll", batch_id, "--limit", "5")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(sorted(key for _, _, key in self.attempts()), [f"asx-{batch_id}-{n:06d}" for n in (1, 2, 3)])
+        self.assertEqual(len(self.requests("POST", "/v1/tasks/quote")), quotes)
+        self.assertEqual(other.received_requests, [])
+
     # ---- cancel, sync, download -------------------------------------------------------------------
 
     def test_cancel_sync_and_download_stay_with_the_owner(self) -> None:

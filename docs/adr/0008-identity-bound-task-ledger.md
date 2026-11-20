@@ -31,7 +31,10 @@ under B's JWT, with no quote and no confirmation by B.
 - **Gateway.** A task is continued only on the gateway it was submitted to (`tasks.base_url`), else
   `task_gateway_mismatch`. A batch is checked as a whole before anything is written: a refused
   `batch cancel` / `poll` / `wait` / `status --refresh` / `add` leaves the batch, its items and its tasks
-  as they were and sends nothing to either gateway (PR #10 P2, 2026-11-20).
+  as they were and sends nothing to either gateway (PR #10 P2, 2026-11-20). A batch is bound to its
+  gateway when it is created (`batches.gateway`), so one that paused before its first submission (pending
+  items and confirmations, no task rows yet) is refused too; batches from earlier releases without that
+  column are bound through their items' charge confirmations (`charge_consents.gateway`) and tasks.
 - **Unowned records from earlier releases** stay in the old per-user file. No identity reads them.
   `ledger migrate --confirm-ownership` copies that file into the current identity's ledger when it is
   still empty, and leaves the source untouched. Copied tasks have no charge confirmation, so one that
