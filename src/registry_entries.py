@@ -58,6 +58,12 @@ PACKAGES: dict[str, dict[str, Any]] = {
                       "scope": "asset manager, Local UI Workbench and local post-processing for all modalities (workbench package)"},
 }
 
+# Packages that stay in the repo but are not emitted for the registry, with the reason. Audio: the relay gateway has
+# no audio models yet (2026-11-20), so plaiers/asynx-audio is not offered until it does.
+UNPUBLISHED: dict[str, str] = {
+    "audio": "relay gateway has no audio models yet; not offered for now (2026-11-20)",
+}
+
 _ID_RE = re.compile(r"^plaiers/[a-z0-9]+(?:-[a-z0-9]+)*$")
 _SECRET_PATTERNS = (
     ("sagein_pat_", re.compile(r"sagein_pat_[A-Za-z0-9_-]{8,}")),
@@ -191,10 +197,18 @@ def _runtime_rows() -> list[str]:
     return rows
 
 
-def build_registry_entries(out_dir: Path = REGISTRY_DIR, *, rebuild: bool = True) -> list[dict[str, Any]]:
+def published_keys(include_unpublished: bool = False) -> list[str]:
+    return [key for key in PACKAGES if include_unpublished or key not in UNPUBLISHED]
+
+
+def build_registry_entries(out_dir: Path = REGISTRY_DIR, *, rebuild: bool = True,
+                           include_unpublished: bool = False) -> list[dict[str, Any]]:
     out_dir.mkdir(parents=True, exist_ok=True)
     report: list[dict[str, Any]] = []
-    for key in PACKAGES:
+    skipped = [key for key in PACKAGES if key not in published_keys(include_unpublished)]
+    for key in skipped:  # never leave a stale entry that someone could publish by accident
+        (out_dir / f"{slug_for(key)}.json").unlink(missing_ok=True)
+    for key in published_keys(include_unpublished):
         skill_dir = build_skills.build_skill(key) if rebuild else build_skills.SKILLS_DIR / build_skills.MODALITIES[key]["skill_name"]
         entry = entry_for(key, skill_dir)
         slug = slug_for(key)
@@ -215,6 +229,7 @@ def build_registry_entries(out_dir: Path = REGISTRY_DIR, *, rebuild: bool = True
         "| --- | ---: | ---: | ---: | --- |",
         *[f"| `{r['id']}` | {r['files']} | {r['payload_bytes']:,} | {r['entry_bytes']:,} | `{r['dev_version'][:16]}…` |" for r in report],
         "",
+        *(["## Not published", "", *[f"- `{ID_PREFIX}{slug_for(k)}`: {UNPUBLISHED[k]}" for k in skipped], ""] if skipped else []),
         f"## Shared runtime ({LOCK['requirement']}, not in any package)",
         "",
         "Downloaded once per (OS, architecture, Python) by `runtime prepare`. Wheel download sizes from the hash lock:",
@@ -231,8 +246,13 @@ def build_registry_entries(out_dir: Path = REGISTRY_DIR, *, rebuild: bool = True
 def main() -> None:
     parser = argparse.ArgumentParser(description="Emit Plaiers registry publish entries (no upload)")
     parser.add_argument("--out-dir", type=Path, default=REGISTRY_DIR)
+    parser.add_argument("--include-unpublished", action="store_true",
+                        help="also emit packages held back in UNPUBLISHED (local inspection only; do not publish them)")
     args = parser.parse_args()
-    for row in build_registry_entries(args.out_dir):
+    for key in PACKAGES:
+        if key in UNPUBLISHED and not args.include_unpublished:
+            print(f"{ID_PREFIX}{slug_for(key)}: not published ({UNPUBLISHED[key]})")
+    for row in build_registry_entries(args.out_dir, include_unpublished=args.include_unpublished):
         print(f"{row['id']}: {row['files']} files, {row['payload_bytes']:,} bytes, dev version {row['dev_version']}")
 
 

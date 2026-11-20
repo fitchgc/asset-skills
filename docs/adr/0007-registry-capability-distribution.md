@@ -53,3 +53,7 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
   until then packages stay text-only and use system fonts (PR #10 Q1, accepted 2026-11-20).
 - Names (PR #10 Q2, confirmed 2026-11-20): `plaiers/asynx-{image-pro,audio,video,3d,workbench}`, with `name` and
   directory `plaiers-asynx-*`. The repository's `skills/` directories use the same names.
+- Audio held back (2026-11-20): the relay gateway has no audio models yet, so `plaiers/asynx-audio` is not
+  emitted for the registry (`UNPUBLISHED` in `src/registry_entries.py`; a stale entry file is deleted). The package
+  stays in the repository and can still be inspected with `--include-unpublished`; it is offered once the gateway
+  has audio models.

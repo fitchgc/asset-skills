@@ -4,7 +4,7 @@
 
 包含了 4 个核心资产技能（Asset Skills）：
 - **`plaiers-asynx-image-pro`**：图像生成、垫图参考创作、局部重绘批注、图生图编辑与离线图像处理。
-- **`plaiers-asynx-audio`**：音效素材（SFX）、背景配乐（Music）、角色台词（TTS/Speech）生成与音频剪辑标准化。
+- **`plaiers-asynx-audio`**：音效素材（SFX）、背景配乐（Music）、角色台词（TTS/Speech）生成与音频剪辑标准化。**暂不开放**：中转站目前没有音频模型，Plaiers 技能库暂不发布这个包（`src/registry_entries.py` 的 `UNPUBLISHED`），有模型后再开放。
 - **`plaiers-asynx-video`**：文生视频、图生视频、视频扩展编辑、抽帧生成 2D 精灵图集与音视频合成。
 - **`plaiers-asynx-3d`**：文生/图生 3D 模型、骨骼绑定检查、自动骨骼绑定与蒙皮、动画重定向与序列帧渲染。
 

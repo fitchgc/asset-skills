@@ -16,7 +16,9 @@ if str(REPO_ROOT) not in sys.path:
 
 from src import registry_entries as reg  # noqa: E402
 
-SLUGS = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-workbench")
+# plaiers/asynx-audio is held back: the relay gateway has no audio models yet (2026-11-20).
+SLUGS = ("asynx-image-pro", "asynx-video", "asynx-3d", "asynx-workbench")
+CORE = SLUGS[:3]
 
 
 class RegistryEntriesTest(unittest.TestCase):
@@ -46,7 +48,7 @@ class RegistryEntriesTest(unittest.TestCase):
             reg.validate_entry(entry)
 
     def test_core_entries_exclude_workbench_files(self) -> None:
-        for slug in SLUGS[:4]:
+        for slug in CORE:
             self.assertFalse(any("/ui/" in p or p.endswith("ui_server.py") or "/local_" in p for p in self.entries[slug]["files"]), slug)
         self.assertIn("scripts/asxlib/ui_server.py", self.entries["asynx-workbench"]["files"])
 
@@ -67,16 +69,33 @@ class RegistryEntriesTest(unittest.TestCase):
         self.assertIn("Shared runtime (pillow==", text)
         self.assertIn(".whl", text)
         self.assertIn("Nothing was published", text)
+        self.assertIn("## Not published", text)
+        self.assertIn("- `plaiers/asynx-audio`: relay gateway has no audio models yet", text)
+
+    def test_audio_is_held_back_and_stale_entry_removed(self) -> None:
+        self.assertIn("audio", reg.UNPUBLISHED)
+        self.assertNotIn("plaiers/asynx-audio", {r["id"] for r in self.report})
+        out = Path(tempfile.mkdtemp())
+        try:
+            (out / "asynx-audio.json").write_text("{}", encoding="utf-8")
+            reg.build_registry_entries(out, rebuild=False)
+            self.assertFalse((out / "asynx-audio.json").exists(), "stale audio entry must not stay publishable")
+            # Explicit local inspection still builds a valid entry.
+            report = reg.build_registry_entries(out, rebuild=False, include_unpublished=True)
+            self.assertIn("plaiers/asynx-audio", {r["id"] for r in report})
+            reg.validate_entry(json.loads((out / "asynx-audio.json").read_text(encoding="utf-8")))
+        finally:
+            shutil.rmtree(out, ignore_errors=True)
 
     def assert_rejected(self, mutate, pattern: str) -> None:
-        entry = copy.deepcopy(self.entries["asynx-audio"])
+        entry = copy.deepcopy(self.entries["asynx-video"])
         mutate(entry)
         with self.assertRaisesRegex(reg.RegistryEntryError, pattern):
             reg.validate_entry(entry)
 
     def test_validation_mirrors_publisher_and_scans_for_credentials(self) -> None:
         self.assert_rejected(lambda e: e["metadata"].update(id="Plaiers/Bad"), "Invalid namespaced skill ID/name")
-        self.assert_rejected(lambda e: e["metadata"].update(name="asynx-audio"), "Invalid namespaced skill ID/name")
+        self.assert_rejected(lambda e: e["metadata"].update(name="asynx-video"), "Invalid namespaced skill ID/name")
         self.assert_rejected(lambda e: e["metadata"].update(kind="technique"), "kind must be capability")
         self.assert_rejected(lambda e: e["metadata"].pop("license"), "Invalid metadata license")
         self.assert_rejected(lambda e: e["metadata"]["requirements"].pop("paidServices"), "explicitly reviewed public metadata")
@@ -85,7 +104,7 @@ class RegistryEntriesTest(unittest.TestCase):
         self.assert_rejected(lambda e: e["files"].update({".asx-install.json": "{}"}), "Unsupported package file: .asx-install.json")
         self.assert_rejected(lambda e: e["files"].update({f"f{i}.md": "x" for i in range(200)}), "Invalid skill files")
         self.assert_rejected(lambda e: e["files"].update({"big.md": "x" * (4 * 1024 * 1024)}), "Package too large")
-        self.assert_rejected(lambda e: e["files"].update({"SKILL.md": "---\nname: asynx-audio\n---\n"}), "Wrong skill entrypoint")
+        self.assert_rejected(lambda e: e["files"].update({"SKILL.md": "---\nname: asynx-video\n---\n"}), "Wrong skill entrypoint")
         for secret, label in (("sagein_pat_abcdefghijkl", "sagein_pat_"),
                               ("eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ1c2VyLTEifQ.c2lnbmF0dXJlLXZhbHVl", "JWT"),
                               ("asx-0123456789abcdef0123456789ab", "asx- key")):
