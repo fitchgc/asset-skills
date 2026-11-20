@@ -29,7 +29,9 @@ under B's JWT, with no quote and no confirmation by B.
   matching record nothing is sent (`charge_consent_missing` / `charge_consent_mismatch`). Recovery reuses
   the original idempotency key and does not quote again.
 - **Gateway.** A task is continued only on the gateway it was submitted to (`tasks.base_url`), else
-  `task_gateway_mismatch`.
+  `task_gateway_mismatch`. A batch is checked as a whole before anything is written: a refused
+  `batch cancel` / `poll` / `wait` / `status --refresh` / `add` leaves the batch, its items and its tasks
+  as they were and sends nothing to either gateway (PR #10 P2, 2026-11-20).
 - **Unowned records from earlier releases** stay in the old per-user file. No identity reads them.
   `ledger migrate --confirm-ownership` copies that file into the current identity's ledger when it is
   still empty, and leaves the source untouched. Copied tasks have no charge confirmation, so one that

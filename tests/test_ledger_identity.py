@@ -20,6 +20,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -109,6 +110,31 @@ class LedgerIdentityTest(unittest.TestCase):
 
     def default_ledgers(self) -> list[Path]:
         return sorted((self.home / ".local" / "state" / "asx" / "identities").glob("*/state.db"))
+
+    def ledger_of(self, agent: str, account: str) -> Path:
+        """The one default ledger recorded as owned by this identity on the test site. Directory names are
+        identity hashes that include the (random-port) origin, so their order says nothing about whose
+        ledger is which."""
+        owned = []
+        for path in self.default_ledgers():
+            with closing(sqlite3.connect(path)) as connection:
+                owner = connection.execute("SELECT origin, agent_id, account_id FROM ledger_owner").fetchone()
+            if owner == (self.origin, agent, account):
+                owned.append(path)
+        self.assertEqual(len(owned), 1, (agent, account, self.default_ledgers()))
+        return owned[0]
+
+    def ledger_rows(self, ledger: Path) -> dict[str, list[tuple[Any, ...]]]:
+        tables = ("batches", "batch_items", "tasks", "task_events", "charge_consents")
+        with closing(sqlite3.connect(ledger)) as connection:
+            return {table: connection.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables}
+
+    def batch_state(self, ledger: Path, batch_id: str) -> tuple[tuple[str, int], list[str]]:
+        with closing(sqlite3.connect(ledger)) as connection:
+            batch = connection.execute("SELECT status, cancel_requested FROM batches WHERE id = ?", (batch_id,)).fetchone()
+            items = connection.execute(
+                "SELECT status FROM batch_items WHERE batch_id = ? ORDER BY sequence", (batch_id,)).fetchall()
+        return tuple(batch), [status for (status,) in items]
 
     # ---- the reported scenario and its variants --------------------------------------------------
 
@@ -226,7 +252,7 @@ class LedgerIdentityTest(unittest.TestCase):
             self.assertEqual(out["error"]["code"], "batch_not_found", (command, out))
         self.assertEqual(self.cli(self.b, "batch", "list")[1]["batches"], [])
         self.assertEqual(len(self.attempts()), 1)
-        shared = {"ASYNX_STATE_PATH": str(self.default_ledgers()[0])}
+        shared = {"ASYNX_STATE_PATH": str(self.ledger_of("agent-a", "account-a"))}
         code, out = self.cli({**self.b, **shared}, "batch", "poll", batch_id)
         self.assertEqual((code, out["error"]["code"]), (2, "ledger_owner_mismatch"), out)
         self.assertEqual(len(self.attempts()), 1)
@@ -237,6 +263,52 @@ class LedgerIdentityTest(unittest.TestCase):
         self.assertEqual([sub for sub, _, _ in attempts], ["account-a"] * 3)
         self.assertEqual(sorted(key for _, _, key in attempts), [f"asx-{batch_id}-{n:06d}" for n in (1, 2, 3)])
         self.assertEqual(len(self.requests("POST", "/v1/tasks/quote")), quotes, "resuming a batch is not a new quote")
+
+    def test_batch_is_not_canceled_or_changed_on_another_gateway(self) -> None:
+        """PR #10 P2 (2026-11-20): `batch cancel` on another gateway returned task_gateway_mismatch but had
+        already committed cancel_requested and canceled the pending items. A refused batch operation leaves
+        the ledger as it was and sends nothing to either gateway; back on its own gateway the batch continues
+        and cancels normally."""
+        self.gateway.default_submit_status = "running"
+        code, out = self.cli(self.a, "batch", "create", "--prompt", PRIVATE_PROMPT, "--total", "3", "--limit", "1",
+                             "--output-dir", str(self.temp / "batch"), *CONFIRM)
+        self.assertEqual(code, 0, out)
+        batch_id = out["batch"]["id"]
+        ledger = self.ledger_of("agent-a", "account-a")
+        self.assertEqual(self.batch_state(ledger, batch_id), (("active", 0), ["running", "pending", "pending"]))
+        before = self.ledger_rows(ledger)
+        attempts, quotes = self.attempts(), len(self.requests("POST", "/v1/tasks/quote"))
+
+        other, other_url, _ = run_fake_gateway()
+        self.addCleanup(other.server_close)
+        self.addCleanup(other.shutdown)
+        self.site.asynx_config["baseUrl"] = other_url
+        for command in (("batch", "cancel", batch_id), ("batch", "poll", batch_id, "--limit", "5"),
+                        ("batch", "status", batch_id, "--refresh"), ("batch", "wait", batch_id, "--interval", "1"),
+                        ("batch", "add", batch_id, "--total", "1", *CONFIRM)):
+            code, out = self.cli(self.a, *command)
+            self.assertEqual((code, out["error"]["code"]), (2, "task_gateway_mismatch"), (command, out))
+            self.assertEqual(self.ledger_rows(ledger), before, command)
+        self.assertEqual(other.received_requests, [])
+        self.assertEqual(other.submit_attempts, [])
+        self.assertEqual([path for _, path, _ in self.gateway.received_requests if path.endswith("/cancel")], [])
+        self.assertEqual(self.attempts(), attempts)
+        self.assertEqual(len(self.requests("POST", "/v1/tasks/quote")), quotes)
+
+        # Back on its own gateway: it continues with the same confirmation, then cancels there.
+        self.site.asynx_config["baseUrl"] = self.gateway_url
+        code, out = self.cli(self.a, "batch", "poll", batch_id, "--limit", "1")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.batch_state(ledger, batch_id), (("active", 0), ["running", "running", "pending"]))
+        self.assertEqual(sorted(key for _, _, key in self.attempts()), [f"asx-{batch_id}-{n:06d}" for n in (1, 2)])
+        code, out = self.cli(self.a, "batch", "cancel", batch_id)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.batch_state(ledger, batch_id), (("canceled", 1), ["canceled"] * 3))
+        canceled = [(path, _subject(h)) for m, path, h in self.gateway.received_requests if path.endswith("/cancel")]
+        self.assertEqual(sorted(canceled), [("/v1/tasks/task_1/cancel", "account-a"),
+                                            ("/v1/tasks/task_2/cancel", "account-a")])
+        self.assertEqual(other.received_requests, [])
+        self.assertEqual(len(self.attempts()), 2)
 
     # ---- cancel, sync, download -------------------------------------------------------------------
 

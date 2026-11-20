@@ -414,6 +414,8 @@ def add_to_batch(
             raise AsxError(
                 "Cannot append to a completed or canceled batch", code="batch_not_appendable"
             )
+        # Refused on another gateway before quoting there or adding items bound to it.
+        _require_batch_gateway(connection, client, str(batch["id"]))
         body = _template(batch)
         has_overrides = any(
             value is not None
@@ -733,6 +735,8 @@ def poll_batch(
             if _include_results:
                 _attach_batch_results(connection, batch, summary)
             return {"ok": not summary["partial"], "batch": summary, "finished": True}
+        # Refused on another gateway before anything in the ledger changes.
+        _require_batch_gateway(connection, client, str(batch["id"]))
         stale_before = datetime.now(UTC) - timedelta(minutes=5)
         connection.execute(
             "UPDATE batch_items SET status = 'pending', updated_at = ? "
@@ -741,7 +745,6 @@ def poll_batch(
         )
         connection.commit()
 
-        _require_batch_gateway(connection, client, str(batch["id"]))
         submitted = 0
         artifact_warnings: list[dict[str, Any]] = []
         asset_downloads: list[dict[str, Any]] = []
@@ -1051,6 +1054,8 @@ def cancel_batch(client: AsynxClient, batch_id: str | None) -> dict[str, Any]:
         batch = get_batch(connection, batch_id)
         if batch["status"] == "completed":
             return {"ok": True, "batch": batch_summary(connection, batch), "finished": True}
+        # Refused on another gateway before the batch, its tasks or its pending items change.
+        _require_batch_gateway(connection, client, str(batch["id"]))
         connection.execute(
             "UPDATE batches SET cancel_requested = 1, updated_at = ? WHERE id = ?",
             (utc_now(), batch["id"]),
@@ -1068,7 +1073,6 @@ def cancel_batch(client: AsynxClient, batch_id: str | None) -> dict[str, Any]:
             (utc_now(), batch["id"]),
         )
         connection.commit()
-        _require_batch_gateway(connection, client, str(batch["id"]))
         remote = connection.execute(
             "SELECT * FROM batch_items WHERE batch_id = ? AND task_id IS NOT NULL "
             "AND status IN ('submitted', 'queued', 'running', 'delayed', 'canceling')",

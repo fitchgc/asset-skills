@@ -9,7 +9,7 @@
     "scripts/asxlib/__init__.py": "f283daece0b400feea90910f9d05d17dc157454d03924a27decca6e20fec7e12",
     "scripts/asxlib/artifacts.py": "6624851145cefabe4fbd1f955d0a05b73a0e756d6b9ed39b18f9af46c742fc2e",
     "scripts/asxlib/auth.py": "c857d0bdc1c2ded8ac7e86ed5116e7b9b255e1b53053f81ac56d29c415171fc6",
-    "scripts/asxlib/batches.py": "48966ed5ecddc200f1266cf9b85d236c4da475288d6c47adc05e20f840040a78",
+    "scripts/asxlib/batches.py": "a78a1686d269a85aefc4df113497fca914f6836286d06c1a137cded0d9ef278b",
     "scripts/asxlib/charge_consent.py": "f6802a24748a7aa97c57d781bfd84f13a16a5a582de54e77a27938838a5d615d",
     "scripts/asxlib/cli.py": "4e401f6fab4a9c22d96000c64d9aa882df0a2554dc240b2c75ee51becf68b84f",
     "scripts/asxlib/cli_common.py": "f233c2b0f13c6d0ed1ef6c52d758c91caa5a7719075914cf2d9c4b635f3689e2",
