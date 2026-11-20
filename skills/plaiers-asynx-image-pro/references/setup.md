@@ -11,9 +11,9 @@ python3 "<skill-dir>/scripts/asynx.py" doctor
 python3 "<skill-dir>/scripts/asynx.py" doctor --verify
 ```
 
-- 认证只经 Plaiers 社区凭据桥接：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令（站点、Agent、凭据目录，可选账号；需 `skill_jwt` 权限）。Skill 需要时运行这条命令取得短期 JWT，自己不缓存 JWT，也不读取 PAT；`kid`/`iss`/`aud` 须与 `GET <origin>/api/agent/asynx-config` 一致，网关地址、请求头等参数也从这里读取。没有默认站点，不读取 `SAGEIN_COMMUNITY_*` 环境变量。未授权或缺少 `.plaiers-context.json` 时返回 `need_login`：经 `plaiers-community` 用 `get_skill` 安装本 Skill，并确认授权勾选了 `skill_jwt`。 `whoami` 查看额度与并发。
+- 认证只经 Plaiers 社区凭据桥接：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令（站点、Agent、凭据目录，可选账号；需 `skill_jwt` 权限）。Skill 需要时运行这条命令取得短期 JWT，自己不缓存 JWT，也不读取 PAT；`kid`/`iss`/`aud` 须与 `GET <origin>/api/agent/asynx-config` 一致，网关地址、请求头等参数也从这里读取。没有默认站点，不读取 `SAGEIN_COMMUNITY_*` 环境变量。未授权或缺少 `.plaiers-context.json` 时返回 `need_login`：经 `plaiers-community` 用 `get_skill` 安装本 Skill，并确认授权勾选了 `skill_jwt`。 `whoami` 查看剩余积分与并发。
 - `config status` 查看配置来源与环境变量覆盖；需要进一步排查副本、权限等问题时用 `doctor`。两者默认不联网，不要读取配置原文输出令牌。
-- 用户要求验证连接或登录状态时使用 `doctor --verify`。它只读模型目录；通过不代表已验证生图权限、余额或实际生成。网络错误不等于登录失效。
+- 用户要求验证连接或登录状态时使用 `doctor --verify`。它只读模型目录；通过不代表已验证生图权限、积分余额或实际生成。网络错误不等于登录失效。
 - 网关地址只由 `asynx-config` 下发，没有默认网关。
 
 默认配置位置：macOS/Linux 为 `~/.config/asynx/config.json`，Windows 为 `%APPDATA%\Asynx\config.json`，只保存轮询间隔等普通设置，不保存 JWT。同一系统用户的多份 Skill 默认共用；显式 `ASYNX_CONFIG_PATH` 可指定另一份文件。

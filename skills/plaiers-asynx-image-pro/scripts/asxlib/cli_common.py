@@ -11,7 +11,7 @@ def add_auth_commands(
     root_parser: argparse.ArgumentParser,
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-    subparsers.add_parser("whoami", help="查看当前 Asynx 额度/并发状态（通过 SageIn Agent 授权换取 JWT）")
+    subparsers.add_parser("whoami", help="查看当前 Asynx 剩余积分/并发状态（通过 SageIn Agent 授权换取 JWT）")
     runtime = subparsers.add_parser(
         "runtime", help="管理所有 Asset Skill 共用的可选运行环境（Pillow），只在用户同意后准备"
     )

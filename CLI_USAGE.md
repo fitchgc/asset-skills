@@ -101,7 +101,7 @@ python3 -S src/registry_entries.py
 云端生成使用短期 JWT，只经 Plaiers 社区凭据桥接取得：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令，Skill 每次需要时不经 shell 运行这条命令。Skill 不读取 PAT，自己不缓存 JWT。网关地址、请求头、`kid`/`iss`/`aud` 来自 `GET <origin>/api/agent/asynx-config`。详见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md)。
 
 ```bash
-# 查看额度与并发（首次调用会自动换取 JWT）
+# 查看剩余积分与并发（首次调用会自动换取 JWT）
 python3 skills/plaiers-asynx-image-pro/scripts/asynx.py whoami
 ```
 

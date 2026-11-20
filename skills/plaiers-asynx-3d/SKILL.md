@@ -7,17 +7,17 @@ description: 通过 Asynx 生成 3D 资产、检查可绑定性 (rig-check)、�
 
 使用本 Skill 的 `scripts/asynx.py` 完成 3D 模型生成、角色骨骼绑定、动画重定向与纯 Python 离线模型后处理。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；纯 Python 检查无需安装 Blender。
 
-## 付费确认
+## 积分消耗确认（付费确认）
 
-每次提交付费的生成任务或批次之前都要先确认费用。**授权 `skill_jwt`、登录或安装本 Skill 都不代表用户同意付费。**
+生成任务会消耗**积分**（资产服务的充值额度；与社区原有积分体系、玩造币相互独立，不互转）。每次提交生成任务或批次之前都要先让用户确认预计消耗。**授权 `skill_jwt`、登录或安装本 Skill 都不代表用户同意消耗积分。** PAT、JWT 是访问凭据（令牌），不是积分。
 
-1. 第一次运行生成命令时，不要带 `--confirmed-quote`。CLI 只报价，不提交任务，并返回 `confirmation_required`。`details` 里有本次任务数（`units`）、币种、总价（`total_amount`）和剩余额度（`budget`）。
-2. 把模型、数量、总价和剩余额度告诉用户，请用户确认**这一次**请求或批次。
-3. 用户确认后，带上 `details.confirm_args`（如 `--confirmed-quote USD:0.12`）重新运行同一条命令。CLI 会重新报价。新报价高于用户确认的金额、币种变化或报价过期时，会再次返回 `confirmation_required`，这时要重新征求用户确认，不能自己改大金额。
+1. 第一次运行生成命令时，不要带 `--confirmed-quote`。CLI 只报价，不提交任务，并返回 `confirmation_required`。`details` 里有本次任务数（`units`）、预计消耗（`total_amount`，单位 `currency`）和剩余积分（`budget`）。数值和单位按接口返回原样展示，不自行换算，也不要把模型的输入/输出 token 数当成积分。
+2. 把模型、数量、预计消耗和剩余积分告诉用户，请用户确认**这一次**请求或批次。
+3. 用户确认后，带上 `details.confirm_args`（如 `--confirmed-quote USD:0.12`）重新运行同一条命令。CLI 会重新报价。新报价高于用户确认的数值、单位变化或报价过期时，会再次返回 `confirmation_required`，这时要重新征求用户确认，不能自己改大金额。
 4. 报价不可用时返回 `quote_unavailable`，不会提交任务。只有用户明确同意在没有报价的情况下提交，才可以加 `--confirm-without-quote`；这个决定会写入请求日志。
 5. 报价为 0 时无需确认。
 
-提交后如果出现失败、超时或网络错误，CLI 不会自动重新提交。按错误里的 `next_action_args`（`task recover <local_id>`）恢复，它会沿用同一幂等键。下载重试只会重新下载，不会再收费。之前确认过的费用不能用于其他请求。
+提交后如果出现失败、超时或网络错误，CLI 不会自动重新提交。按错误里的 `next_action_args`（`task recover <local_id>`）恢复，它会沿用同一幂等键。超时先查原任务，不重新提交；下载重试只会重新下载，不会重新生成或再扣积分。之前的确认不能用于其他请求。
 
 ## 3D 生成与动画管线
 

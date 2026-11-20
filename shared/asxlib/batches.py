@@ -588,7 +588,7 @@ def _attach_batch_results(
     if failures:
         paused_notice = summary.get("action_required", "") if batch["status"] == "paused" else ""
         summary["action_required"] = (
-            paused_notice + "查看 failed_items 中的失败、超时或取消项；重新生成可能产生费用"
+            paused_notice + "查看 failed_items 中的失败、超时或取消项；重新生成会再消耗积分"
         )
     if warnings:
         summary.setdefault("warnings", []).extend(warnings)

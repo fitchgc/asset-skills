@@ -83,7 +83,7 @@ class ChargeConfirmationTest(unittest.TestCase):
         self.assertEqual(details["budget"], {"remaining_amount": "50.00000000"})
         self.assertEqual(details["confirm_args"], ["--confirmed-quote", "USD:0.12000000"])
         self.assertFalse(details["submitted"])
-        self.assertIn("不代表同意付费", error["message"])
+        self.assertIn("不代表同意消耗积分", error["message"])
         self.assertEqual(self.submit_posts(), [])
         # Other modalities use the same gate.
         code, out = self.cli(AUDIO, "sfx", "--prompt", "clash", "--duration", "1.0", "--detach", "--output-dir", str(self.temp / "a"))

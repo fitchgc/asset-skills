@@ -105,7 +105,7 @@
       root.innerHTML = `
         <button type="button" class="asx-acct-pill" id="asx-acct-refresh" title="点击刷新">
           <span class="asx-acct-avatar">A</span>
-          <span class="asx-acct-budget" title="剩余额度">${escapeHtml(formatBudget(auth.identity))}</span>
+          <span class="asx-acct-budget" title="剩余积分">${escapeHtml(formatBudget(auth.identity))}</span>
           <span class="asx-acct-meta" title="并发任务数">${escapeHtml(formatConcurrency(auth.identity))}</span>
         </button>
       `;

@@ -82,7 +82,7 @@ def parser() -> argparse.ArgumentParser:
     gen.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     gen.add_argument("--idempotency-key")
     gen.add_argument("--detach", action="store_true")
-    gen.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    gen.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(gen)
 
     # Rig check & Rig
@@ -93,7 +93,7 @@ def parser() -> argparse.ArgumentParser:
     rc.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     rc.add_argument("--idempotency-key")
     rc.add_argument("--detach", action="store_true")
-    rc.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    rc.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(rc)
 
     rig = commands.add_parser("rig", help="为 3D 生成结果自动绑定骨骼")
@@ -106,7 +106,7 @@ def parser() -> argparse.ArgumentParser:
     rig.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     rig.add_argument("--idempotency-key")
     rig.add_argument("--detach", action="store_true")
-    rig.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    rig.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(rig)
 
     # Animate
@@ -119,7 +119,7 @@ def parser() -> argparse.ArgumentParser:
     anim.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     anim.add_argument("--idempotency-key")
     anim.add_argument("--detach", action="store_true")
-    anim.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    anim.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(anim)
 
     conv = commands.add_parser("convert", help="云端转换 3D 模型格式 (来源：生成/绑定/动画任务)")
@@ -130,7 +130,7 @@ def parser() -> argparse.ArgumentParser:
     conv.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     conv.add_argument("--idempotency-key")
     conv.add_argument("--detach", action="store_true")
-    conv.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    conv.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(conv)
 
     # UI workbenches

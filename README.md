@@ -28,7 +28,7 @@ Cloud use requires a Plaiers Agent grant with the `skill_jwt` scope. The Plaiers
 
 - **跨模态引用（Cross-Modal Pipelines）**：所有技能共用本地 SQLite 状态账本，Agent 可通过上下文任务 ID 无缝串联不同模态（例如：概念原画 -> 图生 3D 模型 -> 自动骨骼绑定 -> 行走动画 -> 导出 2D 游戏精灵图集）。
 - **自包含与开箱即用（Self-Contained Bundling）**：每个 Skill 均包含独立的配置与规则定义，零全局环境污染。
-- **本地免授权确定性后处理（Authorization-free Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需授权、不消耗额度，本地离线秒级执行。
+- **本地免授权确定性后处理（Authorization-free Local Post-Processing）**：裁剪、格式转换、音频修剪与响度标准化、视频抽帧、3D 模型纯 Python 检查等均无需授权、不消耗积分，本地离线秒级执行。
 - **按需本地交互工作台（Local UI Workbench）**：Agent 可按需自动拉起轻量 Web 服务，在浏览器中完成视觉交互操作（局部重绘圈选标注、视频时间轴去背、WebGL 3D 预览与多方向序列帧图集渲染）。
 
 ---
@@ -92,7 +92,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 各 Skill 共用同一套本机配置与本地状态账本，只需配置一次即可全局生效：
 
-1. **Plaiers Agent 授权**：完成设备授权并勾选 `skill_jwt`。Skill 不读取 `sagein_pat_...`，只运行 `.plaiers-context.json` 记录的 `get-skill-jwt.mjs` 命令取得短期 JWT，网关参数取自 `GET /api/agent/asynx-config`。`whoami` 查看额度与并发。
+1. **Plaiers Agent 授权**：完成设备授权并勾选 `skill_jwt`。Skill 不读取 `sagein_pat_...`，只运行 `.plaiers-context.json` 记录的 `get-skill-jwt.mjs` 命令取得短期 JWT，网关参数取自 `GET /api/agent/asynx-config`。`whoami` 查看剩余积分与并发。
 2. **无界面 CI**：同样经凭据桥接取得 JWT，用安装器显式绑定站点、Agent、账号和凭据文件。`ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` 已移除，设置后会报 `legacy_credentials_removed`。详见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md#无界面-ci)。
 
 详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)。

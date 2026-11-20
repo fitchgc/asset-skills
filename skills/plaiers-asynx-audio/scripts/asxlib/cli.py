@@ -94,7 +94,7 @@ def parser() -> argparse.ArgumentParser:
     sfx.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     sfx.add_argument("--idempotency-key")
     sfx.add_argument("--detach", action="store_true")
-    sfx.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    sfx.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(sfx)
 
     music = commands.add_parser("music", help="生成背景音乐与配乐")
@@ -107,7 +107,7 @@ def parser() -> argparse.ArgumentParser:
     music.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     music.add_argument("--idempotency-key")
     music.add_argument("--detach", action="store_true")
-    music.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    music.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(music)
 
     speech = commands.add_parser("speech", help="合成角色台词与语音")
@@ -122,7 +122,7 @@ def parser() -> argparse.ArgumentParser:
     speech.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     speech.add_argument("--idempotency-key")
     speech.add_argument("--detach", action="store_true")
-    speech.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    speech.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(speech)
 
     # Common task lifecycle commands

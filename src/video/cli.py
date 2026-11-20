@@ -96,7 +96,7 @@ def _add_video_generation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--idempotency-key")
     parser.add_argument("--detach", action="store_true")
-    parser.add_argument("--quote", action="store_true", help="仅预估费用，不提交任务")
+    parser.add_argument("--quote", action="store_true", help="仅报价（预计消耗积分），不提交任务")
     add_charge_args(parser)
 
 

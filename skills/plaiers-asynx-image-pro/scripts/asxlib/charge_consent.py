@@ -35,7 +35,7 @@ def add_charge_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--confirmed-quote",
         metavar="AMOUNT|QUOTE_ID",
-        help="用户已确认本次费用（报价金额，如 0.12 或 USD:0.12，或报价 ID）；未提供时只报价、不提交",
+        help="用户已确认本次预计消耗的积分（报价数值，如 0.12 或 <单位>:0.12，或报价 ID）；未提供时只报价、不提交",
     )
     parser.add_argument(
         "--confirm-without-quote",
@@ -117,7 +117,7 @@ def require_charge_consent(
             record_decision(record)
             return record
         raise AsxError(
-            "无法获取本次费用报价，未提交任何任务。请稍后重试；如用户明确同意在没有报价的情况下提交，再加 --confirm-without-quote。",
+            "无法获取本次积分消耗报价，未提交任何任务。请稍后重试；如用户明确同意在没有报价的情况下提交，再加 --confirm-without-quote。",
             code="quote_unavailable",
             exit_code=2,
             details={"task_type": task_type, "model": model, "units": units, "quote_error": exc.code,
@@ -170,13 +170,14 @@ def require_charge_consent(
 
     budget = _budget(client)
     message = {
-        "not_confirmed": "这是付费请求，需要用户确认本次费用后才会提交。",
-        "price_changed": "报价已变化（高于用户确认的金额），未提交；请把新报价告知用户并重新确认。",
-        "currency_changed": "报价币种与用户确认的不同，未提交；请重新确认。",
+        "not_confirmed": "这次请求会消耗积分，需要用户确认本次预计消耗后才会提交。",
+        "price_changed": "报价已变化（高于用户确认的数值），未提交；请把新报价告知用户并重新确认。",
+        "currency_changed": "报价单位与用户确认的不同，未提交；请重新确认。",
         "quote_mismatch": "确认的报价已过期或不匹配，未提交；请把新报价告知用户并重新确认。",
     }[reason]
     raise AsxError(
-        f"{message}本次 {units} 个任务预计 {total} {currency or ''}".rstrip() + "。授权或安装 Skill 不代表同意付费。",
+        f"{message}本次 {units} 个任务预计消耗 {total}" + (f"（计费接口单位：{currency}）" if currency else "")
+        + "。授权或安装 Skill 不代表同意消耗积分。",
         code="confirmation_required",
         exit_code=2,
         details={**summary, "reason": reason, "budget": budget, "submitted": False,

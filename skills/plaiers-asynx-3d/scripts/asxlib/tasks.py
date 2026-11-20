@@ -414,7 +414,7 @@ def _ensure_partner_quota(client: Any) -> None:
         api_key_info = identity.get("api_key")
         if isinstance(api_key_info, dict) and api_key_info.get("status") == "quota_exhausted":
             raise AsxError(
-                "Asynx 账户额度已用尽 (quota_exhausted)，无法提交新任务。",
+                "Asynx 账户积分已用尽 (quota_exhausted)，无法提交新任务。",
                 code="quota_exhausted",
                 exit_code=2,
                 details={"partner_identity": identity},

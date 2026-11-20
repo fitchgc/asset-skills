@@ -49,7 +49,7 @@ python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project"
   - **Video**：内嵌视频抽帧去背工作台 (`video_frame_sequence`)、`video.edit`、本地 `trim` / `convert` / `mux` / `spritesheet`；
   - **3D Model**：内嵌 WebGL 3D 检查与多视角序列帧渲染工作台 (`model3d_viewer` / `render-sequence`)、云端 `rig-check` / `rig` / `animate` / `convert` 与本地 `info` / `validate` / `extract-textures`；
   - **Audio**：波形播放器、参考音色语音合成 (`audio.speech`) 与本地 `trim` / `fade` / `normalize` / `convert`。
-- 所有在工作台内创建或修改的资产均自动保存至项目工作区并记录父子 `asset_lineage`，无需重启服务即可实时刷新显示；顶部账号栏显示授权状态与额度/并发；云端操作需要 SageIn Agent 授权（`skill_jwt` 权限）。
+- 所有在工作台内创建或修改的资产均自动保存至项目工作区并记录父子 `asset_lineage`，无需重启服务即可实时刷新显示；顶部账号栏显示授权状态与剩余积分/并发；云端操作需要 SageIn Agent 授权（`skill_jwt` 权限）。
 - 若宿主不支持自动打开浏览器，可加 `--no-open` 并向用户展示控制台输出的本地 URL。
 
 ## 按需读取
