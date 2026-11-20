@@ -31,7 +31,14 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
 - **Build checks.** Every package must have ≤ 200 files and ≤ 4 MiB, and every file must be UTF-8.
   `.DS_Store`/caches are pruned; any violation fails the build.
 - **Credentials.** JWTs come only from the `get-skill-jwt.mjs` argv recorded in `.plaiers-context.json`
-  (supersedes the credential-lookup parts of ADR-0005).
+  (supersedes the credential-lookup parts of ADR-0005). `ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` are removed
+  and rejected with `legacy_credentials_removed`; the gateway comes only from `asynx-config` (PR #10 Q6).
+- **Discovery vs generation.** The community MCP only discovers and reads pinned skills
+  (`search_skills` / `get_skill`). Generation runs in the local CLI, which calls the Asset Gateway with the
+  bridged JWT. There is no hosted generation MCP (PR #10 Q3).
+- **积分 consent.** Every submission (CLI, batch, workbench page, asset-manager cloud action) quotes first
+  and needs the user's confirmation of that request. The balance and charges are called 积分, separate from
+  community points and 玩造币 (PR #10 Q4).
 - **Updates.** The GitHub release poller, the background update check and in-place `update apply` /
   `update rollback` are removed (supersedes the self-update parts of ADR-0001). `update status` compares
   the installed `skill_version` from the context with the registry's current version and reports withdrawal.
@@ -42,6 +49,7 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
 
 - Repository `install.py` copies remain possible for development; they are not registry installs and
   `update status` reports `not_registry_install` for them.
-- Binary resources (font) and dependency declaration wait for the registry protocol (PR #10 Q1).
+- Binary resources (font) and dependency declaration wait for the community binary-attachment protocol;
+  until then packages stay text-only and use system fonts (PR #10 Q1, accepted 2026-11-20).
 - Names (PR #10 Q2, confirmed 2026-11-20): `plaiers/asynx-{image-pro,audio,video,3d,workbench}`, with `name` and
   directory `plaiers-asynx-*`. The repository's `skills/` directories use the same names.
