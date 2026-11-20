@@ -23,6 +23,7 @@ Plaiers 安装器从注册表按固定版本取得本 Skill 后，在包根目�
 - `skill_id` / `skill_version`：安装器记录的技能库 ID 与锁定版本，仅供 `update status` 查询技能库（见 ADR-0007），不影响取 JWT。缺失时 `update status` 返回 `not_registry_install`。
 - 上下文里不得有 PAT。出现 `sagein_pat_` / `cg_pat_` 字样时，整个上下文被拒绝。
 - `PLAIERS_SKILL_CONTEXT` 可指向另一份上下文文件，供测试和开发使用，格式和校验相同。
+- 一个安装目录只属于一个身份（站点 + Agent + 凭据目录 + 凭据文件 + 账号）。Plaiers 安装器会拒绝为另一身份重装同一目录，原上下文保持不变（PR #10 P1）；不同 Agent 或账号各自用自己的 `--skills-dir` 安装。Skill 只按本目录的上下文取 JWT，不会在多个身份之间选择或切换。
 - 找不到上下文或上下文无效时返回 `need_login`（`details.reason_code` 为 `missing_context` / `invalid_context`），并提示经 `search_skills` / `get_skill` 安装。没有任何回退：不扫描 `bindings/`，不读 `credentials/`，不读 `SAGEIN_COMMUNITY_*` 环境变量，没有默认 origin。
 
 ## 取得 JWT
