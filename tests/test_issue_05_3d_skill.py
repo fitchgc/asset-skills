@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
 from tests.charge_args import with_consent  # noqa: E402
+from tests.bridge_env import bridge_env
 from tests.interpreter_pillow import add_interpreter_pillow  # noqa: E402
 
 add_interpreter_pillow()
@@ -177,10 +178,9 @@ class TestAsynx3DSkill(unittest.TestCase):
             **os.environ,
             "ASYNX_STATE_PATH": str(self.state_db),
             "ASYNX_CONFIG_PATH": str(self.config_file),
-            "ASYNX_PARTNER_TOKEN": "pt_3d_test_key",
         }
         self.server, self.gateway_url, self.thread = run_fake_gateway()
-        self.env["ASYNX_BASE_URL"] = self.gateway_url
+        self.env.update(bridge_env(self, Path(self.temp_dir), self.gateway_url))
         self.asynx_bin = REPO_ROOT / "skills" / "plaiers-asynx-3d" / "scripts" / "asynx.py"
 
         # Provide fake GLB asset on gateway

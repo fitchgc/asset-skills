@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tests.charge_args import with_consent  # noqa: E402
+from tests.bridge_env import bridge_env
 from tests.fake_gateway import run_fake_gateway  # noqa: E402
 
 BLOCKER = REPO_ROOT / "tests" / "pil_blocker.py"
@@ -60,8 +61,7 @@ class PillowFreeCase(unittest.TestCase):
             "HOME": str(self.temp_dir / "home"),
             "ASYNX_STATE_PATH": str(self.temp_dir / "state.db"),
             "ASYNX_CONFIG_PATH": str(self.temp_dir / "config.json"),
-            "ASYNX_PARTNER_TOKEN": "pt_pillow_free",
-            "ASYNX_BASE_URL": url,
+            **bridge_env(self, Path(self.temp_dir), url),
             "ASYNX_UPDATE_CHECK": "off",
             "ASX_PIL_IMPORT_LOG": str(self.pil_log),
         }

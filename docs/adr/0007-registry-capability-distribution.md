@@ -21,7 +21,7 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
   download only. The workbench package `plaiers/asynx-workbench` (directory `plaiers-asynx-workbench`) also carries the asset manager. It holds the
   asset manager, every Local UI Workbench (`ui/`, `ui/<modality>/`), `ui_server.py`, `thumb_cache.py`
   and every `local_*` module. A core package locates it on demand: `ASYNX_WORKBENCH_DIR`, else a sibling
-  `plaiers-asynx-asset-manager` / `plaiers-asynx-workbench` in the same skills directory. It then appends the
+  `plaiers-asynx-workbench` in the same skills directory. It then appends the
   workbench `scripts/asxlib` to its own `asxlib.__path__`, so core modules keep precedence. A missing
   workbench returns `workbench_not_installed` (with the `get_skill` ID). A different version returns
   `workbench_version_mismatch`. The version is checked only when a workbench feature is used. Merging

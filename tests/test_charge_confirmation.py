@@ -21,6 +21,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tests.fake_gateway import run_fake_gateway  # noqa: E402
+from tests.bridge_env import bridge_env
 
 IMAGE = "plaiers-asynx-image-pro"
 AUDIO = "plaiers-asynx-audio"
@@ -44,8 +45,7 @@ class ChargeConfirmationTest(unittest.TestCase):
             "HOME": str(self.temp / "home"),
             "ASYNX_STATE_PATH": str(self.temp / "state.db"),
             "ASYNX_CONFIG_PATH": str(self.temp / "config.json"),
-            "ASYNX_PARTNER_TOKEN": "pt_charge",
-            "ASYNX_BASE_URL": url,
+            **bridge_env(self, Path(self.temp), url),
             "ASYNX_LOG_PATH": str(self.log),
         }
 

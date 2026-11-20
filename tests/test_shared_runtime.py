@@ -28,6 +28,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from shared.asxlib import runtime_env  # noqa: E402
+from tests.bridge_env import bridge_env  # noqa: E402
 
 VERSION = "12.3.0"
 FAKE_PIL = {
@@ -98,7 +99,8 @@ class RuntimeCase(unittest.TestCase):
             "ASYNX_STATE_PATH": str(self.temp / "state.db"),
             "ASYNX_CONFIG_PATH": str(self.temp / "config.json"),
             "ASYNX_UPDATE_CHECK": "off",
-            "ASYNX_PARTNER_TOKEN": "pt_runtime_tests",
+            # doctor needs a credential context; these tests never reach the gateway.
+            **bridge_env(self, self.temp, "http://127.0.0.1:9/api"),
         }
         info = runtime_env.platform_info()
         self.runtime_dir = self.data_home / "plaiers" / "asynx-runtime" / info["key"]

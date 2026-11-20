@@ -113,14 +113,11 @@ python3 skills/plaiers-asynx-image-pro/scripts/asynx.py whoami
 
 ### 2. 环境变量配置
 
-适用于 CI/CD 或临时会话：
+`ASYNX_PARTNER_TOKEN`（直接注入 JWT）和 `ASYNX_BASE_URL`（改写网关）已移除：设置后，需要网关的命令返回 `legacy_credentials_removed`。CI 同样经凭据桥接取得 JWT，做法见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md#无界面-ci)。
 
 ```bash
-# 直接提供 Partner Token（优先于配置文件，不会写入文件）
-export ASYNX_PARTNER_TOKEN="<jwt>"
-
-# 可选：远端网关地址
-export ASYNX_BASE_URL="https://asynx.llmapi.site/api"
+# 可选：自定义凭据上下文路径（默认是 Skill 根目录的 .plaiers-context.json）
+export PLAIERS_SKILL_CONTEXT="/path/to/.plaiers-context.json"
 
 # 可选：自定义配置文件存储路径
 export ASYNX_CONFIG_PATH="~/.config/asynx/config.json"
@@ -137,7 +134,7 @@ export ASYNX_NO_OPEN_BROWSER=1
 - **本地状态数据库存储位置**：
   - macOS / Linux：`~/.local/state/asx/state.db`
   - Windows：`%LOCALAPPDATA%\Asynx\state.db`
-- **配置优先级**：环境变量（`ASYNX_PARTNER_TOKEN`） > 凭据上下文（`.plaiers-context.json`）。`config.json` 只保存轮询间隔等普通设置，不保存 JWT。
+- **凭据来源**：只有凭据上下文（`.plaiers-context.json`）记录的桥接命令；网关地址来自站点的 `asynx-config`。`config.json` 只保存轮询间隔等普通设置，不保存 JWT。
 
 ### 4. 环境自检与连通性诊断 (Doctor)
 

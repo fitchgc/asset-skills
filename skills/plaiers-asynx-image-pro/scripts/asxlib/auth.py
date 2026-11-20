@@ -22,7 +22,6 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from .constants import (
-    DEFAULT_BASE_URL,
     DEFAULT_TOKEN_HEADER,
     MAX_API_RESPONSE_BYTES,
     PROACTIVE_REFRESH_LEEWAY_SECONDS,
@@ -286,26 +285,27 @@ class AuthSession:
         token: str = "",
         asynx: dict[str, Any] | None = None,
         jwt_command: list[str] | None = None,
-        headless_env_token: bool = False,
     ) -> None:
         self.origin = origin
         self.token = token
         self.asynx = dict(asynx or {})
         self.jwt_command = list(jwt_command or [])
-        self.headless_env_token = headless_env_token
         self._lock = threading.Lock()
 
     @property
     def base_url(self) -> str:
         from .config import validate_base_url
 
-        env_base = os.environ.get("ASYNX_BASE_URL")
-        if env_base:
-            return validate_base_url(env_base)
+        # Only the site's asynx-config decides the gateway: no environment override, no default gateway.
         configured = self.asynx.get("baseUrl")
         if isinstance(configured, str) and configured.strip():
             return validate_base_url(configured)
-        return DEFAULT_BASE_URL
+        raise AsxError(
+            "站点的 asynx-config 没有给出资产网关地址，未使用任何默认网关。",
+            code="asynx_config_invalid",
+            exit_code=2,
+            details={"origin": self.origin},
+        )
 
     @property
     def token_header(self) -> str:
@@ -315,8 +315,6 @@ class AuthSession:
         return DEFAULT_TOKEN_HEADER
 
     def ensure_valid_token(self) -> str:
-        if self.headless_env_token:
-            return self.token
         with self._lock:
             if is_token_usable(self.token, self.asynx):
                 return self.token
@@ -324,11 +322,6 @@ class AuthSession:
 
     def refresh_session(self) -> str:
         """Called once after the gateway rejected the JWT with 401: ask the bridge again, no other source."""
-        if self.headless_env_token:
-            raise AsxError(
-                "ASYNX_PARTNER_TOKEN 认证失败或已过期，请更新环境变量。",
-                code="need_login", exit_code=2, http_status=401,
-            )
         with self._lock:
             rejected = self.token
             token = self._obtain_locked()
@@ -345,6 +338,7 @@ class AuthSession:
     def _obtain_locked(self) -> str:
         if not self.asynx.get("baseUrl"):
             self.asynx = fetch_asynx_config(self.origin or "")
+            self.base_url  # asynx_config_invalid when the site gives no gateway; nothing else is tried
         token = run_jwt_bridge(self.jwt_command)
         problem = jwt_problem(token, self.asynx)
         if problem is not None:
@@ -358,18 +352,31 @@ class AuthSession:
         return token
 
 
+# Direct credential injection removed by PR #10 Q6: interactive and headless (CI) runs both obtain the JWT
+# only through the recorded get-skill-jwt.mjs argv. Setting these is an error, never silently ignored.
+LEGACY_CREDENTIAL_ENV = ("ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL")
+
+
+def legacy_credential_env() -> list[str]:
+    return [name for name in LEGACY_CREDENTIAL_ENV if (os.environ.get(name) or "").strip()]
+
+
+def reject_legacy_credential_env() -> None:
+    found = legacy_credential_env()
+    if found:
+        raise AsxError(
+            f"{' / '.join(found)} 已不再支持：本 Skill 不接受直接注入的 JWT 或网关地址，也不会回退到它们。"
+            "请取消这些环境变量，改用 Plaiers 社区凭据桥接 get-skill-jwt.mjs；"
+            "无界面 CI 需在 .plaiers-context.json（或 PLAIERS_SKILL_CONTEXT 指向的文件）中显式绑定 "
+            "--origin、--agent-id、--account-id 和 --credential-file（由 CI secret 或受限文件提供）。",
+            code="legacy_credentials_removed",
+            exit_code=2,
+            details={"variables": found, "migration": "docs/agent-jwt-contract.md#无界面-ci"},
+        )
+
+
 def load_auth_session() -> AuthSession:
-    env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
-    if isinstance(env_token, str) and env_token.strip():
-        from .config import validate_base_url
-
-        env_base_url = os.environ.get("ASYNX_BASE_URL")
-        asynx_cfg = {
-            "baseUrl": validate_base_url(env_base_url) if env_base_url else DEFAULT_BASE_URL,
-            "tokenHeader": DEFAULT_TOKEN_HEADER,
-        }
-        return AuthSession(origin=None, token=env_token.strip(), asynx=asynx_cfg, headless_env_token=True)
-
+    reject_legacy_credential_env()
     context = load_credential_context()
     session = AuthSession(origin=context["origin"], jwt_command=context["jwt_command"])
     session.ensure_valid_token()

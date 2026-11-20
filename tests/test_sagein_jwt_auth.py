@@ -174,12 +174,29 @@ class TestBridgeJwtAuth(unittest.TestCase):
         self.assertNotIn(PAT, json.dumps(status))
         self.assertEqual(load_client().base_url, self.gw_url)
 
-    def test_env_partner_token_headless(self) -> None:
-        # Kept until the owner answers Q6.
-        os.environ["ASYNX_PARTNER_TOKEN"] = "pt_env"
-        session = load_auth_session()
-        self.assertEqual(session.token, "pt_env")
+    def test_direct_env_credentials_are_refused_with_migration_hint(self) -> None:
+        # PR #10 Q6: no ASYNX_PARTNER_TOKEN / ASYNX_BASE_URL bypass, even next to a valid context.
+        for name, value in (("ASYNX_PARTNER_TOKEN", "pt_env"), ("ASYNX_BASE_URL", "http://127.0.0.1:1/api")):
+            os.environ[name] = value
+            try:
+                with self.assertRaises(AsxError) as ctx:
+                    load_auth_session()
+                self.assertEqual(ctx.exception.code, "legacy_credentials_removed")
+                self.assertEqual(ctx.exception.details["variables"], [name])
+                self.assertIn("get-skill-jwt.mjs", str(ctx.exception))
+                status = config_status()
+                self.assertFalse(status["configured"])
+                self.assertEqual(status["legacy_credential_env"], [name])
+            finally:
+                del os.environ[name]
         self.assertEqual(self.bridge_calls(), [])
+        self.assertTrue(config_status()["configured"])
+
+    def test_missing_gateway_in_asynx_config_has_no_default(self) -> None:
+        del self.sagein.asynx_config["baseUrl"]
+        with self.assertRaises(AsxError) as ctx:
+            load_client()
+        self.assertEqual(ctx.exception.code, "asynx_config_invalid")
 
     def test_bridge_jwt_with_wrong_kid_is_rejected_without_fallback(self) -> None:
         self.sagein.asynx_config["kid"] = "k1"

@@ -30,7 +30,6 @@ DOWNLOAD_TIMEOUT_BY_MODALITY = {
 # Gateway & Defaults
 DEFAULT_TOKEN_HEADER = "X-Asynx-Partner-Token"
 PROACTIVE_REFRESH_LEEWAY_SECONDS = 60
-DEFAULT_BASE_URL = "https://asynx.llmapi.site/api"
 DEFAULT_MODEL = "gpt-image-2.5-sunburst"
 DEFAULT_QUALITY = "auto"
 MODEL_DEFAULT_IMAGE_SIZES = {"doubao-seedream-5-0-260128": "2K"}

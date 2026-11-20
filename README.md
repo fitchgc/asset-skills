@@ -93,7 +93,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 各 Skill 共用同一套本机配置与本地状态账本，只需配置一次即可全局生效：
 
 1. **Plaiers Agent 授权**：完成设备授权并勾选 `skill_jwt`。Skill 不读取 `sagein_pat_...`，只运行 `.plaiers-context.json` 记录的 `get-skill-jwt.mjs` 命令取得短期 JWT，网关参数取自 `GET /api/agent/asynx-config`。`whoami` 查看额度与并发。
-2. **环境变量**：适用于 CI/CD，导出 `ASYNX_PARTNER_TOKEN`（优先级高于授权流程）；可选 `ASYNX_BASE_URL` 指定网关。
+2. **无界面 CI**：同样经凭据桥接取得 JWT，用安装器显式绑定站点、Agent、账号和凭据文件。`ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` 已移除，设置后会报 `legacy_credentials_removed`。详见 [docs/agent-jwt-contract.md](docs/agent-jwt-contract.md#无界面-ci)。
 
 详见 [CLI 指南](CLI_USAGE.md#二配置与环境诊断命令)。
 

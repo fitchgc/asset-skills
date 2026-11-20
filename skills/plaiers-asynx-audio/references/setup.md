@@ -1,7 +1,7 @@
 # Asynx Audio 环境与配置
 
 ## 授权
-JWT 只经 Plaiers 社区凭据桥接取得：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令（需 `skill_jwt` 权限；或用 `ASYNX_PARTNER_TOKEN` 环境变量）。Skill 不读取 PAT，也不缓存 JWT：
+JWT 只经 Plaiers 社区凭据桥接取得：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令（需 `skill_jwt` 权限）。Skill 不读取 PAT，也不缓存 JWT：
 ```bash
 python3 "<skill-dir>/scripts/asynx.py" whoami
 ```

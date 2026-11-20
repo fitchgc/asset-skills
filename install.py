@@ -242,9 +242,6 @@ def _installed_targets(home: Path, skills: list[str]) -> list[str]:
 
 
 def _configured(client: ModuleType) -> bool:
-    token = os.environ.get("ASYNX_PARTNER_TOKEN")
-    if isinstance(token, str) and token.strip():
-        return True
     return bool(client.config_status().get("configured"))
 
 
@@ -403,11 +400,11 @@ def run(
 
     if not args.skip_config:
         if _configured(client):
-            if os.environ.get("ASYNX_PARTNER_TOKEN"):
-                print("正在使用 ASYNX_PARTNER_TOKEN 环境变量中的 Partner Token，其优先级高于配置文件；此步骤不会将其写入配置文件。")
-            else:
-                print("检测到 SageIn Agent 授权，运行时将自动换取短期 JWT。")
+            print("检测到 SageIn Agent 授权，运行时将自动换取短期 JWT。")
         else:
+            legacy = [n for n in ("ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL") if os.environ.get(n)]
+            if legacy:
+                print(f"{' / '.join(legacy)} 已不再支持，请取消这些环境变量，改用 Plaiers 社区凭据桥接（见 docs/agent-jwt-contract.md）。")
             print("未检测到 SageIn Agent 授权。请先通过 sagein-community 完成授权（勾选 skill_jwt 权限）。")
             return 0
         if not args.no_verify:

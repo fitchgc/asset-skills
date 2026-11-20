@@ -10,7 +10,7 @@
 python3 "<skill-dir>/scripts/asynx.py" whoami
 ```
 
-在无交互自动化环境可设置 `ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` 环境变量。
+无交互自动化环境同样经桥接取得 JWT（安装时显式绑定站点、Agent、账号和凭据文件）。`ASYNX_PARTNER_TOKEN` / `ASYNX_BASE_URL` 已移除，设置后返回 `legacy_credentials_removed`。
 
 ## 配置检查与环境诊断
 

@@ -14,11 +14,11 @@ python3 "<skill-dir>/scripts/asynx.py" doctor --verify
 - 认证只经 Plaiers 社区凭据桥接：安装器在本 Skill 根目录写入 `.plaiers-context.json`，记录 `get-skill-jwt.mjs` 的完整命令（站点、Agent、凭据目录，可选账号；需 `skill_jwt` 权限）。Skill 需要时运行这条命令取得短期 JWT，自己不缓存 JWT，也不读取 PAT；`kid`/`iss`/`aud` 须与 `GET <origin>/api/agent/asynx-config` 一致，网关地址、请求头等参数也从这里读取。没有默认站点，不读取 `SAGEIN_COMMUNITY_*` 环境变量。未授权或缺少 `.plaiers-context.json` 时返回 `need_login`：经 `plaiers-community` 用 `get_skill` 安装本 Skill，并确认授权勾选了 `skill_jwt`。 `whoami` 查看额度与并发。
 - `config status` 查看配置来源与环境变量覆盖；需要进一步排查副本、权限等问题时用 `doctor`。两者默认不联网，不要读取配置原文输出令牌。
 - 用户要求验证连接或登录状态时使用 `doctor --verify`。它只读模型目录；通过不代表已验证生图权限、余额或实际生成。网络错误不等于登录失效。
-- 网关地址由 `asynx-config` 下发，`ASYNX_BASE_URL` 可覆盖。
+- 网关地址只由 `asynx-config` 下发，没有默认网关。
 
 默认配置位置：macOS/Linux 为 `~/.config/asynx/config.json`，Windows 为 `%APPDATA%\Asynx\config.json`，只保存轮询间隔等普通设置，不保存 JWT。同一系统用户的多份 Skill 默认共用；显式 `ASYNX_CONFIG_PATH` 可指定另一份文件。
 
-`ASYNX_PARTNER_TOKEN` 和 `ASYNX_BASE_URL` 环境变量优先于文件；重新授权后仍异常时先检查是否被环境变量覆盖。`ASYNX_NO_LOGIN_UI=1` 会禁用自动拉起登录页。普通终端的临时环境变量只影响该进程及子进程，桌面 Agent 不一定继承，重启后通常不保留。长期使用优先保存配置。
+`ASYNX_PARTNER_TOKEN` 和 `ASYNX_BASE_URL` 已移除；设置后返回 `legacy_credentials_removed`，请用户取消这些变量。无界面 CI 也经桥接取得 JWT，见 `docs/agent-jwt-contract.md` 的「无界面 CI」。`ASYNX_NO_LOGIN_UI=1` 会禁用自动拉起登录页。普通终端的临时环境变量只影响该进程及子进程，桌面 Agent 不一定继承，重启后通常不保留。长期使用优先保存配置。
 
 旧版曾按 `XDG_CONFIG_HOME` 保存配置，新版安装器和配置命令会尝试迁移到固定位置，并保留旧文件。不因发现多份文件就直接删除，按诊断显示的实际来源处理。
 

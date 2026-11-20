@@ -46,4 +46,26 @@ Plaiers 安装器从注册表按固定版本取得本 Skill 后，在包根目�
 2. 同一进程内复用 JWT；临近过期时重新执行桥接。
 3. 网关返回 `401 invalid_partner_token` 时，重新执行桥接一次。拿到新 JWT 就重试一次；拿到的还是同一个 JWT，报 `need_login`（`reason_code: gateway_rejected_jwt`），不再重试。
 4. Python 代码不读取 PAT。PAT 不进入日志、错误、请求日志、对话或命令参数。
-5. `ASYNX_PARTNER_TOKEN` 可直接提供 JWT，供无界面 CI 使用（不刷新）。是否保留待负责人答复 PR #10 的 Q6。
+5. 不接受直接注入的 JWT 或网关地址，详见下文「无界面 CI」。
+
+## 无界面 CI
+
+PR #10 Q6（2026-11-20 确认）：交互使用和无界面 CI 一样，只经 `get-skill-jwt.mjs` 取得 JWT。`ASYNX_PARTNER_TOKEN`（直接注入 JWT）和 `ASYNX_BASE_URL`（改写网关）已移除；只要设置了其中任何一个，需要网关的命令都返回 `legacy_credentials_removed`（exit 2，`details.variables` 列出变量名），既不使用它们，也不悄悄忽略后改用上下文。网关地址只取自站点的 `asynx-config`；没有给出时返回 `asynx_config_invalid`，没有默认网关。
+
+CI 做法：
+
+1. 把社区凭据写进 CI secret，运行时落到权限 0600 的临时文件。不要放进项目、日志或命令参数。
+2. 用 Plaiers 安装器显式绑定站点、Agent、账号和凭据文件：
+
+   ```bash
+   node <plaiers-community>/scripts/install-capability-skill.mjs install \
+     --id plaiers/asynx-image-pro --version <sha256> \
+     --origin https://dev.plaiers.ai --agent-id <agent> --account-id <account> \
+     --credential-file "$RUNNER_TEMP/sagein-credential" --config-dir "$RUNNER_TEMP/sagein-config"
+   ```
+
+   写入的 `.plaiers-context.json` 只记录这些参数（凭据文件的路径，不含其内容）；也可以用 `PLAIERS_SKILL_CONTEXT` 指向它。
+3. 桥接不扫描全部 bindings、不回退到旧凭据、不默认正式站，也不替你选账号。参数不足或与凭据不一致时明确失败。
+4. 无界面执行同样要遵守费用确认：提交前必须带上与当前报价一致的 `--confirmed-quote`（见各 Skill 的「付费确认」）。
+
+纯本地、不调用资产服务的处理命令不需要社区凭据。

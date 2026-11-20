@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from .constants import DEFAULT_BASE_URL, DEFAULT_INITIAL_POLL_DELAY_SECONDS, VERSION
+from .constants import DEFAULT_INITIAL_POLL_DELAY_SECONDS, VERSION
 from .errors import AsxError
 from .optional_deps import optional_runtime_status
 from .output import log
@@ -238,11 +238,10 @@ def migrate_legacy_config() -> Path | None:
 
 
 def config_status() -> dict[str, Any]:
-    from .auth import decode_jwt, load_credential_context
+    from .auth import legacy_credential_env, load_credential_context
 
     config, source = read_config_with_source()
-    env_token = os.environ.get("ASYNX_PARTNER_TOKEN")
-    env_token = env_token.strip() if isinstance(env_token, str) and env_token.strip() else None
+    legacy_env = legacy_credential_env()
 
     context: dict[str, Any] = {"ok": False}
     try:
@@ -257,36 +256,10 @@ def config_status() -> dict[str, Any]:
     except AsxError as exc:
         context = {"ok": False, "path": exc.details.get("context_path"), "error": exc.payload()["error"]}
 
-    credential_source = "environment" if env_token else "credential_context" if context["ok"] else "none"
+    # The gateway base URL comes from the site's asynx-config at use time; there is no other source.
+    credential_source = "credential_context" if context["ok"] and not legacy_env else "none"
 
-    raw_base_url = os.environ.get("ASYNX_BASE_URL") or (DEFAULT_BASE_URL if env_token else None)
-    normalized_base_url: str | None = None
-    base_url_valid = credential_source == "credential_context"  # base URL comes from asynx-config at use time
-    if isinstance(raw_base_url, str) and raw_base_url.strip():
-        try:
-            normalized_base_url = validate_base_url(raw_base_url)
-            base_url_valid = True
-        except AsxError:
-            normalized_base_url = "<invalid>"
-            base_url_valid = False
-
-    token_expires_at: int | None = None
-    token_kid: str | None = None
-    if env_token:
-        try:
-            hdr, pld = decode_jwt(env_token)
-            if isinstance(hdr.get("kid"), str):
-                token_kid = hdr["kid"]
-            if pld.get("exp") is not None:
-                token_expires_at = int(pld["exp"])
-        except Exception:
-            pass
-
-    overrides = [
-        name
-        for name in ("ASYNX_PARTNER_TOKEN", "ASYNX_BASE_URL", "ASYNX_CONFIG_PATH", "PLAIERS_SKILL_CONTEXT")
-        if os.environ.get(name)
-    ]
+    overrides = [name for name in ("ASYNX_CONFIG_PATH", "PLAIERS_SKILL_CONTEXT") if os.environ.get(name)]
     canonical = config_path()
     return {
         "ok": True,
@@ -297,11 +270,8 @@ def config_status() -> dict[str, Any]:
         "loaded_config_path": str(source) if source else None,
         "config_exists": canonical.exists(),
         "origin": context.get("origin"),
-        "has_env_token": bool(env_token),
-        "token_expires_at": token_expires_at,
-        "token_kid": token_kid,
-        "base_url": normalized_base_url,
-        "base_url_valid": base_url_valid,
+        "legacy_credential_env": legacy_env,
+        "base_url_valid": True,
         "skill_version": VERSION,
         "environment_overrides": overrides,
     }
@@ -395,17 +365,27 @@ def doctor(
         {
             "name": "credentials",
             "ok": config_ok,
-            "message": "Plaiers credential context / partner token configured"
+            "message": "Plaiers credential context configured"
             if config_ok
-            else "Plaiers credential context or partner token not configured",
+            else "Plaiers credential context not configured",
         }
     )
-    if not status["configured"]:
+    if status["legacy_credential_env"]:
+        issues.append(
+            {
+                "level": "error",
+                "code": "legacy_credentials_removed",
+                "message": f"{' / '.join(status['legacy_credential_env'])} is no longer supported. Unset it and obtain "
+                "the JWT through get-skill-jwt.mjs (CI: bind --origin/--agent-id/--account-id/--credential-file "
+                "explicitly in the credential context).",
+            }
+        )
+    elif not status["configured"]:
         issues.append(
             {
                 "level": "error",
                 "code": "need_login",
-                "message": "Plaiers credential context not found or invalid. Install this skill through plaiers-community (search_skills / get_skill) with the skill_jwt scope, or set ASYNX_PARTNER_TOKEN.",
+                "message": "Plaiers credential context not found or invalid. Install this skill through plaiers-community (search_skills / get_skill) with the skill_jwt scope.",
                 "details": status["credential_context"].get("error"),
             }
         )
