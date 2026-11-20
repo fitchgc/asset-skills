@@ -396,6 +396,7 @@ def execute(args: argparse.Namespace, *, locked_root: Path | None = None) -> tup
             modality="3d",
             parent_paths=parent_paths,
             metadata={"charge_consent": consent},
+            charge_consent=consent,
         )
 
     raise AssertionError("unreachable")

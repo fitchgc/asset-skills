@@ -325,6 +325,10 @@ class FakeGatewayHandler(BaseHTTPRequestHandler):
             self._send_envelope(task, request_id=f"req-cancel-{task_id}")
             return
 
+        if path == "/v1/tasks":
+            # Every submission attempt, including the ones answered with a failure below.
+            self.server.submit_attempts.append((dict(self.headers), body))
+
         if path == "/v1/tasks" and self.server.fail_next_submit_statuses:
             status_code = self.server.fail_next_submit_statuses.pop(0)
             self._send_envelope({}, status=status_code, code="internal_error", message="upstream failure",
@@ -381,6 +385,7 @@ class FakeGatewayServer(HTTPServer):
         self.redirect_urls: dict[str, str] = {}
         self.uploaded_files: dict[str, bytes] = {}
         self.submissions: list[dict[str, Any]] = []
+        self.submit_attempts: list[tuple[dict[str, str], dict[str, Any]]] = []
         self.received_requests: list[tuple[str, str, dict[str, str]]] = []
         self.partner_identity_response: dict[str, Any] = {
             "api_key": {"status": "active", "concurrency_limit": 5},

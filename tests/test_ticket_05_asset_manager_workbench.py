@@ -486,6 +486,8 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
             conn.close()
 
         # --- 3D ACTIONS ---
+        # Animation takes a rig task, not an uploaded file: animate the file the rig action delivered.
+        rigged_glb = derived_glb
         for m_act, extra in (
             ("model3d_rig_check", {}),
             ("model3d_rig", {"rig_type": "biped"}),
@@ -497,7 +499,8 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
                 f"{self.base_url}/api/manager/action",
                 method="POST",
                 token=self.token,
-                body={"action": m_act, "source_path": str(derived_glb), **extra},
+                body={"action": m_act,
+                      "source_path": str(rigged_glb if m_act == "model3d_animate" else derived_glb), **extra},
             )
             self.assertEqual(st, 200, f"3d action {m_act} failed: {m_res}")
             if m_act == "model3d_rig_check":
@@ -505,6 +508,18 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
                 self.assertTrue(m_res["result"]["data"]["riggable"])
             else:
                 self.assertTrue(Path(m_res["created_files"][0]).is_file())
+            if m_act == "model3d_rig":
+                rigged_glb = Path(m_res["created_files"][0])
+
+        # An unrigged upload is still refused for animation, with the rig-first instruction.
+        st, refused = _http_json(
+            f"{self.base_url}/api/manager/action",
+            method="POST",
+            token=self.token,
+            body={"action": "model3d_animate", "source_path": str(self.sample_glb), "animation": "run"},
+        )
+        self.assertEqual(st, 400, refused)
+        self.assertEqual(refused["error"]["code"], "file_source_not_supported")
 
         st, m_info = _http_json(
             f"{self.base_url}/api/manager/action",

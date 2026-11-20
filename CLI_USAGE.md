@@ -131,9 +131,12 @@ export ASYNX_NO_OPEN_BROWSER=1
 - **默认配置文件存储位置**：
   - macOS / Linux：`~/.config/asynx/config.json`
   - Windows：`%APPDATA%\Asynx\config.json`
-- **本地状态数据库存储位置**：
-  - macOS / Linux：`~/.local/state/asx/state.db`
-  - Windows：`%LOCALAPPDATA%\Asynx\state.db`
+- **本地任务账本存储位置**（每个身份一份，身份 = 站点 + Agent + 账号）：
+  - macOS / Linux：`~/.local/state/asx/identities/<身份摘要>/state.db`
+  - Windows：`%LOCALAPPDATA%\Asynx\identities\<身份摘要>\state.db`
+  - 没有凭据上下文的纯本地处理使用未绑定账本 `~/.local/state/asx/state.db`（Windows：`%LOCALAPPDATA%\Asynx\state.db`）。旧版本的云端任务也留在这里，不会被任何身份自动读取。
+  - 账本内记录归属。`ASYNX_STATE_PATH` 指向其他身份的账本时返回 `ledger_owner_mismatch`；指向没有归属记录但已有云端任务的账本时返回 `ledger_owner_unknown`。
+  - `ledger status` 查看当前身份、账本位置和未绑定的旧任务；`ledger migrate [--source <路径>] --confirm-ownership` 在用户确认归属后把旧账本复制进当前身份的空账本，来源文件保留，从未提交成功的任务不会被重新提交。
 - **凭据来源**：只有凭据上下文（`.plaiers-context.json`）记录的桥接命令；网关地址来自站点的 `asynx-config`。`config.json` 只保存轮询间隔等普通设置，不保存 JWT。
 
 ### 4. 环境自检与连通性诊断 (Doctor)

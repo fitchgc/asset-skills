@@ -44,6 +44,7 @@ from .state import (
     cancel_blocked_batch_intent,
     create_task_intent,
     ensure_batch_schema,
+    record_charge_consent,
 )
 from .state import connect_db as connect_state_db
 from .state import (
@@ -52,7 +53,14 @@ from .state import (
 from .state import (
     update_task as update_state_task,
 )
-from .tasks import _ensure_partner_quota, download_assets, index_downloaded_artifacts
+from .tasks import (
+    _ensure_partner_quota,
+    client_identity,
+    download_assets,
+    index_downloaded_artifacts,
+    require_task_gateway,
+    submit_confirmed,
+)
 
 
 def utc_now() -> str:
@@ -210,6 +218,31 @@ def _template(batch: sqlite3.Row) -> dict[str, Any]:
     return body
 
 
+def _item_request(batch: sqlite3.Row, body_json: str) -> tuple[str, dict[str, Any], list[Any]]:
+    """Task type, request body and lineage parents exactly as this batch item is submitted."""
+    body = json.loads(body_json)
+    if body.pop("_asx_inherit_template", False):
+        template = _template(batch)
+        template["metadata"] = body.get("metadata", {})
+        body = template
+    parent_paths = body.pop("_asx_parent_paths", None)
+    if not isinstance(parent_paths, list):
+        template_parents = _template(batch).get("_asx_parent_paths")
+        parent_paths = template_parents if isinstance(template_parents, list) else []
+    modality = batch["modality"] if "modality" in batch.keys() else "image"
+    return body.get("task_type") or f"{modality}.{batch['operation']}", body, parent_paths
+
+
+def _require_batch_gateway(connection: sqlite3.Connection, client: AsynxClient, batch_id: str) -> None:
+    other = connection.execute(
+        "SELECT t.local_id, t.base_url FROM tasks t JOIN batch_items i ON i.idempotency_key = t.idempotency_key "
+        "WHERE i.batch_id = ? AND t.base_url != ? LIMIT 1",
+        (batch_id, client.base_url),
+    ).fetchone()
+    if other is not None:
+        require_task_gateway(client, {"local_id": other["local_id"], "base_url": other["base_url"]})
+
+
 def _insert_items(
     connection: sqlite3.Connection,
     batch_id: str,
@@ -219,7 +252,12 @@ def _insert_items(
     total: int,
     now: str,
     inherit_template: bool = False,
+    client: AsynxClient,
+    consent: dict[str, Any] | None,
 ) -> None:
+    """Insert pending items. Each gets the batch's charge confirmation bound to its own request, the
+    confirming identity and the gateway; an item without one is never submitted."""
+    batch = connection.execute("SELECT * FROM batches WHERE id = ?", (batch_id,)).fetchone()
     for sequence in range(first_sequence, first_sequence + total):
         item_body = {"_asx_inherit_template": True} if inherit_template else json.loads(_json(body))
         item_body["metadata"] = {
@@ -232,6 +270,17 @@ def _insert_items(
             "VALUES (?, ?, ?, ?, 'pending', ?)",
             (batch_id, sequence, _json(item_body), _item_key(batch_id, sequence), now),
         )
+        if consent is not None:
+            task_type, request, _parents = _item_request(batch, _json(item_body))
+            record_charge_consent(
+                connection,
+                idempotency_key=_item_key(batch_id, sequence),
+                identity=client_identity(client),
+                gateway=str(client.base_url),
+                task_type=task_type,
+                body=request,
+                consent=consent,
+            )
 
 
 def create_batch(
@@ -315,6 +364,8 @@ def create_batch(
             total=total,
             now=now,
             inherit_template=True,
+            client=client,
+            consent=consent,
         )
         connection.commit()
         summary = batch_summary(connection, get_batch(connection, batch_id))
@@ -455,6 +506,8 @@ def add_to_batch(
             total=total,
             now=now,
             inherit_template=not has_overrides,
+            client=client,
+            consent=consent,
         )
         connection.execute(
             "UPDATE batches SET updated_at = ? WHERE id = ?", (now, batch["id"])
@@ -688,6 +741,7 @@ def poll_batch(
         )
         connection.commit()
 
+        _require_batch_gateway(connection, client, str(batch["id"]))
         submitted = 0
         artifact_warnings: list[dict[str, Any]] = []
         asset_downloads: list[dict[str, Any]] = []
@@ -714,15 +768,7 @@ def poll_batch(
                 continue
             connection.commit()
             try:
-                body = json.loads(item["body_json"])
-                if body.pop("_asx_inherit_template", False):
-                    template = _template(batch)
-                    template["metadata"] = body.get("metadata", {})
-                    body = template
-                item_parent_paths = body.pop("_asx_parent_paths", None)
-                if not isinstance(item_parent_paths, list):
-                    template_parents = _template(batch).get("_asx_parent_paths")
-                    item_parent_paths = template_parents if isinstance(template_parents, list) else []
+                _task_type, body, item_parent_paths = _item_request(batch, item["body_json"])
                 local_task_id = f"batchitem_{int(item['id'])}"
                 intent = create_task_intent(
                     connection,
@@ -750,9 +796,9 @@ def poll_batch(
                 if intent.get("remote_task_id"):
                     task, request_id = client.task(str(intent["remote_task_id"]))
                 else:
-                    task_modality = batch["modality"] if "modality" in batch.keys() else "image"
-                    task_type = body.get("task_type") or f"{task_modality}.{batch['operation']}"
-                    task, request_id = client.submit(task_type, body, item["idempotency_key"])
+                    task, request_id = submit_confirmed(
+                        client, body, str(item["idempotency_key"]), connection=connection
+                    )
                     bind_remote_task(
                         connection,
                         local_task_id,
@@ -811,6 +857,7 @@ def poll_batch(
                     status=(
                         "canceled" if canceled
                         else "failed" if exc.http_status in {400, 404, 410, 422}
+                        or exc.code in {"charge_consent_missing", "charge_consent_mismatch"}
                         else "pending"
                     ),
                     error=exc.payload().get("error"),
@@ -1021,6 +1068,7 @@ def cancel_batch(client: AsynxClient, batch_id: str | None) -> dict[str, Any]:
             (utc_now(), batch["id"]),
         )
         connection.commit()
+        _require_batch_gateway(connection, client, str(batch["id"]))
         remote = connection.execute(
             "SELECT * FROM batch_items WHERE batch_id = ? AND task_id IS NOT NULL "
             "AND status IN ('submitted', 'queued', 'running', 'delayed', 'canceling')",

@@ -343,6 +343,7 @@ def _run_cloud_task_and_attach(
         modality=modality,
         parent_paths=parent_paths,
         metadata=metadata,
+        charge_consent=consent,
     )
     if not payload.get("ok") or exit_code != 0:
         err = payload.get("error") or {"code": "task_failed", "message": "Task execution failed"}

@@ -787,6 +787,7 @@ class WorkbenchServer(ThreadingHTTPServer):
             modality="image",
             parent_paths=parent_paths,
             metadata=ui_meta,
+            charge_consent=consent,
         )
         # Fallback if the selected model does not support mask parameter (e.g., gemini-*-image)
         err_msg = str((res_payload.get("error") or {}).get("message", ""))
@@ -809,6 +810,7 @@ class WorkbenchServer(ThreadingHTTPServer):
                 modality="image",
                 parent_paths=parent_paths,
                 metadata=ui_meta,
+                charge_consent=consent,
             )
         return res_payload, exit_code
 

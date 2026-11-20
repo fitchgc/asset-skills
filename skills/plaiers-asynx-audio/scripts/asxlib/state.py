@@ -159,8 +159,97 @@ def _path_for_database(path: Path | str | None) -> Path | None:
     return Path(path).expanduser()
 
 
+def ledger_owner(connection: sqlite3.Connection) -> dict[str, str] | None:
+    """Identity recorded inside the ledger, or None for a ledger nobody has claimed."""
+    if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'ledger_owner'"
+    ).fetchone() is None:
+        return None
+    row = connection.execute("SELECT origin, agent_id, account_id FROM ledger_owner WHERE id = 1").fetchone()
+    return None if row is None else {"origin": row[0], "agent_id": row[1], "account_id": row[2]}
+
+
+def cloud_record_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    """Cloud tasks and batches in the ledger (local processing records are not identity-bound)."""
+    tables = {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    tasks = (
+        int(connection.execute(
+            "SELECT COUNT(*) FROM tasks WHERE base_url NOT IN ('local://process', 'local://ui')"
+        ).fetchone()[0])
+        if "tasks" in tables else 0
+    )
+    batches = int(connection.execute("SELECT COUNT(*) FROM batches").fetchone()[0]) if "batches" in tables else 0
+    return {"tasks": tasks, "batches": batches}
+
+
+def claim_ledger(
+    connection: sqlite3.Connection, identity: Mapping[str, str], *, migrated_from: str | None = None
+) -> None:
+    """Record the owner once. A ledger that already has an owner keeps it."""
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS ledger_owner ("
+        "id INTEGER PRIMARY KEY CHECK (id = 1), origin TEXT NOT NULL, agent_id TEXT NOT NULL, "
+        "account_id TEXT NOT NULL, claimed_at TEXT NOT NULL, migrated_from TEXT)"
+    )
+    connection.execute(
+        "INSERT OR IGNORE INTO ledger_owner (id, origin, agent_id, account_id, claimed_at, migrated_from) "
+        "VALUES (1, ?, ?, ?, ?, ?)",
+        (identity["origin"], identity["agent_id"], identity["account_id"], utc_now(), migrated_from),
+    )
+
+
+def verify_ledger_owner(
+    connection: sqlite3.Connection, identity: Mapping[str, str] | None, path: Path | None
+) -> None:
+    """Refuse a ledger that belongs to another identity, whichever path led to it.
+
+    An unclaimed ledger without cloud records is claimed by the first identity that opens it. One that
+    already holds cloud tasks or batches (written before ownership was recorded) is never claimed
+    implicitly: those records have no known owner, so they need the explicit ``ledger migrate``.
+    """
+    details = {"ledger_path": str(path) if path else None}
+    owner = ledger_owner(connection)
+    if owner is None and identity is not None:
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            owner = ledger_owner(connection)
+            if owner is None:
+                counts = cloud_record_counts(connection)
+                if counts["tasks"] or counts["batches"]:
+                    raise AsxError(
+                        "这个任务账本里的云端任务没有记录归属，不能直接用于当前身份。确认它们属于当前账号后，"
+                        "用 ledger migrate --source <该账本> --confirm-ownership 迁入当前身份的账本（原文件保留）。",
+                        code="ledger_owner_unknown",
+                        exit_code=2,
+                        details={**details, "unowned": counts},
+                    )
+                claim_ledger(connection, identity)
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        owner = ledger_owner(connection)
+    if owner != (dict(identity) if identity is not None else None):
+        raise AsxError(
+            "这个任务账本属于另一个身份（站点 + Agent + 账号），当前身份不能读取或操作其中的任务。"
+            "每个身份使用各自的账本；请不要把 ASYNX_STATE_PATH 指向其他身份的账本。",
+            code="ledger_owner_mismatch",
+            exit_code=2,
+            details={
+                **details,
+                "ledger_origin": owner["origin"] if owner else None,
+                "ledger_agent_id": owner["agent_id"] if owner else None,
+                "current_identity": dict(identity) if identity is not None else None,
+            },
+        )
+
+
 def connect_db(path: Path | str | None = None) -> sqlite3.Connection:
-    """Open the multi-modal ledger and apply connection-level safety settings."""
+    """Open the multi-modal ledger and apply connection-level safety settings.
+
+    Without ``path`` this is the current identity's ledger and its recorded owner is verified. An
+    explicit ``path`` is for inspection and migration code, which checks ownership itself.
+    """
     database_path = _path_for_database(path)
     if database_path is None:
         connection = sqlite3.connect(":memory:", timeout=DB_TIMEOUT_SECONDS)
@@ -176,6 +265,14 @@ def connect_db(path: Path | str | None = None) -> sqlite3.Connection:
     except sqlite3.DatabaseError:
         pass
     init_schema(connection)
+    if path is None:
+        from .auth import ledger_identity
+
+        try:
+            verify_ledger_owner(connection, ledger_identity(), database_path)
+        except BaseException:
+            connection.close()
+            raise
     if database_path is not None:
         try:
             if database_path.parent.name == "asx":
@@ -453,6 +550,88 @@ def ensure_batch_schema(connection: sqlite3.Connection, *, default_modality: str
             "ALTER TABLE batches ADD COLUMN modality TEXT NOT NULL DEFAULT 'image'"
         )
     connection.commit()
+
+
+def request_digest(task_type: str, body: Mapping[str, Any]) -> str:
+    return hashlib.sha256(_json({"task_type": task_type, "body": body}).encode("utf-8")).hexdigest()
+
+
+def record_charge_consent(
+    connection: sqlite3.Connection,
+    *,
+    idempotency_key: str,
+    identity: Mapping[str, str] | None,
+    gateway: str,
+    task_type: str,
+    body: Mapping[str, Any],
+    consent: Mapping[str, Any],
+) -> None:
+    """Bind the user's charge confirmation to one request, one identity and one gateway.
+
+    The first record for an idempotency key stays; ``confirmed_task_type`` decides whether a later
+    submission is still the confirmed one.
+    """
+    connection.execute(
+        "CREATE TABLE IF NOT EXISTS charge_consents ("
+        "idempotency_key TEXT PRIMARY KEY, origin TEXT, agent_id TEXT, account_id TEXT, "
+        "gateway TEXT NOT NULL, task_type TEXT NOT NULL, request_sha256 TEXT NOT NULL, "
+        "consent_json TEXT NOT NULL, created_at TEXT NOT NULL)"
+    )
+    owner = identity or {}
+    connection.execute(
+        "INSERT OR IGNORE INTO charge_consents "
+        "(idempotency_key, origin, agent_id, account_id, gateway, task_type, request_sha256, consent_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            idempotency_key, owner.get("origin"), owner.get("agent_id"), owner.get("account_id"),
+            gateway, task_type, request_digest(task_type, body), _json(consent), utc_now(),
+        ),
+    )
+
+
+def confirmed_task_type(
+    connection: sqlite3.Connection,
+    *,
+    idempotency_key: str,
+    identity: Mapping[str, str] | None,
+    gateway: str,
+    body: Mapping[str, Any],
+) -> str:
+    """Task type of the confirmed request, or raise: nothing is submitted without a matching confirmation."""
+    row = (
+        connection.execute(
+            "SELECT origin, agent_id, account_id, gateway, task_type, request_sha256 "
+            "FROM charge_consents WHERE idempotency_key = ?",
+            (idempotency_key,),
+        ).fetchone()
+        if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'charge_consents'"
+        ).fetchone()
+        else None
+    )
+    if row is None:
+        raise AsxError(
+            "这个任务没有当前身份的积分消耗确认记录，不会提交或重新提交。请重新发起请求，按新的报价确认。",
+            code="charge_consent_missing",
+            exit_code=2,
+            details={"idempotency_key": idempotency_key, "submitted": False},
+        )
+    owner = identity or {}
+    reason = (
+        "identity" if (row["origin"], row["agent_id"], row["account_id"])
+        != (owner.get("origin"), owner.get("agent_id"), owner.get("account_id"))
+        else "gateway" if row["gateway"] != gateway
+        else "request" if row["request_sha256"] != request_digest(str(row["task_type"]), body)
+        else None
+    )
+    if reason:
+        raise AsxError(
+            "已有的积分消耗确认属于另一个身份、另一个网关或另一份请求，不会提交。请重新发起请求并确认报价。",
+            code="charge_consent_mismatch",
+            exit_code=2,
+            details={"idempotency_key": idempotency_key, "reason": reason, "submitted": False},
+        )
+    return str(row["task_type"])
 
 
 def create_task_intent(

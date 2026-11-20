@@ -41,6 +41,18 @@ Plaiers 安装器从注册表按固定版本取得本 Skill 后，在包根目�
 
 3. 校验 JWT：`kid` / `iss` / `aud` 与 asynx-config 一致，距 `exp` 超过 60 秒。不通过时报 `jwt_invalid`（`reason_code` 为 `kid_mismatch` 等），不改用其他凭据。
 
+## 身份与本地任务状态
+
+PR #10 P1（2026-11-20）：云端任务、批次、幂等键和积分确认属于一个身份，不随操作系统用户共用。详见 ADR-0008。
+
+- 身份 = 站点 origin + Agent + 账号。账号取上下文里的 `--account-id`；没有固定时取桥接签发的 JWT 的 `sub`。Skill 不读取 `bindings/`，也不记住上一次的账号。
+- 每个身份有自己的任务账本，账本内记录归属，每次打开都核对。归属不同返回 `ledger_owner_mismatch`；没有归属记录但已有云端任务返回 `ledger_owner_unknown`。`ASYNX_STATE_PATH` 指向哪里都一样核对。
+- 一个进程内的会话只代表一个账号。桥接后来返回另一个账号的 JWT 时报 `jwt_invalid`（`reason_code: account_changed`）；与固定账号不一致时报 `account_mismatch`。
+- 积分确认连同身份、网关和请求摘要一起记在账本里。任何提交（首次、`task recover`、`batch poll`）都要先核对这条记录：没有记录返回 `charge_consent_missing`，身份、网关或请求不一致返回 `charge_consent_mismatch`，都不提交。恢复沿用原幂等键，不重新报价。
+- 已提交的任务只在原网关上查询、取消、下载；站点换了网关后返回 `task_gateway_mismatch`。
+- 无法确认账号时（没有上下文，或桥接失败），只使用未绑定身份的本机账本做纯本地处理，不读取任何身份的任务。
+- 失败请求日志和积分确认日志与账本放在同一身份目录下。Pillow 共享运行环境不含身份信息，仍按用户和平台共用。
+
 ## 调用网关
 
 1. 只用请求头 `tokenHeader`（默认 `X-Asynx-Partner-Token`）携带 JWT，不发送 `Authorization`。

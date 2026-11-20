@@ -19,6 +19,8 @@ description: 通过 Asynx 生成 3D 资产、检查可绑定性 (rig-check)、�
 
 提交后如果出现失败、超时或网络错误，CLI 不会自动重新提交。按错误里的 `next_action_args`（`task recover <local_id>`）恢复，它会沿用同一幂等键。超时先查原任务，不重新提交；下载重试只会重新下载，不会重新生成或再扣积分。之前的确认不能用于其他请求。
 
+任务记录、批次和积分确认只属于提交它们的身份（站点 + Agent + 账号），每个身份有自己的任务账本。`task recover`、`batch poll` 只会重新提交当前身份自己确认过的那一份请求。遇到 `ledger_owner_mismatch`、`ledger_owner_unknown`、`charge_consent_missing`、`charge_consent_mismatch` 或 `task_gateway_mismatch` 时不要换账本、换身份或绕过：把情况告诉用户，需要时重新发起请求并按新报价确认。旧版本留下的任务用 `ledger status` 查看，用户确认归属后才用 `ledger migrate --confirm-ownership` 迁入。
+
 ## 3D 生成与动画管线
 
 ```bash

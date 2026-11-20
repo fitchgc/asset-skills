@@ -33,9 +33,11 @@ from .state import (
     append_event,
     bind_remote_task,
     cancel_blocked_batch_intent,
+    confirmed_task_type,
     create_task_intent,
     list_assets,
     record_artifact_with_lineage,
+    record_charge_consent,
     update_task,
     upsert_asset,
     utc_now,
@@ -405,6 +407,51 @@ def _task_identifier_row(connection: sqlite3.Connection, identifier: str) -> dic
     return row
 
 
+def client_identity(client: Any) -> dict[str, str] | None:
+    """Site + Agent + account the client acts as (set by ``load_auth_session``)."""
+    return getattr(getattr(client, "session", None), "identity", None)
+
+
+def require_task_gateway(client: Any, row: Mapping[str, Any]) -> None:
+    """A recorded task is only continued against the gateway it was submitted to."""
+    recorded = str(row.get("base_url") or "")
+    if recorded and recorded.rstrip("/") != str(client.base_url).rstrip("/"):
+        raise AsxError(
+            "这个任务是提交给另一个资产网关的，不会在当前网关上查询、取消或重新提交。",
+            code="task_gateway_mismatch",
+            exit_code=2,
+            task_id=str(row.get("local_id")),
+            details={"task_gateway": recorded, "current_gateway": str(client.base_url)},
+        )
+
+
+def submit_confirmed(
+    client: Any,
+    body: dict[str, Any],
+    idempotency_key: str,
+    *,
+    connection: sqlite3.Connection | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    """The only way a paid task reaches the gateway, first time or on recovery.
+
+    It submits only when this ledger holds a charge confirmation for this idempotency key made by the
+    same identity, for the same gateway and the same request.
+    """
+    ledger = connection or connect_ledger_db()
+    try:
+        task_type = confirmed_task_type(
+            ledger,
+            idempotency_key=idempotency_key,
+            identity=client_identity(client),
+            gateway=str(client.base_url),
+            body=body,
+        )
+    finally:
+        if connection is None:
+            ledger.close()
+    return client.submit(task_type, body, idempotency_key)
+
+
 def _ensure_partner_quota(client: Any) -> None:
     partner_fn = getattr(client, "partner_identity", None)
     if not callable(partner_fn):
@@ -460,6 +507,7 @@ def _task_followup(payload: dict[str, Any]) -> None:
 
 
 def _remote_task_for_row(client: AsynxClient, row: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    require_task_gateway(client, row)
     remote_id = row.get("remote_task_id")
     if not isinstance(remote_id, str):
         raise AsxError(
@@ -596,8 +644,8 @@ def recover_tasks(
                 body = row.get("request")
                 if not isinstance(body, dict):
                     raise AsxError("本地请求体损坏，无法恢复", code="invalid_task_state")
-                task_type = body.get("task_type") or f"{row.get('modality', 'image')}.{row.get('operation', 'generate')}"
-                task, request_id = client.submit(task_type, body, str(row["idempotency_key"]))
+                require_task_gateway(client, row)
+                task, request_id = submit_confirmed(client, body, str(row["idempotency_key"]))
                 local_id = str(row["local_id"])
                 connection = connect_ledger_db()
                 try:
@@ -700,6 +748,7 @@ def cancel_local_task(client: AsynxClient, identifier: str) -> tuple[dict[str, A
         connection.close()
     local_id = str(row["local_id"])
     remote_id = row.get("remote_task_id")
+    require_task_gateway(client, row)
     if not isinstance(remote_id, str):
         connection = connect_ledger_db()
         try:
@@ -853,6 +902,8 @@ def _persist_task_intent(
     modality: str = "image",
     parent_paths: Sequence[str | Path] | None = None,
     metadata: Mapping[str, Any] | None = None,
+    task_type: str,
+    charge_consent: Mapping[str, Any],
 ) -> dict[str, Any]:
     local_id = f"local_{secrets.token_hex(12)}"
     resolved_output_dir = (
@@ -873,6 +924,16 @@ def _persist_task_intent(
             local_id=local_id,
             status="submitting",
             modality=modality,
+        )
+        require_task_gateway(client, row)
+        record_charge_consent(
+            connection,
+            idempotency_key=idempotency_key,
+            identity=client_identity(client),
+            gateway=str(client.base_url),
+            task_type=task_type,
+            body=body,
+            consent=charge_consent,
         )
         append_event(connection, str(row["local_id"]), "submit_started")
         if parent_paths or metadata:
@@ -989,7 +1050,10 @@ def run_task_submission(
     parent_paths: Sequence[str | Path] | None = None,
     category: str | None = None,
     metadata: Mapping[str, Any] | None = None,
+    charge_consent: Mapping[str, Any],
 ) -> tuple[dict[str, Any], int]:
+    """Submit one paid task. ``charge_consent`` is the record returned by ``require_charge_consent`` for
+    exactly this request; it is stored with the task so only the same identity can ever resubmit it."""
     start_time = started_at or time.perf_counter()
     initial_delay = initial_poll_delay_seconds() if not detach else 0.0
     operation = task_type.split(".", 1)[-1] if "." in task_type else task_type
@@ -1006,6 +1070,8 @@ def run_task_submission(
         modality=modality,
         parent_paths=parent_paths,
         metadata=metadata,
+        task_type=task_type,
+        charge_consent=charge_consent,
     )
     local_id = str(local_row["local_id"])
     resolved_output_dir = str(local_row.get("output_dir") or output_dir)
@@ -1016,7 +1082,7 @@ def run_task_submission(
         if local_row.get("remote_task_id"):
             task, request_id = client.task(str(local_row["remote_task_id"]))
         else:
-            task, request_id = client.submit(task_type, body, idempotency_key)
+            task, request_id = submit_confirmed(client, body, idempotency_key)
             _bind_submission(client, local_id, task, request_id)
     except AsxError as exc:
         _record_submit_error(local_id, exc)
@@ -1161,6 +1227,7 @@ def run_submission(
         started_at=started_at,
         parent_paths=parent_paths,
         metadata={"charge_consent": consent},
+        charge_consent=consent,
     )
 
 

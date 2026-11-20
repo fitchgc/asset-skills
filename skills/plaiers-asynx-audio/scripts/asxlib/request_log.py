@@ -17,10 +17,16 @@ def log_path() -> Path:
     override = os.environ.get("ASYNX_LOG_PATH")
     if override:
         return Path(override).expanduser()
-    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
-        return Path(os.environ["LOCALAPPDATA"]) / "Asynx" / "logs" / "failed-requests.jsonl"
-    state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    return state_home / "asx" / "logs" / "failed-requests.jsonl"
+    # Failed requests and charge decisions carry request content, so they stay with the identity that
+    # made them, next to its ledger (config.state_path).
+    from .auth import ledger_identity
+    from .config import ledger_key, unbound_state_path
+
+    root = unbound_state_path().parent
+    identity = ledger_identity()
+    if identity is not None:
+        root = root / "identities" / ledger_key(identity)
+    return root / "logs" / "failed-requests.jsonl"
 
 
 def _headers(headers: Mapping[str, Any] | Any | None) -> dict[str, str]:

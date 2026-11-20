@@ -157,7 +157,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
 
         # Step 3: plaiers-asynx-3d chains --from-task img_task_id -> generate 3d -> rig -> animate -> info
         m3d_res = self.run_skill_cli(
-            "plaiers-asynx-3d", "generate", "--from-task", img_task_id, "--output-format", "glb", "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "generate", "--from-task", img_task_id, "--output-dir", str(out_root / "3d")
         )
         self.assertTrue(m3d_res["ok"])
         m3d_task_id = m3d_res["task_id"]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -45,16 +46,38 @@ def legacy_config_paths() -> list[Path]:
     return [] if legacy == canonical else [legacy]
 
 
-def state_path() -> Path:
-    override = os.environ.get("ASYNX_STATE_PATH")
-    if override:
-        return Path(override).expanduser()
+def ledger_key(identity: dict[str, str]) -> str:
+    """Directory name of one identity's ledger: site + Agent + account, nothing else."""
+    canonical = json.dumps([identity["origin"], identity["agent_id"], identity["account_id"]], ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:32]
+
+
+def unbound_state_path() -> Path:
+    """Ledger used without an identity (local processing only). Releases before the per-identity split
+    kept every task here, so it may hold cloud tasks nobody has claimed yet (see ``ledger migrate``)."""
     if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
         return Path(os.environ["LOCALAPPDATA"]) / "Asynx" / "state.db"
     state_home = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-    candidate = state_home / "asx" / "state.db"
+    return state_home / "asx" / "state.db"
+
+
+def state_path() -> Path:
+    """Task ledger of the current identity.
+
+    Cloud tasks, batches and charge confirmations are kept per site + Agent + account, so installations
+    for different identities under one OS user never share them. ``ASYNX_STATE_PATH`` still names an
+    explicit file; whichever file is opened, its recorded owner is checked in ``state.connect_db``.
+    """
+    override = os.environ.get("ASYNX_STATE_PATH")
+    if override:
+        return Path(override).expanduser()
+    from .auth import ledger_identity
+
+    identity = ledger_identity()
+    unbound = unbound_state_path()
+    candidate = unbound if identity is None else unbound.parent / "identities" / ledger_key(identity) / "state.db"
     try:
-        candidate.parent.mkdir(parents=True, exist_ok=True)
+        candidate.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if candidate.exists():
             with candidate.open("a"):
                 pass
@@ -65,11 +88,12 @@ def state_path() -> Path:
         return candidate
     except OSError:
         fallback_dir = Path(tempfile.gettempdir()) / "asx"
-        fallback_dir.mkdir(parents=True, exist_ok=True)
+        if identity is not None:
+            fallback_dir = fallback_dir / "identities" / ledger_key(identity)
+        fallback_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         fallback_db = fallback_dir / "state.db"
         if candidate.exists() and not fallback_db.exists():
             try:
-                import shutil
                 shutil.copy2(candidate, fallback_db)
             except OSError:
                 pass

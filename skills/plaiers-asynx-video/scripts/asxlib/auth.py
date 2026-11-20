@@ -29,6 +29,7 @@ from .constants import (
     VERSION,
 )
 from .errors import AsxError
+from .output import log
 
 CONTEXT_FILENAME = ".plaiers-context.json"
 CONTEXT_ENV = "PLAIERS_SKILL_CONTEXT"
@@ -230,6 +231,15 @@ def jwt_problem(
     return None if (exp - current) > leeway_seconds else "expired"
 
 
+def jwt_subject(token: str) -> str | None:
+    """Account the JWT was issued to (``sub``). The bridge already checked it against the binding."""
+    try:
+        subject = decode_jwt(token)[1].get("sub")
+    except (ValueError, TypeError):
+        return None
+    return subject if isinstance(subject, str) and subject else None
+
+
 def is_token_usable(token: str | None, asynx_config: dict[str, Any] | None, **kwargs: Any) -> bool:
     return jwt_problem(token, asynx_config, **kwargs) is None
 
@@ -285,11 +295,14 @@ class AuthSession:
         token: str = "",
         asynx: dict[str, Any] | None = None,
         jwt_command: list[str] | None = None,
+        identity: dict[str, str] | None = None,
     ) -> None:
         self.origin = origin
         self.token = token
         self.asynx = dict(asynx or {})
         self.jwt_command = list(jwt_command or [])
+        # Site + Agent + account this session acts as; fixed for the life of the session.
+        self.identity = dict(identity) if identity else None
         self._lock = threading.Lock()
 
     @property
@@ -348,6 +361,13 @@ class AuthSession:
                 exit_code=2,
                 details={"reason_code": problem, "origin": self.origin},
             )
+        if self.identity is not None and jwt_subject(token) != self.identity["account_id"]:
+            raise AsxError(
+                "凭据桥接返回了另一个账号的 JWT；本次会话绑定的账号不变，没有使用这个 JWT。",
+                code="jwt_invalid",
+                exit_code=2,
+                details={"reason_code": "account_changed", "origin": self.origin},
+            )
         self.token = token
         return token
 
@@ -375,9 +395,55 @@ def reject_legacy_credential_env() -> None:
         )
 
 
+# Ledger identity per credential context (path + content), resolved at most once per process.
+_LEDGER_IDENTITIES: dict[str, dict[str, str] | None] = {}
+
+
+def _context_key() -> str | None:
+    path = context_path()
+    try:
+        return f"{path}\0{path.read_text(encoding='utf-8')}"
+    except OSError:
+        return None
+
+
+def ledger_identity() -> dict[str, str] | None:
+    """Site + Agent + account that owns this installation's task ledger, or None without a usable context.
+
+    The account is the one pinned by ``--account-id``; otherwise it is the ``sub`` of the JWT the bridge
+    issues for this context (the bridge checks it against the binding). Nothing else is consulted: no
+    scan of other bindings, no remembered account from an earlier run.
+    """
+    key = _context_key()
+    if key is None:
+        return None
+    if key not in _LEDGER_IDENTITIES:
+        identity: dict[str, str] | None = None
+        try:
+            context = load_credential_context()
+            account = context["account_id"] or jwt_subject(run_jwt_bridge(context["jwt_command"]))
+            if account:
+                identity = {"origin": context["origin"], "agent_id": context["agent_id"], "account_id": account}
+        except AsxError as exc:
+            log(f"无法确认当前账号（{exc.code}），本次只使用未绑定身份的本机账本，不读取任何账号的任务记录。")
+        _LEDGER_IDENTITIES[key] = identity
+    return _LEDGER_IDENTITIES[key]
+
+
 def load_auth_session() -> AuthSession:
     reject_legacy_credential_env()
     context = load_credential_context()
+    key = _context_key()
     session = AuthSession(origin=context["origin"], jwt_command=context["jwt_command"])
-    session.ensure_valid_token()
+    account = jwt_subject(session.ensure_valid_token())
+    if not account or (context["account_id"] and context["account_id"] != account):
+        raise AsxError(
+            "凭据桥接返回的 JWT 与凭据上下文固定的账号不一致，没有使用其他凭据。",
+            code="jwt_invalid",
+            exit_code=2,
+            details={"reason_code": "account_mismatch", "origin": context["origin"]},
+        )
+    session.identity = {"origin": context["origin"], "agent_id": context["agent_id"], "account_id": account}
+    if key is not None:
+        _LEDGER_IDENTITIES[key] = dict(session.identity)
     return session

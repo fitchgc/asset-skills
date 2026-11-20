@@ -24,6 +24,7 @@ python3 "<skill-dir>/scripts/asynx.py" scan --root "/path/to/project" --external
 - **五类标准资产**：`image`、`audio`、`frame_sequence`（Frame Sequence Atlas，即 `atlas.png` 等精灵大图与含 `"frames"` 的 `manifest.json` 配对，不会重复归入 `image`）、`video`、`3d`。
 - **自动排除工程目录**：扫描会自动跳过 `.git`、`node_modules`、`.venv`、`__pycache__`、`dist`、`.scratch`、`.pytest_cache`、`.pi`、`venv`、`.mypy_cache`。
 - **受管标记与来源**：在共享状态账本中登记的 Asset 会标记 `managed: true` 与 `source_kind`（`cloud_task`、`local_process`、`ui_export`），并附带 `model`、`operation`、`prompt`、`task_id`、`parents` 与 `children`；外部文件标记为 `managed: false`、`source_kind: "external"`。
+- **账本归属**：状态账本按身份（站点 + Agent + 账号）分开，工作台只显示和操作当前身份的任务与受管记录。出现 `ledger_owner_mismatch` / `ledger_owner_unknown` 时不要改用别的账本，把情况告诉用户；旧版本留下的记录见 `ledger status` 与 `ledger migrate --confirm-ownership`。
 - **移动/重命名自愈**：若由 Asynx Skill 生成或修改的 Asset 在项目内被移动或重命名，扫描时会自动通过 SHA-256 摘要匹配缺失路径记录，原子更新账本路径与 `asset_lineage` 引用，保持受管标记与父子血缘不断裂。
 
 ## 查询 Asset Lineage（血缘关系）
