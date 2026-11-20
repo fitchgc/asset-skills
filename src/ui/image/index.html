@@ -1134,16 +1134,11 @@
           model: document.getElementById('model-select').value,
         };
 
-        const res = await fetch('/api/submit', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Asx-Session-Token': token,
-          },
-          body: JSON.stringify(payload),
+        // 局部重绘是云端任务：先报价，用户确认积分消耗后才提交
+        const { res, data: result } = await window.plPostWithChargeConsent('/api/submit', payload, {
+          'Content-Type': 'application/json',
+          'X-Asx-Session-Token': token,
         });
-
-        const result = await res.json();
         const taskRes = result.result || {};
         if (!res.ok || !result.ok || taskRes.ok === false) {
           const errMsg = result.error?.message || taskRes.error?.message || '提交失败';

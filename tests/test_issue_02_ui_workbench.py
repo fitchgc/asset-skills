@@ -133,6 +133,7 @@ class TestLocalUIWorkbench(unittest.TestCase):
             preview_data_url = "data:image/png;base64," + base64.b64encode(preview_buf.getvalue()).decode()
 
             submit_body = {
+                "confirmed_quote": "USD:1000",  # the user confirmed the quote in the page
                 "mask": mask_data_url,
                 "annotation_preview": preview_data_url,
                 "annotations": [
@@ -295,6 +296,7 @@ class TestLocalUIWorkbench(unittest.TestCase):
             mask_data_url = "data:image/png;base64," + base64.b64encode(mbuf.getvalue()).decode()
 
             region_body = {
+                "confirmed_quote": "USD:1000",  # the user confirmed the quote in the page
                 "mask": mask_data_url,
                 "prompt": "only brush mask without preview",
                 "model": "gpt-image-2.5-sunburst",

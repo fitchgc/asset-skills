@@ -272,15 +272,11 @@
     }
 
     async function apiAction(payload) {
-      const res = await fetch('/api/manager/action', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Asx-Session-Token': token,
-        },
-        body: JSON.stringify(payload),
+      // 云端动作先报价；需要用户确认积分消耗时由 plPostWithChargeConsent 询问后再重发
+      const { res, data } = await window.plPostWithChargeConsent('/api/manager/action', payload, {
+        'Content-Type': 'application/json',
+        'X-Asx-Session-Token': token,
       });
-      const data = await res.json();
       if (!res.ok || !data.ok) {
         const err = new Error((data.error && data.error.message) || 'Action failed');
         err.code = data.error && data.error.code;

@@ -12,3 +12,14 @@ def with_consent(args: tuple[str, ...] | list[str]) -> list[str]:
         return args
     paid = args[0] in PAID_COMMANDS or (args[0] == "batch" and len(args) > 1 and args[1] in {"create", "add"})
     return [*args, *CONFIRM] if paid else args
+
+
+UI_CLOUD_PATHS = ("/api/manager/action", "/api/submit")
+
+
+def with_ui_consent(url: str, body: dict | None) -> dict | None:
+    """Workbench requests: act as a user who confirmed the quote in the page (consent itself is tested in
+    tests/test_charge_confirmation.py). Local tools ignore the field."""
+    if body is None or not url.endswith(UI_CLOUD_PATHS) or "confirmed_quote" in body:
+        return body
+    return {**body, "confirmed_quote": "USD:1000"}

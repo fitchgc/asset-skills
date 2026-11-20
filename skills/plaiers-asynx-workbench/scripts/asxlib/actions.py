@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import importlib
 import importlib.util
 import json
@@ -13,11 +14,15 @@ if __package__ and not __package__.startswith("src."):
     from .errors import AsxError
     from .state import connect_db, new_local_task_id, record_artifact_with_lineage
     from .tasks import run_task_submission
+    from .charge_consent import consent_from_request, require_charge_consent
 else:
     from shared.asxlib.errors import AsxError
     from shared.asxlib.state import connect_db, new_local_task_id, record_artifact_with_lineage
     from shared.asxlib.tasks import run_task_submission
+    from shared.asxlib.charge_consent import consent_from_request, require_charge_consent
 
+# Charge consent sent with the current /api/manager/action request (see dispatch_manager_action).
+_ACTION_CONSENT: contextvars.ContextVar[Any] = contextvars.ContextVar("asx_action_consent")
 
 _CROSS_MODAL_SOURCE_SUBDIR = {
     "images": "image",
@@ -321,6 +326,12 @@ def _run_cloud_task_and_attach(
     parent_paths: list[str],
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # Per-request charge consent (issue 07): quote first; without the user's confirmation sent by the
+    # page, this raises confirmation_required / quote_unavailable and nothing is submitted.
+    consent = require_charge_consent(
+        client, task_type=task_type, body=body, model=model, args=_ACTION_CONSENT.get(None) or consent_from_request({})
+    )
+    metadata = {**(metadata or {}), "charge_consent": consent}
     idem = f"asx-mgr-{task_type.replace('.', '-')}-{secrets.token_hex(6)}"
     payload, exit_code = run_task_submission(
         client,
@@ -352,6 +363,20 @@ def dispatch_manager_action(
     action = str(body.get("action") or "").strip()
     if not action:
         raise AsxError("Missing action name", code="missing_action")
+    reset = _ACTION_CONSENT.set(consent_from_request(body))
+    try:
+        return _dispatch_manager_action(action, body, workspace_root=workspace_root, require_client=require_client)
+    finally:
+        _ACTION_CONSENT.reset(reset)
+
+
+def _dispatch_manager_action(
+    action: str,
+    body: dict[str, Any],
+    *,
+    workspace_root: str | Path,
+    require_client: Callable[[], Any],
+) -> dict[str, Any]:
 
     root = Path(workspace_root).expanduser().resolve()
     source_path = _require_existing_file(body.get("source_path"), root, field="source_path")

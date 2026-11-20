@@ -55,6 +55,8 @@ python3 "<skill-dir>/scripts/asynx.py" ui annotate --image "/absolute/path/input
 python3 "<skill-dir>/scripts/asynx.py" ui tools --image "/absolute/path/input.png"
 ```
 
+局部重绘提交前，页面会报价并请用户确认这次的积分消耗；用户取消则不提交。
+
 - **稳定端口与会话**：默认优先使用稳定的默认端口 `51888`，页面刷新或断线重连保持可用。
 - **操作闭环**：工作台内置涂鸦画笔（Brush）、指向箭头（Arrow）、框选、圈选工具。用户在网页点击“生成”后，本地服务会自动执行重绘并下载结果交付给 Agent。
 - Agent 调用时若宿主终端不支持自动弹出浏览器，向用户展示生成的本地 URL，让用户点击进入。

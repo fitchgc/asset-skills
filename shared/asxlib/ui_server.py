@@ -25,6 +25,7 @@ from .constants import DEFAULT_OUTPUT_DIR
 from .errors import AsxError
 from .output import emit, log
 from .state import connect_db, record_artifact_with_lineage
+from .charge_consent import consent_from_request, require_charge_consent
 from .tasks import run_task_submission
 
 
@@ -69,6 +70,8 @@ def _http_status_for_error(code: str) -> int:
         return 401
     if code in {"asset_not_found", "file_not_found", "not_found"}:
         return 404
+    if code in {"confirmation_required", "quote_unavailable"}:
+        return 409  # nothing was submitted; the page asks the user and re-sends with the confirmation
     return 400
 
 
@@ -769,7 +772,11 @@ class WorkbenchServer(ThreadingHTTPServer):
 
         idempotency_key = f"asx-ui-region-{token}"
         parent_paths = [effective_source] if effective_source else []
-        ui_meta = {"workbench_mode": "region_edit", "prompt": final_prompt}
+        consent_args = consent_from_request(body)
+        consent = require_charge_consent(
+            client, task_type="image.edit", body=request_body, model=selected_model, args=consent_args
+        )
+        ui_meta = {"workbench_mode": "region_edit", "prompt": final_prompt, "charge_consent": consent}
         res_payload, exit_code = run_task_submission(
             client,
             task_type="image.edit",
@@ -787,6 +794,11 @@ class WorkbenchServer(ThreadingHTTPServer):
             fallback_input = dict(request_input)
             fallback_input.pop("mask", None)
             fallback_body = {"model": selected_model, "input": fallback_input}
+            # A different request: quoted again; the user's confirmation still has to cover it.
+            consent = require_charge_consent(
+                client, task_type="image.edit", body=fallback_body, model=selected_model, args=consent_args
+            )
+            ui_meta = {**ui_meta, "charge_consent": consent}
             res_payload, exit_code = run_task_submission(
                 client,
                 task_type="image.edit",

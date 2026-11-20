@@ -44,6 +44,19 @@ def add_charge_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def consent_from_request(body: dict[str, Any]) -> argparse.Namespace:
+    """Consent fields sent by the Local UI Workbench, read like the CLI flags.
+
+    The browser shows the ``confirmation_required`` / ``quote_unavailable`` details to the user and only
+    re-sends with ``confirmed_quote`` (or ``confirm_without_quote: true``) after an explicit confirmation.
+    """
+    confirmed = body.get("confirmed_quote")
+    return argparse.Namespace(
+        confirmed_quote=str(confirmed).strip() if isinstance(confirmed, (str, int, float)) and str(confirmed).strip() else None,
+        confirm_without_quote=body.get("confirm_without_quote") is True,
+    )
+
+
 def _amount(quote: dict[str, Any]) -> Decimal | None:
     for key in ("charge_amount", "estimated_amount", "amount"):
         value = quote.get(key)

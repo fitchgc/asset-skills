@@ -1,4 +1,4 @@
-"""Issue 07: per-request charge confirmation (Asynx quote). Plaiers-side (玩造币) steps wait on Q4.
+"""Issue 07: per-request charge confirmation (Asynx quote → user confirmation → submit; 积分, no 玩造币).
 
 Nothing is submitted without a confirmation of this request's quote. A changed price or currency asks
 again. A missing quote stops unless the user explicitly confirms without one (logged). A 5xx after
@@ -8,6 +8,7 @@ submission is never re-sent automatically; `task recover` reuses the same idempo
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -190,3 +191,113 @@ class ChargeConfirmationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WorkbenchChargeConfirmationTest(unittest.TestCase):
+    """The Local UI Workbench and asset-manager cloud actions use the same quote → confirm → submit gate."""
+
+    def setUp(self) -> None:
+        from tests.interpreter_pillow import add_interpreter_pillow
+
+        add_interpreter_pillow()
+        import PIL.Image
+
+        from shared.asxlib.client import AsynxClient
+
+        self.temp = Path(tempfile.mkdtemp())
+        self._env = {k: os.environ.get(k) for k in ("ASYNX_STATE_PATH", "ASYNX_CONFIG_PATH", "ASYNX_LOG_PATH")}
+        os.environ["ASYNX_STATE_PATH"] = str(self.temp / "state.db")
+        os.environ["ASYNX_CONFIG_PATH"] = str(self.temp / "config.json")
+        os.environ["ASYNX_LOG_PATH"] = str(self.temp / "requests.jsonl")
+        self.gateway, url, _ = run_fake_gateway()
+        self.client = AsynxClient(url, "pt_ui")
+        self.source = self.temp / "source.png"
+        PIL.Image.new("RGBA", (32, 32), (0, 128, 255, 255)).save(self.source)
+        self.gateway.asset_data["task_1:0"] = self.source.read_bytes()
+        self.gateway.asset_mimes["task_1:0"] = "image/png"
+
+    def tearDown(self) -> None:
+        self.gateway.shutdown()
+        self.gateway.server_close()
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def submit_posts(self) -> int:
+        return sum(1 for m, p, _ in self.gateway.received_requests if (m, p) == ("POST", "/v1/tasks"))
+
+    def test_region_edit_asks_first_then_submits_after_confirmation(self) -> None:
+        import threading
+        import urllib.error
+        import urllib.request
+
+        from shared.asxlib.ui_server import WorkbenchServer
+
+        server = WorkbenchServer(mode="region_edit", source_path=str(self.source), output_path=None,
+                                 output_dir=str(self.temp), static_dir=REPO_ROOT / "src" / "ui" / "image",
+                                 client=self.client)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+
+        def post(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_address[1]}/api/submit", data=json.dumps(body).encode(),
+                headers={"Content-Type": "application/json", "X-Asx-Session-Token": server.session_token},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return resp.status, json.loads(resp.read())
+            except urllib.error.HTTPError as exc:
+                return exc.code, json.loads(exc.read())
+
+        body = {"prompt": "make it red", "model": "gpt-image-2.5-sunburst", "keep_alive": True,
+                "annotations": [{"id": 1, "type": "rect", "instruction": "red"}]}
+        status, out = post(body)
+        self.assertEqual(status, 409, out)
+        self.assertEqual(out["error"]["code"], "confirmation_required")
+        self.assertEqual(self.submit_posts(), 0)
+        confirm = out["error"]["details"]["confirm_args"][1]
+        self.gateway.quote_overrides = {"charge_amount": "0.50000000", "estimated_amount": "0.50000000"}
+        status, out = post({**body, "confirmed_quote": confirm})
+        self.assertEqual((status, out["error"]["details"]["reason"]), (409, "price_changed"))
+        self.assertEqual(self.submit_posts(), 0)
+        status, out = post({**body, "confirmed_quote": out["error"]["details"]["confirm_args"][1]})
+        self.assertEqual(status, 200, out)
+        self.assertEqual(self.submit_posts(), 1)
+
+    def test_manager_cloud_action_needs_confirmation_local_action_does_not(self) -> None:
+        from src.asset_manager import actions
+
+        body = {"action": "image_edit", "source_path": str(self.source), "prompt": "add crown"}
+        with self.assertRaises(Exception) as ctx:
+            actions.dispatch_manager_action(body, workspace_root=self.temp, require_client=lambda: self.client)
+        self.assertEqual(getattr(ctx.exception, "code", None), "confirmation_required")
+        self.assertEqual(self.submit_posts(), 0)
+        confirm = ctx.exception.details["confirm_args"][1]
+        res = actions.dispatch_manager_action({**body, "confirmed_quote": confirm}, workspace_root=self.temp,
+                                              require_client=lambda: self.client)
+        self.assertTrue(res["ok"], res)
+        self.assertEqual(self.submit_posts(), 1)
+        # A confirmation belongs to one request: the next action asks again.
+        with self.assertRaises(Exception) as again:
+            actions.dispatch_manager_action(body, workspace_root=self.temp, require_client=lambda: self.client)
+        self.assertEqual(getattr(again.exception, "code", None), "confirmation_required")
+        local = actions.dispatch_manager_action(
+            {"action": "image_grid_slice", "source_path": str(self.source), "rows": 2, "columns": 2, "fps": 12},
+            workspace_root=self.temp, require_client=lambda: self.client,
+        )
+        self.assertTrue(local["ok"])
+        self.assertEqual(self.submit_posts(), 1)
+
+    def test_pages_ask_the_user_before_resending(self) -> None:
+        common = (REPO_ROOT / "src" / "ui" / "common" / "plaiers-ui.js").read_text(encoding="utf-8")
+        self.assertIn("function plPostWithChargeConsent", common)
+        self.assertIn("window.confirm(plChargeMessage(error))", common)
+        self.assertIn("charge_declined", common)
+        for page in ("image", "asset_manager"):
+            html = (REPO_ROOT / "src" / "ui" / page / "index.html").read_text(encoding="utf-8")
+            self.assertIn("plPostWithChargeConsent(", html, page)

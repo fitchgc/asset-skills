@@ -20,6 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
 from tests.charge_args import with_consent  # noqa: E402
+from tests.charge_args import with_ui_consent  # noqa: E402
 from tests.bridge_env import bridge_env
 from tests.interpreter_pillow import add_interpreter_pillow  # noqa: E402
 
@@ -57,6 +58,7 @@ def _data_url_png(color: tuple[int, int, int, int] = (255, 0, 0, 255), size: tup
 
 
 def _post_json(url: str, body: dict[str, Any], token: str) -> dict[str, Any]:
+    body = with_ui_consent(url, body)
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode("utf-8"),

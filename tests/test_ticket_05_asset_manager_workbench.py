@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "shared"))
 from tests.interpreter_pillow import add_interpreter_pillow  # noqa: E402
+from tests.charge_args import with_ui_consent  # noqa: E402
 
 add_interpreter_pillow()
 
@@ -55,6 +56,7 @@ def _http_json(
     if token:
         headers["X-Asx-Session-Token"] = token
     data_bytes = None
+    body = with_ui_consent(url, body) if method == "POST" else body
     if body is not None:
         headers["Content-Type"] = "application/json"
         data_bytes = json.dumps(body).encode("utf-8")

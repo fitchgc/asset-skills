@@ -10,7 +10,7 @@
     "scripts/asxlib/artifacts.py": "6624851145cefabe4fbd1f955d0a05b73a0e756d6b9ed39b18f9af46c742fc2e",
     "scripts/asxlib/auth.py": "a9b86f9d4975f66d64e2b8ddedb7a1b0f475824717f65ce38a7fef00bc32d6bb",
     "scripts/asxlib/batches.py": "4b46ba5726e4a765492d81ae3006f04bafb317c7dbb053b68bb3e89a3f5e7192",
-    "scripts/asxlib/charge_consent.py": "eef4c382f0a9f068e9691ca36a8096677cc0ed1124b2b231a3d2d54a64a80212",
+    "scripts/asxlib/charge_consent.py": "f6802a24748a7aa97c57d781bfd84f13a16a5a582de54e77a27938838a5d615d",
     "scripts/asxlib/cli.py": "b01b9e7b27054e9df522e1a89a69a5141dbba169415c302b66dae72a64151671",
     "scripts/asxlib/cli_common.py": "22369781d7d2aba70b71a36248e82c7147739ca61d77a858c3069eb70568aa79",
     "scripts/asxlib/client.py": "c1051951af38bc45878523548155bcf84851d376c569e25fafeb6d47ce43f929",
