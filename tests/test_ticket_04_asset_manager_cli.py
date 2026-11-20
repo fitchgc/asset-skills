@@ -520,7 +520,7 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         self.state_db = self.temp_dir / "state.db"
         self.config_file = self.temp_dir / "config.json"
         self.cache_file = self.temp_dir / "cache" / "models.json"
-        self.asynx_bin = REPO_ROOT / "skills" / "asynx-asset-manager" / "scripts" / "asynx.py"
+        self.asynx_bin = REPO_ROOT / "skills" / "plaiers-asynx-workbench" / "scripts" / "asynx.py"
         self.env = {
             **os.environ,
             "ASYNX_STATE_PATH": str(self.state_db),
@@ -667,7 +667,7 @@ class TestAssetManagerCLIEndToEnd(unittest.TestCase):
         import urllib.request
         from shared.asxlib.ui_server import WorkbenchServer
 
-        ui_static = REPO_ROOT / "skills" / "asynx-asset-manager" / "scripts" / "asxlib" / "ui"
+        ui_static = REPO_ROOT / "skills" / "plaiers-asynx-workbench" / "scripts" / "asxlib" / "ui"
         srv = WorkbenchServer(
             mode="asset_manager",
             source_path=None,

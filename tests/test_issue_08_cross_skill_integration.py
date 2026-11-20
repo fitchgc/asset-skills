@@ -44,7 +44,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
 
         # Unpack all 5 zip packages into isolated agent skills directory
         dist_dir = REPO_ROOT / "dist"
-        for skill_name in ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-asset-manager"):
+        for skill_name in ("plaiers-asynx-image-pro", "plaiers-asynx-audio", "plaiers-asynx-video", "plaiers-asynx-3d", "plaiers-asynx-workbench"):
             zip_path = dist_dir / f"{skill_name}.zip"
             with zipfile.ZipFile(zip_path, "r") as zf:
                 zf.extractall(self.agent_skills_dir)
@@ -103,7 +103,7 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
     def test_release_packages_and_manifest_integrity(self) -> None:
         """Lockstep release packaging produces 5 zip archives with verified SHA-256 manifests and no __pycache__."""
         dist_dir = REPO_ROOT / "dist"
-        skills = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-asset-manager")
+        skills = ("plaiers-asynx-image-pro", "plaiers-asynx-audio", "plaiers-asynx-video", "plaiers-asynx-3d", "plaiers-asynx-workbench")
 
         for skill in skills:
             zip_file = dist_dir / f"{skill}.zip"
@@ -133,73 +133,73 @@ class TestLockstepReleaseAndCrossSkillIntegration(unittest.TestCase):
         """Exercise full cross-skill pipeline across Image, Video, 3D, and Audio."""
         out_root = Path(self.temp_dir) / "output"
 
-        # Step 1: asynx-image-pro generates concept art
+        # Step 1: plaiers-asynx-image-pro generates concept art
         img_res = self.run_skill_cli(
-            "asynx-image-pro", "generate", "--prompt", "cyberpunk warrior hero", "--output-dir", str(out_root / "image")
+            "plaiers-asynx-image-pro", "generate", "--prompt", "cyberpunk warrior hero", "--output-dir", str(out_root / "image")
         )
         self.assertTrue(img_res["ok"])
         img_task_id = img_res["task_id"]
         self.assertIsNotNone(img_task_id)
 
-        # Step 2: asynx-video chains --from-task img_task_id -> video -> spritesheet
+        # Step 2: plaiers-asynx-video chains --from-task img_task_id -> video -> spritesheet
         vid_res = self.run_skill_cli(
-            "asynx-video", "generate", "--prompt", "warrior running", "--from-task", img_task_id, "--output-dir", str(out_root / "video")
+            "plaiers-asynx-video", "generate", "--prompt", "warrior running", "--from-task", img_task_id, "--output-dir", str(out_root / "video")
         )
         self.assertTrue(vid_res["ok"])
         vid_path = vid_res["files"][0]
 
         sheet_res = self.run_skill_cli(
-            "asynx-video", "video", "spritesheet", vid_path, "--output-dir", str(out_root / "spritesheet")
+            "plaiers-asynx-video", "video", "spritesheet", vid_path, "--output-dir", str(out_root / "spritesheet")
         )
         self.assertTrue(sheet_res["ok"])
         self.assertTrue(Path(sheet_res["spritesheet"]["atlas_path"]).is_file())
         self.assertTrue(Path(sheet_res["spritesheet"]["manifest_path"]).is_file())
 
-        # Step 3: asynx-3d chains --from-task img_task_id -> generate 3d -> rig -> animate -> info
+        # Step 3: plaiers-asynx-3d chains --from-task img_task_id -> generate 3d -> rig -> animate -> info
         m3d_res = self.run_skill_cli(
-            "asynx-3d", "generate", "--from-task", img_task_id, "--output-format", "glb", "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "generate", "--from-task", img_task_id, "--output-format", "glb", "--output-dir", str(out_root / "3d")
         )
         self.assertTrue(m3d_res["ok"])
         m3d_task_id = m3d_res["task_id"]
 
         rig_res = self.run_skill_cli(
-            "asynx-3d", "rig", "--from-task", m3d_task_id, "--rig-type", "biped", "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "rig", "--from-task", m3d_task_id, "--rig-type", "biped", "--output-dir", str(out_root / "3d")
         )
         self.assertTrue(rig_res["ok"])
         rig_task_id = rig_res["task_id"]
 
         anim_res = self.run_skill_cli(
-            "asynx-3d", "animate", "--from-task", rig_task_id, "--animation", "run", "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "animate", "--from-task", rig_task_id, "--animation", "run", "--output-dir", str(out_root / "3d")
         )
         self.assertTrue(anim_res["ok"])
         anim_glb_path = anim_res["files"][0]
 
         info_3d = self.run_skill_cli(
-            "asynx-3d", "model3d", "info", anim_glb_path
+            "plaiers-asynx-3d", "model3d", "info", anim_glb_path
         )
         self.assertTrue(info_3d["ok"])
         self.assertEqual(info_3d["model"]["format"], "glb")
 
-        # Step 4: asynx-audio generates companion SFX and normalizes it
+        # Step 4: plaiers-asynx-audio generates companion SFX and normalizes it
         sfx_res = self.run_skill_cli(
-            "asynx-audio", "sfx", "--prompt", "cyberpunk laser fire", "--output-dir", str(out_root / "audio")
+            "plaiers-asynx-audio", "sfx", "--prompt", "cyberpunk laser fire", "--output-dir", str(out_root / "audio")
         )
         self.assertTrue(sfx_res["ok"])
         sfx_path = sfx_res["files"][0]
 
         norm_res = self.run_skill_cli(
-            "asynx-audio", "audio", "normalize", sfx_path, "--output", str(out_root / "audio" / "normalized.wav")
+            "plaiers-asynx-audio", "audio", "normalize", sfx_path, "--output", str(out_root / "audio" / "normalized.wav")
         )
         self.assertTrue(norm_res["ok"])
         self.assertTrue(Path(norm_res["audio"]["path"]).is_file())
 
-        # Step 5: asynx-asset-manager scans output workspace and verifies cross-skill lineage
-        scan_res = self.run_skill_cli("asynx-asset-manager", "scan", "--root", str(out_root))
+        # Step 5: plaiers-asynx-workbench scans output workspace and verifies cross-skill lineage
+        scan_res = self.run_skill_cli("plaiers-asynx-workbench", "scan", "--root", str(out_root))
         self.assertTrue(scan_res["ok"])
         self.assertEqual(scan_res["counts"]["managed"], scan_res["counts"]["total"])
         self.assertGreaterEqual(scan_res["counts"]["by_category"]["frame_sequence"], 1)
 
-        lin_res = self.run_skill_cli("asynx-asset-manager", "lineage", anim_glb_path)
+        lin_res = self.run_skill_cli("plaiers-asynx-workbench", "lineage", anim_glb_path)
         self.assertTrue(lin_res["ok"])
         self.assertGreaterEqual(len(lin_res["ancestors"]), 3)
 

@@ -56,7 +56,7 @@ class TestAsynxVideoSkill(unittest.TestCase):
         }
         self.server, self.gateway_url, self.thread = run_fake_gateway()
         self.env["ASYNX_BASE_URL"] = self.gateway_url
-        self.asynx_bin = REPO_ROOT / "skills" / "asynx-video" / "scripts" / "asynx.py"
+        self.asynx_bin = REPO_ROOT / "skills" / "plaiers-asynx-video" / "scripts" / "asynx.py"
 
         # Provide fake video asset on gateway
         self.server.asset_data["task_1:0"] = self.fixture_mp4.read_bytes()
@@ -125,7 +125,7 @@ class TestAsynxVideoSkill(unittest.TestCase):
         self.assertEqual(len(tasks), 1)
         self.assertEqual(tasks[0]["modality"], "video")
 
-        # 2. Create an image task in the ledger to simulate asynx-image-pro output
+        # 2. Create an image task in the ledger to simulate plaiers-asynx-image-pro output
         img_file = Path(self.temp_dir) / "concept.png"
         import PIL.Image
         PIL.Image.new("RGBA", (100, 100), (255, 100, 0, 255)).save(img_file)

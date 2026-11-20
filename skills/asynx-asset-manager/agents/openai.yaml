@@ -1,7 +1,0 @@
-interface:
-  display_name: "Asynx 资产管理器"
-  short_description: "扫描项目五类创作资产、识别 Skill 产物、SHA-256 移动重连与追踪 Asset Lineage"
-  default_prompt: "请使用 $asynx-asset-manager 扫描当前项目的创作资产，检查受管状态与血缘关系。"
-
-policy:
-  allow_implicit_invocation: true

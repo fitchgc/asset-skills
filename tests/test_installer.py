@@ -35,22 +35,22 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(
             all_skills,
             [
-                "asynx-image-pro",
-                "asynx-audio",
-                "asynx-video",
-                "asynx-3d",
-                "asynx-asset-manager",
+                "plaiers-asynx-image-pro",
+                "plaiers-asynx-audio",
+                "plaiers-asynx-video",
+                "plaiers-asynx-3d",
+                "plaiers-asynx-workbench",
             ],
         )
 
         subset = install._resolve_skill_names("image, 3d, asset-manager")
-        self.assertEqual(subset, ["asynx-image-pro", "asynx-3d", "asynx-asset-manager"])
+        self.assertEqual(subset, ["plaiers-asynx-image-pro", "plaiers-asynx-3d", "plaiers-asynx-workbench"])
 
         mgr_aliases = install._resolve_skill_names("manager, assets")
-        self.assertEqual(mgr_aliases, ["asynx-asset-manager"])
+        self.assertEqual(mgr_aliases, ["plaiers-asynx-workbench"])
 
         audio_subset = install._resolve_skill_names("snd,video")
-        self.assertEqual(audio_subset, ["asynx-audio", "asynx-video"])
+        self.assertEqual(audio_subset, ["plaiers-asynx-audio", "plaiers-asynx-video"])
 
         with self.assertRaises(ValueError):
             install._resolve_skill_names("invalid-skill-name")
@@ -95,10 +95,10 @@ class TestInstaller(unittest.TestCase):
         self.assertEqual(ret, 0)
 
         claude_skills = self.temp_home / ".claude" / "skills"
-        image_dir = claude_skills / "asynx-image-pro"
-        audio_dir = claude_skills / "asynx-audio"
-        manager_dir = claude_skills / "asynx-asset-manager"
-        video_dir = claude_skills / "asynx-video"
+        image_dir = claude_skills / "plaiers-asynx-image-pro"
+        audio_dir = claude_skills / "plaiers-asynx-audio"
+        manager_dir = claude_skills / "plaiers-asynx-workbench"
+        video_dir = claude_skills / "plaiers-asynx-video"
 
         self.assertTrue(image_dir.is_dir())
         self.assertTrue(audio_dir.is_dir())

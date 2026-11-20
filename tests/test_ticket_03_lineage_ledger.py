@@ -424,17 +424,17 @@ class TestKeylessLocalPostProcessingLineage(unittest.TestCase):
         shutil.copy2(src1, batch_in / "a.png")
         shutil.copy2(src2, batch_in / "b.png")
 
-        self.run_skill("asynx-image-pro", "image", "convert", str(src1), "--output", str(out_conv))
-        self.run_skill("asynx-image-pro", "image", "resize", str(out_conv), "--output", str(out_res), "--width", "32", "--height", "32")
-        self.run_skill("asynx-image-pro", "image", "crop", str(src1), "--output", str(out_crop), "--box", "0,0,32,32")
-        self.run_skill("asynx-image-pro", "image", "pad", str(src1), "--output", str(out_pad), "--padding", "8")
-        self.run_skill("asynx-image-pro", "image", "trim", str(bg_img), "--output", str(out_trim))
-        self.run_skill("asynx-image-pro", "image", "alpha-bleed", str(bg_img), "--output", str(out_bleed))
-        self.run_skill("asynx-image-pro", "image", "remove-background", str(bg_img), "--output", str(out_rembg))
-        self.run_skill("asynx-image-pro", "image", "slice", str(src1), "--output-dir", str(slice_dir), "--rows", "2", "--columns", "2")
-        self.run_skill("asynx-image-pro", "image", "contact-sheet", str(src1), str(src2), "--output", str(out_sheet))
-        self.run_skill("asynx-image-pro", "image", "apply-mask", str(src1), "--mask", str(mask_png), "--output", str(out_masked))
-        self.run_skill("asynx-image-pro", "image", "batch-convert", "--input-dir", str(batch_in), "--output-dir", str(batch_out), "--format", "webp")
+        self.run_skill("plaiers-asynx-image-pro", "image", "convert", str(src1), "--output", str(out_conv))
+        self.run_skill("plaiers-asynx-image-pro", "image", "resize", str(out_conv), "--output", str(out_res), "--width", "32", "--height", "32")
+        self.run_skill("plaiers-asynx-image-pro", "image", "crop", str(src1), "--output", str(out_crop), "--box", "0,0,32,32")
+        self.run_skill("plaiers-asynx-image-pro", "image", "pad", str(src1), "--output", str(out_pad), "--padding", "8")
+        self.run_skill("plaiers-asynx-image-pro", "image", "trim", str(bg_img), "--output", str(out_trim))
+        self.run_skill("plaiers-asynx-image-pro", "image", "alpha-bleed", str(bg_img), "--output", str(out_bleed))
+        self.run_skill("plaiers-asynx-image-pro", "image", "remove-background", str(bg_img), "--output", str(out_rembg))
+        self.run_skill("plaiers-asynx-image-pro", "image", "slice", str(src1), "--output-dir", str(slice_dir), "--rows", "2", "--columns", "2")
+        self.run_skill("plaiers-asynx-image-pro", "image", "contact-sheet", str(src1), str(src2), "--output", str(out_sheet))
+        self.run_skill("plaiers-asynx-image-pro", "image", "apply-mask", str(src1), "--mask", str(mask_png), "--output", str(out_masked))
+        self.run_skill("plaiers-asynx-image-pro", "image", "batch-convert", "--input-dir", str(batch_in), "--output-dir", str(batch_out), "--format", "webp")
 
         conn = connect_db(self.state_db)
         try:
@@ -510,11 +510,11 @@ class TestKeylessLocalPostProcessingLineage(unittest.TestCase):
         a_norm = Path(self.temp_dir) / "a1_norm.wav"
         a_concat = Path(self.temp_dir) / "concat.wav"
 
-        self.run_skill("asynx-audio", "audio", "convert", str(wav1), "--output", str(a_mp3))
-        self.run_skill("asynx-audio", "audio", "trim", str(wav1), "--output", str(a_trim), "--duration", "0.3")
-        self.run_skill("asynx-audio", "audio", "fade", str(a_trim), "--output", str(a_fade), "--fade-in", "0.1")
-        self.run_skill("asynx-audio", "audio", "normalize", str(a_fade), "--output", str(a_norm))
-        self.run_skill("asynx-audio", "audio", "concat", str(wav1), str(wav2), "--output", str(a_concat))
+        self.run_skill("plaiers-asynx-audio", "audio", "convert", str(wav1), "--output", str(a_mp3))
+        self.run_skill("plaiers-asynx-audio", "audio", "trim", str(wav1), "--output", str(a_trim), "--duration", "0.3")
+        self.run_skill("plaiers-asynx-audio", "audio", "fade", str(a_trim), "--output", str(a_fade), "--fade-in", "0.1")
+        self.run_skill("plaiers-asynx-audio", "audio", "normalize", str(a_fade), "--output", str(a_norm))
+        self.run_skill("plaiers-asynx-audio", "audio", "concat", str(wav1), str(wav2), "--output", str(a_concat))
 
         # Video local ops
         frames_dir = Path(self.temp_dir) / "frames"
@@ -523,15 +523,15 @@ class TestKeylessLocalPostProcessingLineage(unittest.TestCase):
         v_gif = Path(self.temp_dir) / "v_conv.gif"
         v_mux = Path(self.temp_dir) / "v_mux.mp4"
 
-        ext_res = self.run_skill("asynx-video", "video", "extract-frames", str(mp4), "--output-dir", str(frames_dir))
-        sheet_res = self.run_skill("asynx-video", "video", "spritesheet", str(mp4), "--output-dir", str(atlas_dir), "--fps", "5")
-        self.run_skill("asynx-video", "video", "trim", str(mp4), "--output", str(v_trim), "--duration", "0.5")
-        self.run_skill("asynx-video", "video", "convert", str(mp4), "--output", str(v_gif), "--format", "gif")
-        self.run_skill("asynx-video", "video", "mux", "--video", str(mp4), "--audio", str(a_norm), "--output", str(v_mux))
+        ext_res = self.run_skill("plaiers-asynx-video", "video", "extract-frames", str(mp4), "--output-dir", str(frames_dir))
+        sheet_res = self.run_skill("plaiers-asynx-video", "video", "spritesheet", str(mp4), "--output-dir", str(atlas_dir), "--fps", "5")
+        self.run_skill("plaiers-asynx-video", "video", "trim", str(mp4), "--output", str(v_trim), "--duration", "0.5")
+        self.run_skill("plaiers-asynx-video", "video", "convert", str(mp4), "--output", str(v_gif), "--format", "gif")
+        self.run_skill("plaiers-asynx-video", "video", "mux", "--video", str(mp4), "--audio", str(a_norm), "--output", str(v_mux))
 
         # Model3d local extract-textures
         tex_dir = Path(self.temp_dir) / "textures"
-        tex_res = self.run_skill("asynx-3d", "model3d", "extract-textures", str(glb), "--output-dir", str(tex_dir))
+        tex_res = self.run_skill("plaiers-asynx-3d", "model3d", "extract-textures", str(glb), "--output-dir", str(tex_dir))
 
         conn = connect_db(self.state_db)
         try:
@@ -669,7 +669,7 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
 
         # 1. image.generate with --reference -> task_1
         gen_res = self.run_skill(
-            "asynx-image-pro",
+            "plaiers-asynx-image-pro",
             "generate",
             "--prompt",
             "hero portrait",
@@ -683,7 +683,7 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
 
         # 2. image.edit --from-task + --mask -> task_2 (multi-parent [gen_file, mask])
         edit_res = self.run_skill(
-            "asynx-image-pro",
+            "plaiers-asynx-image-pro",
             "edit",
             "--prompt",
             "golden armor",
@@ -698,7 +698,7 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
 
         # 3. image.generate --detach + wait -> task_3 (lineage preserved across detach/wait)
         det_res = self.run_skill(
-            "asynx-image-pro",
+            "plaiers-asynx-image-pro",
             "generate",
             "--prompt",
             "detached variant",
@@ -709,7 +709,7 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
             str(out_root / "img3"),
         )
         wait_res = self.run_skill(
-            "asynx-image-pro",
+            "plaiers-asynx-image-pro",
             "wait",
             det_res["local_id"],
         )
@@ -717,7 +717,7 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
 
         # 4. image batch create + poll -> task_4
         b_create = self.run_skill(
-            "asynx-image-pro",
+            "plaiers-asynx-image-pro",
             "batch",
             "create",
             "--operation",
@@ -732,21 +732,21 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
             str(out_root / "batch"),
         )
         b_id = b_create["batch"]["id"]
-        b_wait = self.run_skill("asynx-image-pro", "batch", "poll", b_id)
+        b_wait = self.run_skill("plaiers-asynx-image-pro", "batch", "poll", b_id)
         batch_file = b_wait["batch"]["files"][0]
 
         # 5. audio.sfx -> task_5, audio.speech --from-task -> task_6, audio.speech --reference-audio -> task_7
-        sfx_res = self.run_skill("asynx-audio", "sfx", "--prompt", "bell", "--output-dir", str(out_root / "aud"))
+        sfx_res = self.run_skill("plaiers-asynx-audio", "sfx", "--prompt", "bell", "--output-dir", str(out_root / "aud"))
         sp1_res = self.run_skill(
-            "asynx-audio", "speech", "--text", "hello", "--from-task", sfx_res["task_id"], "--output-dir", str(out_root / "aud")
+            "plaiers-asynx-audio", "speech", "--text", "hello", "--from-task", sfx_res["task_id"], "--output-dir", str(out_root / "aud")
         )
         sp2_res = self.run_skill(
-            "asynx-audio", "speech", "--text", "world", "--reference-audio", str(self.sample_wav), "--output-dir", str(out_root / "aud")
+            "plaiers-asynx-audio", "speech", "--text", "world", "--reference-audio", str(self.sample_wav), "--output-dir", str(out_root / "aud")
         )
 
         # 6. video.generate --image <edited> --end-image <end.png> -> task_8, then local video spritesheet
         vid_res = self.run_skill(
-            "asynx-video",
+            "plaiers-asynx-video",
             "generate",
             "--prompt",
             "hero walks",
@@ -759,7 +759,7 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
         )
         vid_file = vid_res["files"][0]
         sheet_res = self.run_skill(
-            "asynx-video",
+            "plaiers-asynx-video",
             "video",
             "spritesheet",
             vid_file,
@@ -772,16 +772,16 @@ class TestCloudAndUIWorkbenchLineage(unittest.TestCase):
 
         # 7. 3d.generate --from-task <gen_task_id> -> task_9 -> rig task_10 -> animate task_11 -> convert task_12
         m3d_res = self.run_skill(
-            "asynx-3d", "generate", "--from-task", gen_task_id, "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "generate", "--from-task", gen_task_id, "--output-dir", str(out_root / "3d")
         )
         rig_res = self.run_skill(
-            "asynx-3d", "rig", "--from-task", m3d_res["task_id"], "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "rig", "--from-task", m3d_res["task_id"], "--output-dir", str(out_root / "3d")
         )
         anim_res = self.run_skill(
-            "asynx-3d", "animate", "--from-task", rig_res["task_id"], "--animation", "walk", "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "animate", "--from-task", rig_res["task_id"], "--animation", "walk", "--output-dir", str(out_root / "3d")
         )
         conv_res = self.run_skill(
-            "asynx-3d", "convert", "--from-task", anim_res["task_id"], "--output-format", "obj", "--output-dir", str(out_root / "3d")
+            "plaiers-asynx-3d", "convert", "--from-task", anim_res["task_id"], "--output-format", "obj", "--output-dir", str(out_root / "3d")
         )
 
         conn = connect_db(self.state_db)

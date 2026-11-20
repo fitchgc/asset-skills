@@ -22,8 +22,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from tests.fake_gateway import run_fake_gateway  # noqa: E402
 
-IMAGE = "asynx-image-pro"
-AUDIO = "asynx-audio"
+IMAGE = "plaiers-asynx-image-pro"
+AUDIO = "plaiers-asynx-audio"
 
 
 class ChargeConfirmationTest(unittest.TestCase):

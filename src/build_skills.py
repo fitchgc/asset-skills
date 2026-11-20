@@ -22,23 +22,23 @@ DIST_DIR = REPO_ROOT / "dist"
 
 MODALITIES = {
     "image": {
-        "skill_name": "asynx-image-pro",
+        "skill_name": "plaiers-asynx-image-pro",
         "src_module": "image",
     },
     "audio": {
-        "skill_name": "asynx-audio",
+        "skill_name": "plaiers-asynx-audio",
         "src_module": "audio",
     },
     "video": {
-        "skill_name": "asynx-video",
+        "skill_name": "plaiers-asynx-video",
         "src_module": "video",
     },
     "3d": {
-        "skill_name": "asynx-3d",
+        "skill_name": "plaiers-asynx-3d",
         "src_module": "model3d",
     },
     "asset_manager": {
-        "skill_name": "asynx-asset-manager",
+        "skill_name": "plaiers-asynx-workbench",
         "src_module": "asset_manager",
     },
 }
@@ -50,7 +50,7 @@ CROSS_MODAL_MODULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("model3d", ("model3d_tasks.py", "local_model3d.py")),
 )
 
-# The workbench package (Local UI Workbench + local post-processing) is the asset-manager package;
+# The workbench package plaiers-asynx-workbench (asset manager + Local UI Workbench + local post-processing);
 # core modality packages ship without these modules and load them from it on demand (ADR-0007).
 WORKBENCH_KEY = "asset_manager"
 WORKBENCH_ONLY_MODULES = frozenset({"ui_server.py", "thumb_cache.py", "local_images.py", "local_audio.py",

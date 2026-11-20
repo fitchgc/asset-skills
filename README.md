@@ -3,10 +3,10 @@
 面向 AI Agent（Claude Code、Codex、Pi 等）的多模态与游戏创作资产（图像、音频、视频、3D）生成、编辑、后处理与自动化管线管理的同构技能集合。
 
 包含了 4 个核心资产技能（Asset Skills）：
-- **`asynx-image-pro`**：图像生成、垫图参考创作、局部重绘批注、图生图编辑与离线图像处理。
-- **`asynx-audio`**：音效素材（SFX）、背景配乐（Music）、角色台词（TTS/Speech）生成与音频剪辑标准化。
-- **`asynx-video`**：文生视频、图生视频、视频扩展编辑、抽帧生成 2D 精灵图集与音视频合成。
-- **`asynx-3d`**：文生/图生 3D 模型、骨骼绑定检查、自动骨骼绑定与蒙皮、动画重定向与序列帧渲染。
+- **`plaiers-asynx-image-pro`**：图像生成、垫图参考创作、局部重绘批注、图生图编辑与离线图像处理。
+- **`plaiers-asynx-audio`**：音效素材（SFX）、背景配乐（Music）、角色台词（TTS/Speech）生成与音频剪辑标准化。
+- **`plaiers-asynx-video`**：文生视频、图生视频、视频扩展编辑、抽帧生成 2D 精灵图集与音视频合成。
+- **`plaiers-asynx-3d`**：文生/图生 3D 模型、骨骼绑定检查、自动骨骼绑定与蒙皮、动画重定向与序列帧渲染。
 
 ---
 
@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/fitchgc/asset-skills/main/install.s
 
 This is a single non-interactive command (no prompts, no API key) — run it once, in one step; do not split it into separate clone / install / login commands, as that multiplies approval prompts.
 Options: `--target codex|claude|both`.
-Cloud use requires a Plaiers Agent grant with the `skill_jwt` scope. The Plaiers installer writes `.plaiers-context.json` next to each installed skill, and the skills obtain short-lived JWTs only by running the `get-skill-jwt.mjs` command recorded there (see `docs/agent-jwt-contract.md`). Never ask the user to paste tokens into the chat. Local post-processing and `asynx-asset-manager` scan/list/lineage need no authorization.
+Cloud use requires a Plaiers Agent grant with the `skill_jwt` scope. The Plaiers installer writes `.plaiers-context.json` next to each installed skill, and the skills obtain short-lived JWTs only by running the `get-skill-jwt.mjs` command recorded there (see `docs/agent-jwt-contract.md`). Never ask the user to paste tokens into the chat. Local post-processing and `plaiers-asynx-workbench` scan/list/lineage need no authorization.
 
 ---
 
@@ -37,7 +37,7 @@ Cloud use requires a Plaiers Agent grant with the `skill_jwt` scope. The Plaiers
 
 1. **Python 3.10+**（推荐 Python 3.10 ~ 3.12）
 2. **多媒体系统工具（音频与视频处理）**：
-   - 运行 `asynx-audio` 与 `asynx-video` 的高级处理（格式转换、剪辑、抽帧合成等）依赖 `ffmpeg` 和 `ffprobe`：
+   - 运行 `plaiers-asynx-audio` 与 `plaiers-asynx-video` 的高级处理（格式转换、剪辑、抽帧合成等）依赖 `ffmpeg` 和 `ffprobe`：
      - **macOS**：`brew install ffmpeg`
      - **Ubuntu / Debian**：`sudo apt update && sudo apt install -y ffmpeg`
      - **Windows**：`winget install Gyan.FFmpeg` 或 `choco install ffmpeg`
@@ -105,7 +105,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 ---
 
-### 1. 图像创作与编辑 (`asynx-image-pro`)
+### 1. 图像创作与编辑 (`plaiers-asynx-image-pro`)
 
 在与 Agent 对话时直接描述图片创作意图：
 
@@ -123,7 +123,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 ---
 
-### 2. 音频创作与剪辑 (`asynx-audio`)
+### 2. 音频创作与剪辑 (`plaiers-asynx-audio`)
 
 在对话中向 Agent 请求游戏音效、配乐或台词朗读：
 
@@ -140,7 +140,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 ---
 
-### 3. 视频创作与精灵图集 (`asynx-video`)
+### 3. 视频创作与精灵图集 (`plaiers-asynx-video`)
 
 通过自然语言驱动视频生成、动态转写与 2D 游戏动画帧提取：
 
@@ -157,7 +157,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 
 ---
 
-### 4. 3D 模型与骨骼动画 (`asynx-3d`)
+### 4. 3D 模型与骨骼动画 (`plaiers-asynx-3d`)
 
 在对话中直接构建 3D 资产、检查规范并绑定动画：
 
@@ -186,7 +186,7 @@ Windows 环境下将最后一行改为 `py install.py`。
 > 4. 导出 8 方向 2D 游戏序列帧图集；  
 > 5. 最后为他配一段火球术施法音效和森林探索背景音乐。”
 
-Agent 会在后台依次调用 `asynx-image-pro` -> `asynx-3d` -> `asynx-audio`，并通过上下文传递生成的任务 ID 实现各资产的自动衔接。
+Agent 会在后台依次调用 `plaiers-asynx-image-pro` -> `plaiers-asynx-3d` -> `plaiers-asynx-audio`，并通过上下文传递生成的任务 ID 实现各资产的自动衔接。
 
 ---
 
@@ -204,10 +204,10 @@ Agent 会在后台依次调用 `asynx-image-pro` -> `asynx-3d` -> `asynx-audio`�
 .
 ├── install.py                   # 统一自动化安装与卸载脚本
 ├── skills/                      # 独立打包分发的 4 个 Asset Skill 目录
-│   ├── asynx-image-pro/         # 图像创作技能 (SKILL.md, scripts/, references/)
-│   ├── asynx-audio/             # 音频创作技能 (SKILL.md, scripts/, references/)
-│   ├── asynx-video/             # 视频创作技能 (SKILL.md, scripts/, references/)
-│   └── asynx-3d/                # 3D 创作技能 (SKILL.md, scripts/, references/)
+│   ├── plaiers-asynx-image-pro/         # 图像创作技能 (SKILL.md, scripts/, references/)
+│   ├── plaiers-asynx-audio/             # 音频创作技能 (SKILL.md, scripts/, references/)
+│   ├── plaiers-asynx-video/             # 视频创作技能 (SKILL.md, scripts/, references/)
+│   └── plaiers-asynx-3d/                # 3D 创作技能 (SKILL.md, scripts/, references/)
 ├── shared/                      # 共享基础库 (网关、状态账本、配置与 UI 服务器)
 ├── src/                         # 模态特定核心源码 (图像、音频、视频、3D与构建器)
 ├── dist/                        # 预打包发布的独立 Skill 压缩包 (.zip)

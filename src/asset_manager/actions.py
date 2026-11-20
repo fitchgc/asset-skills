@@ -243,7 +243,7 @@ def _slice_image_to_frame_sequence(
     manifest = {
         "frames": manifest_frames,
         "meta": {
-            "app": "asynx-asset-manager",
+            "app": "plaiers-asynx-workbench",
             "version": "1.0",
             "image": "atlas.png",
             "format": "RGBA8888",

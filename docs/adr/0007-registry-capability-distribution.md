@@ -18,10 +18,10 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
   runtime per `(os, arch, python)` and is prepared only by an explicit, user-approved `runtime prepare`
   (supersedes the vendor parts of ADR-0001).
 - **Core and workbench packages.** Each modality ships a core package with generation, query and
-  download only. The asset-manager package doubles as the single workbench package: it carries the
+  download only. The workbench package `plaiers/asynx-workbench` (directory `plaiers-asynx-workbench`) also carries the asset manager. It holds the
   asset manager, every Local UI Workbench (`ui/`, `ui/<modality>/`), `ui_server.py`, `thumb_cache.py`
   and every `local_*` module. A core package locates it on demand: `ASYNX_WORKBENCH_DIR`, else a sibling
-  `plaiers-asynx-asset-manager` / `asynx-asset-manager` in the same skills directory. It then appends the
+  `plaiers-asynx-asset-manager` / `plaiers-asynx-workbench` in the same skills directory. It then appends the
   workbench `scripts/asxlib` to its own `asxlib.__path__`, so core modules keep precedence. A missing
   workbench returns `workbench_not_installed` (with the `get_skill` ID). A different version returns
   `workbench_version_mismatch`. The version is checked only when a workbench feature is used. Merging
@@ -43,5 +43,5 @@ content-hash versions, integrity checks and withdrawal semantics. The registry a
 - Repository `install.py` copies remain possible for development; they are not registry installs and
   `update status` reports `not_registry_install` for them.
 - Binary resources (font) and dependency declaration wait for the registry protocol (PR #10 Q1).
-- Final registry IDs/directory names wait on Q2. The workbench ID and directory names are constants in
-  `shared/asxlib/workbench.py`.
+- Names (PR #10 Q2, confirmed 2026-11-20): `plaiers/asynx-{image-pro,audio,video,3d,workbench}`, with `name` and
+  directory `plaiers-asynx-*`. The repository's `skills/` directories use the same names.

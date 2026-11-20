@@ -20,10 +20,10 @@
   - [3. 存储路径与优先级](#3-存储路径与优先级)
   - [4. 环境自检与连通性诊断 (Doctor)](#4-环境自检与连通性诊断-doctor)
 - [三、命令行使用指南 (CLI Usage)](#三命令行使用指南-cli-usage)
-  - [1. 图像创作 (`asynx-image-pro`)](#1-图像创作-asynx-image-pro)
-  - [2. 音频创作 (`asynx-audio`)](#2-音频创作-asynx-audio)
-  - [3. 视频创作 (`asynx-video`)](#3-视频创作-asynx-video)
-  - [4. 3D 模型与动画 (`asynx-3d`)](#4-3d-模型与动画-asynx-3d)
+  - [1. 图像创作 (`plaiers-asynx-image-pro`)](#1-图像创作-plaiers-asynx-image-pro)
+  - [2. 音频创作 (`plaiers-asynx-audio`)](#2-音频创作-plaiers-asynx-audio)
+  - [3. 视频创作 (`plaiers-asynx-video`)](#3-视频创作-plaiers-asynx-video)
+  - [4. 3D 模型与动画 (`plaiers-asynx-3d`)](#4-3d-模型与动画-plaiers-asynx-3d)
 - [四、命令行跨模态自动化管线实战示例](#四命令行跨模态自动化管线实战示例)
 - [五、任务与批次管理命令 (Task & Batch Management)](#五任务与批次管理命令-task--batch-management)
 
@@ -41,7 +41,7 @@
 mkdir -p ~/.claude/skills
 
 # 软链接所有技能
-for skill in asynx-image-pro asynx-audio asynx-video asynx-3d; do
+for skill in plaiers-asynx-image-pro plaiers-asynx-audio plaiers-asynx-video plaiers-asynx-3d; do
   ln -s "$(pwd)/skills/$skill" ~/.claude/skills/$skill
 done
 ```
@@ -52,7 +52,7 @@ done
 mkdir -p ~/.agents/skills
 
 # 软链接所有技能
-for skill in asynx-image-pro asynx-audio asynx-video asynx-3d; do
+for skill in plaiers-asynx-image-pro plaiers-asynx-audio plaiers-asynx-video plaiers-asynx-3d; do
   ln -s "$(pwd)/skills/$skill" ~/.agents/skills/$skill
 done
 ```
@@ -64,10 +64,10 @@ done
 ### 2. 使用独立构建产物 (Dist Packages)
 
 可以直接下载或解压 `dist/` 目录中打包好的独立归档：
-- `dist/asynx-image-pro.zip`
-- `dist/asynx-audio.zip`
-- `dist/asynx-video.zip`
-- `dist/asynx-3d.zip`
+- `dist/plaiers-asynx-image-pro.zip`
+- `dist/plaiers-asynx-audio.zip`
+- `dist/plaiers-asynx-video.zip`
+- `dist/plaiers-asynx-3d.zip`
 
 解压至任意 Agent 的 `skills/` 目录即可，每个压缩包内部已包含所有必要运行时文件。
 
@@ -102,7 +102,7 @@ python3 -S src/registry_entries.py
 
 ```bash
 # 查看额度与并发（首次调用会自动换取 JWT）
-python3 skills/asynx-image-pro/scripts/asynx.py whoami
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py whoami
 ```
 
 - 站点、Agent、账号全部由上下文决定。没有默认站点，不读取 `SAGEIN_COMMUNITY_*` 环境变量，不扫描授权目录。
@@ -145,13 +145,13 @@ export ASYNX_NO_OPEN_BROWSER=1
 
 ```bash
 # 离线检查配置文件、权限、可选运行环境（Pillow，未准备时为 not_prepared）与 ffmpeg 工具链
-python3 skills/asynx-image-pro/scripts/asynx.py doctor
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py doctor
 
 # 联网验证授权/JWT 与网关连通性
-python3 skills/asynx-image-pro/scripts/asynx.py doctor --verify
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py doctor --verify
 
 # 查看当前配置状态及授权状态
-python3 skills/asynx-image-pro/scripts/asynx.py config status
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py config status
 ```
 
 #### 可选运行环境（Pillow）
@@ -160,13 +160,13 @@ python3 skills/asynx-image-pro/scripts/asynx.py config status
 
 ```bash
 # 只读查看：ready / not_prepared / invalid / unsupported
-python3 skills/asynx-image-pro/scripts/asynx.py runtime status
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py runtime status
 
 # 联网下载按哈希锁定的 Pillow（需用户同意）；已准备时不重复下载，校验失败的旧环境会被整体替换
-python3 skills/asynx-image-pro/scripts/asynx.py runtime prepare
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py runtime prepare
 
 # 删除当前平台的运行环境
-python3 skills/asynx-image-pro/scripts/asynx.py runtime remove
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py runtime remove
 ```
 
 锁定的版本和每个平台 wheel 的 SHA-256 记录在 `shared/asxlib/runtime_lock.py`，维护者用 `python3 -S src/lock_runtime.py --version <版本>` 重新生成。
@@ -179,192 +179,192 @@ python3 skills/asynx-image-pro/scripts/asynx.py runtime remove
 
 ---
 
-### 1. 图像创作 (`asynx-image-pro`)
+### 1. 图像创作 (`plaiers-asynx-image-pro`)
 
 #### 远程生成与编辑
 ```bash
 # 文生图 (Text-to-Image)
-python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "赛博朋克风格发光霓虹猫咪，8k高清" --aspect-ratio "16:9"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py generate --prompt "赛博朋克风格发光霓虹猫咪，8k高清" --aspect-ratio "16:9"
 
 # 垫图参考生成 (Reference Image)
-python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "保持相同构图，切换为金色秋季枫叶背景" --reference "/path/to/cat.png"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py generate --prompt "保持相同构图，切换为金色秋季枫叶背景" --reference "/path/to/cat.png"
 
 # 图生图编辑 (Image-to-Image Edit)
-python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "将角色的衣服颜色改为暗红色铠甲" --image "/path/to/character.png"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py edit --prompt "将角色的衣服颜色改为暗红色铠甲" --image "/path/to/character.png"
 
 # 使用任务 ID 延续编辑 (From Task)
-python3 skills/asynx-image-pro/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py edit --prompt "添加夜幕降临的星空光效" --from-task "<task-id>"
 ```
 
 #### 本地确定性图片处理 (免授权)
 ```bash
 # 查看图片基础元数据 (尺寸、格式、色彩模式)
-python3 skills/asynx-image-pro/scripts/asynx.py image info "input.png"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py image info "input.png"
 
 # 调整尺寸并保持比例
-python3 skills/asynx-image-pro/scripts/asynx.py image resize "input.png" --output "thumb.png" --width 512
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py image resize "input.png" --output "thumb.png" --width 512
 
 # 裁剪指定区域 (x1, y1, x2, y2)
-python3 skills/asynx-image-pro/scripts/asynx.py image crop "input.png" --output "cropped.png" --box 0,0,256,256
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py image crop "input.png" --output "cropped.png" --box 0,0,256,256
 
 # 九宫格/网格切图 (用于游戏瓦片地图或图集切分)
-python3 skills/asynx-image-pro/scripts/asynx.py image slice "tileset.png" --output-dir "tiles/" --rows 4 --columns 4
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py image slice "tileset.png" --output-dir "tiles/" --rows 4 --columns 4
 
 # 格式转换
-python3 skills/asynx-image-pro/scripts/asynx.py image convert "photo.jpg" --output "photo.webp" --format webp
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py image convert "photo.jpg" --output "photo.webp" --format webp
 
 # 应用 Alpha 遮罩
-python3 skills/asynx-image-pro/scripts/asynx.py image apply-mask "photo.png" --mask "mask.png" --output "cutout.png"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py image apply-mask "photo.png" --mask "mask.png" --output "cutout.png"
 ```
 
 #### 本地交互工作台 (Local UI)
 ```bash
 # 启动浏览器局部重绘圈选与标注工作台（自动提取 Mask 遮罩与修改指令）
-python3 skills/asynx-image-pro/scripts/asynx.py ui annotate --image "character.png"
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py ui annotate --image "character.png"
 ```
 
 ---
 
-### 2. 音频创作 (`asynx-audio`)
+### 2. 音频创作 (`plaiers-asynx-audio`)
 
 #### 声音合成与生成
 ```bash
 # 游戏音效合成 (SFX)
-python3 skills/asynx-audio/scripts/asynx.py sfx --prompt "宝箱开启金币散落清脆声效" --duration 2.5
+python3 skills/plaiers-asynx-audio/scripts/asynx.py sfx --prompt "宝箱开启金币散落清脆声效" --duration 2.5
 
 # 背景音乐配乐生成 (Music)
-python3 skills/asynx-audio/scripts/asynx.py music --prompt "8-bit 像素地牢战斗芯片音乐，高燃快节奏" --duration 30 --instrumental
+python3 skills/plaiers-asynx-audio/scripts/asynx.py music --prompt "8-bit 像素地牢战斗芯片音乐，高燃快节奏" --duration 30 --instrumental
 
 # 角色台词语音合成 (Speech / TTS)
-python3 skills/asynx-audio/scripts/asynx.py speech --text "勇敢的冒险者，愿圣光庇佑你的道路！" --voice "warrior" --speed 1.0
+python3 skills/plaiers-asynx-audio/scripts/asynx.py speech --text "勇敢的冒险者，愿圣光庇佑你的道路！" --voice "warrior" --speed 1.0
 
 # 声音克隆/音色延续合成
-python3 skills/asynx-audio/scripts/asynx.py speech --text "前进，决不后退！" --from-task "<previous-audio-task-id>"
+python3 skills/plaiers-asynx-audio/scripts/asynx.py speech --text "前进，决不后退！" --from-task "<previous-audio-task-id>"
 ```
 
 #### 本地确定性音频处理 (免授权)
 ```bash
 # 查看音频元数据 (编码格式、采样率、声道数、比特率、时长)
-python3 skills/asynx-audio/scripts/asynx.py audio info "sound.wav"
+python3 skills/plaiers-asynx-audio/scripts/asynx.py audio info "sound.wav"
 
 # 格式转换 (wav, mp3, ogg, m4a, flac)
-python3 skills/asynx-audio/scripts/asynx.py audio convert "sound.wav" --output "sound.ogg"
+python3 skills/plaiers-asynx-audio/scripts/asynx.py audio convert "sound.wav" --output "sound.ogg"
 
 # 音频剪辑修剪 (精确截取起止点)
-python3 skills/asynx-audio/scripts/asynx.py audio trim "track.mp3" --output "clip.mp3" --start 5.0 --duration 10.0
+python3 skills/plaiers-asynx-audio/scripts/asynx.py audio trim "track.mp3" --output "clip.mp3" --start 5.0 --duration 10.0
 
 # 淡入淡出包络处理
-python3 skills/asynx-audio/scripts/asynx.py audio fade "bgm.mp3" --output "bgm_fade.mp3" --fade-in 1.0 --fade-out 2.0
+python3 skills/plaiers-asynx-audio/scripts/asynx.py audio fade "bgm.mp3" --output "bgm_fade.mp3" --fade-in 1.0 --fade-out 2.0
 
 # 广播级响度标准化 (EBU R128 标准)
-python3 skills/asynx-audio/scripts/asynx.py audio normalize "dialogue.mp3" --output "dialogue_norm.mp3" --target-lufs -14.0
+python3 skills/plaiers-asynx-audio/scripts/asynx.py audio normalize "dialogue.mp3" --output "dialogue_norm.mp3" --target-lufs -14.0
 
 # 多个音频文件拼接合并
-python3 skills/asynx-audio/scripts/asynx.py audio concat "intro.mp3" "main_loop.mp3" "outro.mp3" --output "full_ost.mp3"
+python3 skills/plaiers-asynx-audio/scripts/asynx.py audio concat "intro.mp3" "main_loop.mp3" "outro.mp3" --output "full_ost.mp3"
 ```
 
 ---
 
-### 3. 视频创作 (`asynx-video`)
+### 3. 视频创作 (`plaiers-asynx-video`)
 
 #### 视频生成与编辑
 ```bash
 # 文生视频 (Text-to-Video)
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "太空飞船穿梭于流星群，电影级景深" --duration 5.0 --aspect-ratio "16:9"
+python3 skills/plaiers-asynx-video/scripts/asynx.py generate --prompt "太空飞船穿梭于流星群，电影级景深" --duration 5.0 --aspect-ratio "16:9"
 
 # 本地图生视频 (Image-to-Video)
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "角色转身向镜头微笑打招呼" --image "/path/to/character.png"
+python3 skills/plaiers-asynx-video/scripts/asynx.py generate --prompt "角色转身向镜头微笑打招呼" --image "/path/to/character.png"
 
-# 跨模态图生视频 (直接使用 asynx-image-pro 产出的任务 ID)
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "镜头 360 度环绕人物旋转" --from-task "<image-task-id>"
+# 跨模态图生视频 (直接使用 plaiers-asynx-image-pro 产出的任务 ID)
+python3 skills/plaiers-asynx-video/scripts/asynx.py generate --prompt "镜头 360 度环绕人物旋转" --from-task "<image-task-id>"
 
 # 首末双关键帧控制生成
-python3 skills/asynx-video/scripts/asynx.py generate --prompt "城堡从白昼平滑演变为夜晚灯火辉煌" --image "day.png" --end-image "night.png"
+python3 skills/plaiers-asynx-video/scripts/asynx.py generate --prompt "城堡从白昼平滑演变为夜晚灯火辉煌" --image "day.png" --end-image "night.png"
 
 # 视频语义扩展与编辑
-python3 skills/asynx-video/scripts/asynx.py edit --prompt "将环境变换为大雪纷飞的冬日场景" --video "street.mp4"
+python3 skills/plaiers-asynx-video/scripts/asynx.py edit --prompt "将环境变换为大雪纷飞的冬日场景" --video "street.mp4"
 ```
 
 #### 本地确定性视频处理 (免授权)
 ```bash
 # 查看视频参数 (分辨率、帧率、时长、视频编码、音频编码)
-python3 skills/asynx-video/scripts/asynx.py video info "clip.mp4"
+python3 skills/plaiers-asynx-video/scripts/asynx.py video info "clip.mp4"
 
 # 视频精准片段修剪
-python3 skills/asynx-video/scripts/asynx.py video trim "clip.mp4" --output "short.mp4" --start 1.0 --duration 4.0
+python3 skills/plaiers-asynx-video/scripts/asynx.py video trim "clip.mp4" --output "short.mp4" --start 1.0 --duration 4.0
 
 # 视频离线抽帧为图片序列
-python3 skills/asynx-video/scripts/asynx.py video extract-frames "action.mp4" --output-dir "frames/" --fps 12
+python3 skills/plaiers-asynx-video/scripts/asynx.py video extract-frames "action.mp4" --output-dir "frames/" --fps 12
 
 # 抽帧并打包为 2D 游戏动画序列帧图集 (生成 atlas.png 精灵图大图与 manifest.json 元数据清单)
-python3 skills/asynx-video/scripts/asynx.py video spritesheet "action.mp4" --output-dir "spritesheet/" --fps 10 --width 128 --height 128
+python3 skills/plaiers-asynx-video/scripts/asynx.py video spritesheet "action.mp4" --output-dir "spritesheet/" --fps 10 --width 128 --height 128
 
 # 视频转 GIF 动图
-python3 skills/asynx-video/scripts/asynx.py video convert "clip.mp4" --output "preview.gif"
+python3 skills/plaiers-asynx-video/scripts/asynx.py video convert "clip.mp4" --output "preview.gif"
 
 # 音视频轨道合成 (Mux)
-python3 skills/asynx-video/scripts/asynx.py video mux --video "silent_clip.mp4" --audio "bgm.mp3" --output "final_video.mp4"
+python3 skills/plaiers-asynx-video/scripts/asynx.py video mux --video "silent_clip.mp4" --audio "bgm.mp3" --output "final_video.mp4"
 ```
 
 #### 本地交互工作台 (Local UI)
 ```bash
 # 启动视频时间轴抽帧、去背与精灵图集导出工作台
-python3 skills/asynx-video/scripts/asynx.py ui frame-sequence --video "character_run.mp4"
+python3 skills/plaiers-asynx-video/scripts/asynx.py ui frame-sequence --video "character_run.mp4"
 
 # 启动 2D 序列帧精灵图集动画回放预览器
-python3 skills/asynx-video/scripts/asynx.py ui preview-sequence --atlas "atlas.png" --manifest "manifest.json"
+python3 skills/plaiers-asynx-video/scripts/asynx.py ui preview-sequence --atlas "atlas.png" --manifest "manifest.json"
 ```
 
 ---
 
-### 4. 3D 模型与动画 (`asynx-3d`)
+### 4. 3D 模型与动画 (`plaiers-asynx-3d`)
 
 #### 3D 生成与骨骼动画管线
 ```bash
 # 文生 3D 模型 (Text-to-3D)
-python3 skills/asynx-3d/scripts/asynx.py generate --prompt "中世纪双刃巨斧，暗黑浮雕花纹，PBR贴图"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py generate --prompt "中世纪双刃巨斧，暗黑浮雕花纹，PBR贴图"
 
 # 本地图生 3D 模型 (Image-to-3D，支持限制面数)
-python3 skills/asynx-3d/scripts/asynx.py generate --image "/path/to/monster.png" --face-limit 15000
+python3 skills/plaiers-asynx-3d/scripts/asynx.py generate --image "/path/to/monster.png" --face-limit 15000
 
-# 跨模态图生 3D (使用 asynx-image-pro 生成的概念图任务 ID)
-python3 skills/asynx-3d/scripts/asynx.py generate --from-task "<image-task-id>"
+# 跨模态图生 3D (使用 plaiers-asynx-image-pro 生成的概念图任务 ID)
+python3 skills/plaiers-asynx-3d/scripts/asynx.py generate --from-task "<image-task-id>"
 
 # 骨骼绑定前置合规检查
-python3 skills/asynx-3d/scripts/asynx.py rig-check --from-task "<gen-task-id>"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py rig-check --from-task "<gen-task-id>"
 
 # 本地模型 (GLB/FBX/OBJ/STL) 上传为 file_id 后绑定
-python3 skills/asynx-3d/scripts/asynx.py rig --model-file "robot.glb"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py rig --model-file "robot.glb"
 
 # 云端自动骨骼绑定与权重蒙皮 (Rig)
-python3 skills/asynx-3d/scripts/asynx.py rig --from-task "<gen-task-id>" --rig-type biped
+python3 skills/plaiers-asynx-3d/scripts/asynx.py rig --from-task "<gen-task-id>" --rig-type biped
 
 # 动作重定向 (Animate：让角色执行标准动画动作)
-python3 skills/asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --animation "walk"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py animate --from-task "<rig-task-id>" --animation "walk"
 
 # 格式转换 (fbx|gltf|obj|usdz|stl)
-python3 skills/asynx-3d/scripts/asynx.py convert --from-task "<task-id>" --output-format fbx
+python3 skills/plaiers-asynx-3d/scripts/asynx.py convert --from-task "<task-id>" --output-format fbx
 ```
 
 #### 本地纯 Python 3D 模型处理 (免授权，无需 Blender)
 ```bash
 # 查看 3D 模型结构 (顶点数、三角面数、材质槽、内嵌贴图、骨骼关节数、动画片段)
-python3 skills/asynx-3d/scripts/asynx.py model3d info "character.glb"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py model3d info "character.glb"
 
 # 游戏规范合规性校验 (校验多边形面数上限、必须包含 PBR 贴图、骨骼/动画要求)
-python3 skills/asynx-3d/scripts/asynx.py model3d validate "character.glb" --max-faces 20000 --require-pbr --require-animations
+python3 skills/plaiers-asynx-3d/scripts/asynx.py model3d validate "character.glb" --max-faces 20000 --require-pbr --require-animations
 
 # 直接从 GLB 中离线解包提取所有内嵌 PBR 贴图到本地目录
-python3 skills/asynx-3d/scripts/asynx.py model3d extract-textures "character.glb" --output-dir "textures/"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py model3d extract-textures "character.glb" --output-dir "textures/"
 ```
 
 #### 本地交互工作台 (Local UI)
 ```bash
 # 启动浏览器 WebGL 3D 检查器 (支持模型 360 度旋转、骨骼动画播放、PBR 贴图通道检查)
-python3 skills/asynx-3d/scripts/asynx.py ui viewer --model-file "character.glb"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py ui viewer --model-file "character.glb"
 
 # 启动多视角 2D 序列帧图集渲染工作台 (支持 1向/4向/8向正交与等轴测视角自动渲染并打包图集)
-python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "character.glb"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py ui render-sequence --model-file "character.glb"
 ```
 
 ---
@@ -374,24 +374,24 @@ python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "charac
 通过共享的 SQLite 状态账本，可以将多种资产模态串联成一条完整的端到端游戏资产生产管线：
 
 ```bash
-# 步骤 1：生成游戏主角概念图 (asynx-image-pro) -> 输出任务 ID: task_img_001
-python3 skills/asynx-image-pro/scripts/asynx.py generate --prompt "Q版魔法师角色，站立姿态，清晰白底"
+# 步骤 1：生成游戏主角概念图 (plaiers-asynx-image-pro) -> 输出任务 ID: task_img_001
+python3 skills/plaiers-asynx-image-pro/scripts/asynx.py generate --prompt "Q版魔法师角色，站立姿态，清晰白底"
 
-# 步骤 2：由概念图生成 3D 角色模型 (asynx-3d) -> 输出任务 ID: task_3d_002
-python3 skills/asynx-3d/scripts/asynx.py generate --from-task "task_img_001" --face-limit 15000
+# 步骤 2：由概念图生成 3D 角色模型 (plaiers-asynx-3d) -> 输出任务 ID: task_3d_002
+python3 skills/plaiers-asynx-3d/scripts/asynx.py generate --from-task "task_img_001" --face-limit 15000
 
-# 步骤 3：为 3D 角色自动绑定人形骨骼 (asynx-3d) -> 输出任务 ID: task_rig_003
-python3 skills/asynx-3d/scripts/asynx.py rig --from-task "task_3d_002" --rig-type biped
+# 步骤 3：为 3D 角色自动绑定人形骨骼 (plaiers-asynx-3d) -> 输出任务 ID: task_rig_003
+python3 skills/plaiers-asynx-3d/scripts/asynx.py rig --from-task "task_3d_002" --rig-type biped
 
-# 步骤 4：为绑定好的角色重定向跑步动作 (asynx-3d) -> 产出带动画的 GLB 模型
-python3 skills/asynx-3d/scripts/asynx.py animate --from-task "task_rig_003" --animation "run"
+# 步骤 4：为绑定好的角色重定向跑步动作 (plaiers-asynx-3d) -> 产出带动画的 GLB 模型
+python3 skills/plaiers-asynx-3d/scripts/asynx.py animate --from-task "task_rig_003" --animation "run"
 
 # 步骤 5：启动多角度渲染工作台，导出 2D 俯视角 RPG 游戏 8 方向奔跑序列帧图集
-python3 skills/asynx-3d/scripts/asynx.py ui render-sequence --model-file "generated-model3d/task_rig_003/animated.glb"
+python3 skills/plaiers-asynx-3d/scripts/asynx.py ui render-sequence --model-file "generated-model3d/task_rig_003/animated.glb"
 
-# 步骤 6：生成角色施法音效与背景音乐 (asynx-audio)
-python3 skills/asynx-audio/scripts/asynx.py sfx --prompt "火球术吟唱与发射爆破音效"
-python3 skills/asynx-audio/scripts/asynx.py music --prompt "神秘森林探索背景配乐，循环节奏" --duration 60 --instrumental
+# 步骤 6：生成角色施法音效与背景音乐 (plaiers-asynx-audio)
+python3 skills/plaiers-asynx-audio/scripts/asynx.py sfx --prompt "火球术吟唱与发射爆破音效"
+python3 skills/plaiers-asynx-audio/scripts/asynx.py music --prompt "神秘森林探索背景配乐，循环节奏" --duration 60 --instrumental
 ```
 
 ---

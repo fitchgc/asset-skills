@@ -23,8 +23,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from src import build_skills  # noqa: E402
 
-CORE = {"image": "asynx-image-pro", "audio": "asynx-audio", "video": "asynx-video", "3d": "asynx-3d"}
-WORKBENCH = "asynx-asset-manager"
+CORE = {"image": "plaiers-asynx-image-pro", "audio": "plaiers-asynx-audio", "video": "plaiers-asynx-video", "3d": "plaiers-asynx-3d"}
+WORKBENCH = "plaiers-asynx-workbench"
 WORKBENCH_ONLY = {"ui_server.py", "thumb_cache.py", "local_images.py", "local_audio.py", "local_video.py", "local_model3d.py"}
 GLTF = {"asset": {"version": "2.0"}, "meshes": [], "accessors": [], "materials": []}
 
@@ -115,7 +115,7 @@ class WorkbenchDiscoveryTest(unittest.TestCase):
         self.temp = Path(tempfile.mkdtemp())
         self.skills = self.temp / "skills"
         self.core = self.skills / "plaiers-asynx-3d"
-        shutil.copytree(REPO_ROOT / "skills" / "asynx-3d", self.core, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(REPO_ROOT / "skills" / "plaiers-asynx-3d", self.core, ignore=shutil.ignore_patterns("__pycache__"))
         self.model = self.temp / "m.gltf"
         self.model.write_text(json.dumps(GLTF), encoding="utf-8")
         self.env = {
@@ -133,7 +133,7 @@ class WorkbenchDiscoveryTest(unittest.TestCase):
                               text=True, env={**self.env, **(env or {})}, cwd=self.temp, timeout=60)
         return proc.returncode, json.loads(proc.stdout)
 
-    def add_workbench(self, name: str = "plaiers-asynx-asset-manager") -> Path:
+    def add_workbench(self, name: str = "plaiers-asynx-workbench") -> Path:
         target = self.skills / name
         shutil.copytree(REPO_ROOT / "skills" / WORKBENCH, target, ignore=shutil.ignore_patterns("__pycache__"))
         return target
@@ -143,7 +143,7 @@ class WorkbenchDiscoveryTest(unittest.TestCase):
             code, out = self.cli(*args)
             self.assertEqual(code, 2, out)
             self.assertEqual(out["error"]["code"], "workbench_not_installed")
-            self.assertEqual(out["error"]["details"]["get_skill_id"], "plaiers/asynx-asset-manager")
+            self.assertEqual(out["error"]["details"]["get_skill_id"], "plaiers/asynx-workbench")
             self.assertIn("get_skill", out["error"]["message"])
         # The main flow is unaffected.
         code, out = self.cli("config", "status")
@@ -156,10 +156,10 @@ class WorkbenchDiscoveryTest(unittest.TestCase):
         self.assertEqual(out["model"]["format"], "gltf")
 
     def test_repo_install_name_and_env_override(self) -> None:
-        self.add_workbench("asynx-asset-manager")
+        self.add_workbench("plaiers-asynx-workbench")
         self.assertEqual(self.cli("model3d", "info", str(self.model))[0], 0)
         elsewhere = self.temp / "elsewhere" / "wb"
-        shutil.move(str(self.skills / "asynx-asset-manager"), elsewhere)
+        shutil.move(str(self.skills / "plaiers-asynx-workbench"), elsewhere)
         self.assertEqual(self.cli("model3d", "info", str(self.model))[1]["error"]["code"], "workbench_not_installed")
         code, out = self.cli("model3d", "info", str(self.model), env={"ASYNX_WORKBENCH_DIR": str(elsewhere)})
         self.assertEqual(code, 0, out)

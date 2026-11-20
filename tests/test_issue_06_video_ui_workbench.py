@@ -98,7 +98,7 @@ class TestVideoUIWorkbench(unittest.TestCase):
                     }
                 },
                 "meta": {
-                    "app": "asynx-video",
+                    "app": "plaiers-asynx-video",
                     "version": "1.0",
                     "image": "atlas.png",
                     "fps": 10,

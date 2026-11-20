@@ -152,12 +152,12 @@ class RuntimeCase(unittest.TestCase):
 
 class TestPrepareAndReuse(RuntimeCase):
     def test_first_prepare_reuse_and_sharing_between_skills(self) -> None:
-        status = self.run_cli("asynx-image-pro", "runtime", "status")["runtime"]
+        status = self.run_cli("plaiers-asynx-image-pro", "runtime", "status")["runtime"]
         self.assertEqual(status["status"], "not_prepared")
         self.assertFalse(self.runtime_dir.exists(), "status must not prepare anything")
-        self.assertEqual(self.pillow_origin("asynx-image-pro")["error"]["code"], "dependency_missing")
+        self.assertEqual(self.pillow_origin("plaiers-asynx-image-pro")["error"]["code"], "dependency_missing")
 
-        first = self.run_cli("asynx-image-pro", "runtime", "prepare")
+        first = self.run_cli("plaiers-asynx-image-pro", "runtime", "prepare")
         self.assertTrue(first["prepared"])
         self.assertEqual(first["runtime"]["status"], "ready")
         receipt = json.loads((self.runtime_dir / "receipt.json").read_text(encoding="utf-8"))
@@ -169,28 +169,28 @@ class TestPrepareAndReuse(RuntimeCase):
         self.assertIn(f"--hash=sha256:{self.wheel_sha}", (self.runtime_dir / "requirements.txt").read_text())
         self.assertEqual(self.leftovers(), [], "no staging directories may remain")
 
-        origin = self.pillow_origin("asynx-image-pro")
+        origin = self.pillow_origin("plaiers-asynx-image-pro")
         self.assertTrue(origin["fixture"])
         self.assertTrue(origin["file"].startswith(str(self.runtime_dir / "site")))
 
         # Another skill reuses it: nothing is downloaded (the wheel source is gone).
         shutil.rmtree(self.wheels)
-        again = self.run_cli("asynx-audio", "runtime", "prepare")
+        again = self.run_cli("plaiers-asynx-audio", "runtime", "prepare")
         self.assertFalse(again["prepared"])
         self.assertTrue(again["reused"])
         self.assertEqual(json.loads((self.runtime_dir / "receipt.json").read_text())["prepared_at"], receipt["prepared_at"])
-        shared = self.run_cli("asynx-video", "runtime", "status")["runtime"]
+        shared = self.run_cli("plaiers-asynx-video", "runtime", "status")["runtime"]
         self.assertEqual(shared["status"], "ready")
         self.assertEqual(shared["path"], str(self.runtime_dir))
-        self.assertTrue(self.pillow_origin("asynx-video")["fixture"])
+        self.assertTrue(self.pillow_origin("plaiers-asynx-video")["fixture"])
 
-        doctor = self.run_cli("asynx-audio", "doctor")
+        doctor = self.run_cli("plaiers-asynx-audio", "doctor")
         self.assertEqual(doctor["optional_runtime"]["status"], "ready")
 
-        removed = self.run_cli("asynx-image-pro", "runtime", "remove")
+        removed = self.run_cli("plaiers-asynx-image-pro", "runtime", "remove")
         self.assertTrue(removed["removed"])
         self.assertFalse(self.runtime_dir.exists())
-        self.assertEqual(self.run_cli("asynx-audio", "runtime", "status")["runtime"]["status"], "not_prepared")
+        self.assertEqual(self.run_cli("plaiers-asynx-audio", "runtime", "status")["runtime"]["status"], "not_prepared")
 
 
 class TestConcurrency(RuntimeCase):
@@ -205,7 +205,7 @@ class TestConcurrency(RuntimeCase):
     def test_second_prepare_waits_for_lock_then_installs(self) -> None:
         handle = self.hold_lock()
         try:
-            proc = self.popen_prepare("asynx-image-pro")
+            proc = self.popen_prepare("plaiers-asynx-image-pro")
             time.sleep(1.5)
             self.assertIsNone(proc.poll(), "prepare must wait while another prepare holds the lock")
             self.assertFalse(self.runtime_dir.exists())
@@ -221,7 +221,7 @@ class TestConcurrency(RuntimeCase):
         handle = self.hold_lock()
         try:
             payload = self.run_cli(
-                "asynx-image-pro", "runtime", "prepare", expect_ok=False, ASYNX_RUNTIME_LOCK_TIMEOUT="0.5"
+                "plaiers-asynx-image-pro", "runtime", "prepare", expect_ok=False, ASYNX_RUNTIME_LOCK_TIMEOUT="0.5"
             )
         finally:
             handle.close()
@@ -229,7 +229,7 @@ class TestConcurrency(RuntimeCase):
         self.assertFalse(self.runtime_dir.exists())
 
     def test_two_concurrent_prepares_install_once(self) -> None:
-        procs = [self.popen_prepare("asynx-image-pro"), self.popen_prepare("asynx-audio")]
+        procs = [self.popen_prepare("plaiers-asynx-image-pro"), self.popen_prepare("plaiers-asynx-audio")]
         results = []
         for proc in procs:
             out, err = proc.communicate(timeout=180)
@@ -242,47 +242,47 @@ class TestConcurrency(RuntimeCase):
 class TestRejections(RuntimeCase):
     def test_hash_mismatch_installs_nothing(self) -> None:
         write_lock(self.lock, [(f"pillow-{VERSION}-py3-none-any.whl", "0" * 64)])
-        payload = self.run_cli("asynx-image-pro", "runtime", "prepare", expect_ok=False)
+        payload = self.run_cli("plaiers-asynx-image-pro", "runtime", "prepare", expect_ok=False)
         self.assertEqual(payload["error"]["code"], "runtime_hash_mismatch", payload)
         self.assertFalse(self.runtime_dir.exists())
         self.assertEqual(self.leftovers(), [])
 
     def test_incompatible_python_is_unsupported_without_pip(self) -> None:
         write_lock(self.lock, [(f"pillow-{VERSION}-cp99-cp99-macosx_11_0_arm64.whl", "1" * 64)])
-        payload = self.run_cli("asynx-image-pro", "runtime", "prepare", expect_ok=False)
+        payload = self.run_cli("plaiers-asynx-image-pro", "runtime", "prepare", expect_ok=False)
         error = payload["error"]
         self.assertEqual(error["code"], "runtime_unsupported")
         self.assertEqual(error["details"]["platform"]["python"], f"{sys.version_info.major}.{sys.version_info.minor}")
         self.assertFalse(self.runtime_dir.parent.exists(), "nothing may be created for an unsupported platform")
-        self.assertEqual(self.run_cli("asynx-image-pro", "runtime", "status")["runtime"]["status"], "unsupported")
-        missing = self.pillow_origin("asynx-image-pro")["error"]
+        self.assertEqual(self.run_cli("plaiers-asynx-image-pro", "runtime", "status")["runtime"]["status"], "unsupported")
+        missing = self.pillow_origin("plaiers-asynx-image-pro")["error"]
         self.assertEqual(missing["code"], "dependency_missing")
         self.assertEqual(missing["details"]["runtime_status"], "unsupported")
         self.assertNotIn("prepare_command", missing["details"])
 
     def test_corrupt_runtime_is_reported_never_used_and_replaced_whole(self) -> None:
-        self.run_cli("asynx-image-pro", "runtime", "prepare")
+        self.run_cli("plaiers-asynx-image-pro", "runtime", "prepare")
         (self.runtime_dir / "site" / "PIL" / "Image.py").write_text("raise SystemExit('tampered')\n")
-        status = self.run_cli("asynx-video", "runtime", "status")["runtime"]
+        status = self.run_cli("plaiers-asynx-video", "runtime", "status")["runtime"]
         self.assertEqual(status["status"], "invalid")
         self.assertEqual(status["reason"], "files_modified")
         self.assertIn("PIL/Image.py", status["files"])
-        refused = self.pillow_origin("asynx-video")["error"]
+        refused = self.pillow_origin("plaiers-asynx-video")["error"]
         self.assertEqual(refused["code"], "runtime_invalid")
-        doctor = self.run_cli("asynx-video", "doctor")
+        doctor = self.run_cli("plaiers-asynx-video", "doctor")
         self.assertIn("runtime_invalid", [i["code"] for i in doctor["issues"]])
 
-        repaired = self.run_cli("asynx-video", "runtime", "prepare")
+        repaired = self.run_cli("plaiers-asynx-video", "runtime", "prepare")
         self.assertTrue(repaired["prepared"])
         self.assertTrue(repaired["replaced_invalid"])
         self.assertEqual(repaired["runtime"]["status"], "ready")
-        self.assertTrue(self.pillow_origin("asynx-video")["fixture"])
+        self.assertTrue(self.pillow_origin("plaiers-asynx-video")["fixture"])
 
     def test_receipt_for_other_lock_is_mismatch(self) -> None:
-        self.run_cli("asynx-image-pro", "runtime", "prepare")
+        self.run_cli("plaiers-asynx-image-pro", "runtime", "prepare")
         other = build_fixture_wheel(self.temp / "other", version="12.4.0")
         write_lock(self.lock, [(other.name, hashlib.sha256(other.read_bytes()).hexdigest())], version="12.4.0")
-        status = self.run_cli("asynx-image-pro", "runtime", "status")["runtime"]
+        status = self.run_cli("plaiers-asynx-image-pro", "runtime", "status")["runtime"]
         self.assertEqual((status["status"], status["reason"]), ("invalid", "lock_mismatch"))
 
 

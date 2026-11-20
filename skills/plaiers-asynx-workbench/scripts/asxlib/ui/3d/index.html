@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asynx 3D Workbench · 3D 检查与序列帧渲染</title>
+  <link rel="stylesheet" href="/plaiers.css">
+  <style>
+    #viewport-canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+    #viewport-canvas:active { cursor: grabbing; }
+    .stage-hint { position: absolute; left: 16px; bottom: 14px; font-size: 12px; color: var(--n500); pointer-events: none; }
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+    .kv dt { color: var(--n400); }
+    .kv dd { margin: 0; min-width: 0; color: var(--text); overflow-wrap: anywhere; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body class="pl-portal wb-app">
+  <header class="wb-top">
+    <h1 class="wb-title">3D 序列帧渲染</h1>
+    <span class="pl-tag sm" id="mode-badge">载入中</span>
+    <div class="wb-actions">
+      <div id="account-bar-slot"></div>
+      <button type="button" class="btn-text" id="cancel-btn">取消</button>
+      <button type="button" class="keycap sm" id="render-btn">渲染并导出图集</button>
+    </div>
+  </header>
+
+  <main class="wb-main">
+    <div id="viewport-container" class="wb-stage">
+      <canvas id="viewport-canvas"></canvas>
+      <span class="stage-hint">左右拖动旋转模型</span>
+    </div>
+
+    <aside class="wb-side">
+      <section class="wb-sec">
+        <h3>模型</h3>
+        <dl class="kv" id="model-stats"><dt>状态</dt><dd>正在载入模型…</dd></dl>
+      </section>
+
+      <section class="wb-sec">
+        <h3>动画预览</h3>
+        <label class="pl-field"><span>动画片段</span>
+          <select id="clip-select"><option value="">没有动画</option></select>
+        </label>
+        <div class="wb-row">
+          <button type="button" class="keycap ghost sm" id="anim-play-btn"></button>
+          <button type="button" class="btn-text" id="anim-reset-btn">回到初始姿势</button>
+        </div>
+        <label class="pl-field"><span>播放速度</span><input type="range" id="anim-speed" min="0.2" max="2.0" step="0.1" value="1.0"></label>
+      </section>
+
+      <section class="wb-sec">
+        <h3>序列帧导出</h3>
+        <label class="pl-field"><span>相机视角</span>
+          <select id="view-angle">
+            <option value="isometric_8way">等距 8 方向（2.5D RPG）</option>
+            <option value="isometric_4way">等距 4 方向</option>
+            <option value="topdown_8way">俯视 8 方向</option>
+            <option value="topdown_4way">俯视 4 方向</option>
+            <option value="side_1way">侧视 1 方向（横版）</option>
+          </select>
+        </label>
+        <div class="wb-grid2">
+          <label class="pl-field"><span>帧宽（px）</span><input type="number" id="frame-w" value="128"></label>
+          <label class="pl-field"><span>帧高（px）</span><input type="number" id="frame-h" value="128"></label>
+        </div>
+        <label class="pl-field"><span>帧率</span><input type="number" id="target-fps" value="10" min="1" max="60"></label>
+        <label class="pl-check"><input type="checkbox" id="in-place-root" checked>原地播放（锁定根骨骼水平位移）</label>
+      </section>
+    </aside>
+  </main>
+
+  <div id="loading-overlay" class="wb-busy" role="status">
+    <div class="wb-spinner"></div>
+    <p id="loading-text">正在渲染序列帧图集…</p>
+  </div>
+
+  <script src="/plaiers-ui.js"></script>
+  <script src="/account-bar.js"></script>
+  <script src="/model3d-loader.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token') || window.location.hash.replace('#token=', '');
+    const isEmbedded = urlParams.get('embedded') === '1';
+    const paramSourcePath = urlParams.get('source_path') || '';
+    const paramMode = urlParams.get('mode') || '';
+    let session = null;
+
+    const MODEL_DIRECTION_AZIMUTHS = {
+      down: 90,
+      'down-right': 45,
+      right: 0,
+      'up-right': 315,
+      up: 270,
+      'up-left': 225,
+      left: 180,
+      'down-left': 135,
+      front: 270,
+      back: 90,
+    };
+
+    const DIRECTIONS_BY_VIEW = {
+      side_1way: ['right'],
+      topdown_4way: ['down', 'right', 'left', 'up'],
+      topdown_8way: ['down-left', 'down', 'down-right', 'left', 'right', 'up-left', 'up', 'up-right'],
+      isometric_4way: ['front', 'right', 'left', 'back'],
+      isometric_8way: ['down-left', 'down', 'down-right', 'left', 'right', 'up-left', 'up', 'up-right'],
+    };
+
+    function closestSquareAtlasGrid(totalFrames, frameWidth, frameHeight) {
+      let bestColumns = Math.ceil(Math.sqrt(totalFrames));
+      let bestScore = Infinity;
+      for (let cols = 1; cols <= totalFrames; cols++) {
+        const rows = Math.ceil(totalFrames / cols);
+        const w = cols * frameWidth;
+        const h = rows * frameHeight;
+        const diff = Math.abs(w - h);
+        if (diff < bestScore) {
+          bestScore = diff;
+          bestColumns = cols;
+        }
+      }
+      const rows = Math.ceil(totalFrames / bestColumns);
+      return { columns: bestColumns, rows };
+    }
+
+    // Three.js Scene Setup
+    let scene, camera, renderer, modelRoot, mixer;
+    let clock = new THREE.Clock();
+    let isPlayingAnim = true;
+
+    function initThree() {
+      const container = document.getElementById('viewport-container');
+      const canvas = document.getElementById('viewport-canvas');
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(plColor('--n950'));
+
+      camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+      camera.position.set(0, 1.0, 3.5);
+      camera.lookAt(0, 0, 0);
+
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(window.devicePixelRatio);
+
+      window.AsxModel3DLoader.setupStudioLighting(THREE, renderer, scene);
+
+      // Simple mouse rotation
+      let isDragging = false;
+      let prevMouse = { x: 0, y: 0 };
+      canvas.onpointerdown = (e) => { isDragging = true; prevMouse = { x: e.clientX, y: e.clientY }; };
+      window.onpointerup = () => { isDragging = false; };
+      canvas.onpointermove = (e) => {
+        if (!isDragging || !modelRoot) return;
+        const dx = e.clientX - prevMouse.x;
+        const dy = e.clientY - prevMouse.y;
+        modelRoot.rotation.y += dx * 0.01;
+        prevMouse = { x: e.clientX, y: e.clientY };
+      };
+
+      // Placeholder proxy while model loads (replaced once real geometry resolves)
+      const proxy = window.AsxModel3DLoader
+        ? window.AsxModel3DLoader.createFallbackProxy(THREE, 'Loading...')
+        : { root: new THREE.Group(), stats: { vertices: 0, faces: 0, format: 'PROXY', isFallback: true } };
+      modelRoot = proxy.root;
+      scene.add(modelRoot);
+
+      document.getElementById('anim-play-btn').onclick = () => {
+        isPlayingAnim = !isPlayingAnim;
+        renderAnimPlayBtn();
+      };
+      renderAnimPlayBtn();
+      document.getElementById('anim-reset-btn').onclick = () => {
+        if (modelRoot) modelRoot.rotation.set(0, 0, 0);
+        if (currentAction) currentAction.reset();
+      };
+
+      animate();
+    }
+
+    function renderAnimPlayBtn() {
+      document.getElementById('anim-play-btn').innerHTML = isPlayingAnim
+        ? `${plIcon('wb-pause', 'i sm')}暂停`
+        : `${plIcon('pi-play', 'i sm')}播放`;
+    }
+
+    function escapeHtml(str) {
+      return String(str == null ? '' : str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    async function loadSessionModel() {
+      if (!window.AsxModel3DLoader || !session) return;
+      const sourceUrl = session.source_url;
+      const sourceName = session.source_name || session.source_path || '';
+      const loaded = await window.AsxModel3DLoader.loadModelFromUrl(
+        THREE,
+        sourceUrl,
+        sourceName,
+        { headers: { 'X-Asx-Session-Token': token } }
+      );
+      if (modelRoot) {
+        scene.remove(modelRoot);
+        window.AsxModel3DLoader.disposeObject3D(modelRoot);
+      }
+      modelRoot = loaded.root;
+      scene.add(modelRoot);
+
+      const st = loaded.stats || {};
+      const rows = [];
+      if (session.source_name) rows.push(['文件', session.source_name]);
+      if (st.isFallback) {
+        rows.push(['预览', `占位模型（${st.fallbackReason || '无法预览'}）`]);
+      } else {
+        rows.push(['格式', st.format], ['顶点', st.vertices], ['面数', st.faces], ['贴图', st.hasTextures ? '有' : '无']);
+      }
+      document.getElementById('model-stats').innerHTML = rows
+        .map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('');
+
+      const clipSelect = document.getElementById('clip-select');
+      const anims = Array.isArray(st.animations) ? st.animations : [];
+      if (anims.length > 0) {
+        clipSelect.innerHTML = anims.map((name, i) => `<option value="${i}">${escapeHtml(name)}</option>`).join('');
+      } else {
+        clipSelect.innerHTML = '<option value="">没有动画</option>';
+      }
+      setupMixer(Array.isArray(st.clips) ? st.clips : []);
+    }
+
+    let clipActions = [];
+    let currentAction = null;
+    function setupMixer(clips) {
+      if (mixer) { mixer.stopAllAction(); mixer = null; }
+      clipActions = [];
+      currentAction = null;
+      if (!clips.length || !modelRoot) return;
+      mixer = new THREE.AnimationMixer(modelRoot);
+      clipActions = clips.map((c) => mixer.clipAction(c));
+      selectClip(0);
+    }
+    function selectClip(idx) {
+      if (!mixer || !clipActions.length) return;
+      if (currentAction) currentAction.stop();
+      currentAction = clipActions[idx] || clipActions[0];
+      currentAction.reset().play();
+    }
+    document.getElementById('clip-select').onchange = (e) => {
+      const i = parseInt(e.target.value, 10);
+      if (!Number.isNaN(i)) selectClip(i);
+    };
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      if (mixer && isPlayingAnim) mixer.update(delta * parseFloat(document.getElementById('anim-speed').value));
+      renderer.render(scene, camera);
+    }
+
+    async function init() {
+      if (!isEmbedded && window.AsxAccountBar) {
+        window.AsxAccountBar.mount('#account-bar-slot', { token });
+      }
+      if (isEmbedded) {
+        const slot = document.getElementById('account-bar-slot');
+        if (slot) slot.style.display = 'none';
+      }
+      const qs = new URLSearchParams();
+      if (paramSourcePath) qs.set('source_path', paramSourcePath);
+      if (paramMode) qs.set('mode', paramMode);
+      const res = await fetch('/api/session' + (qs.toString() ? '?' + qs.toString() : ''), {
+        headers: { 'X-Asx-Session-Token': token },
+      });
+      session = await res.json();
+      document.getElementById('mode-badge').textContent = session.mode === 'model3d_render_sequence' ? '序列帧渲染' : session.mode;
+
+      initThree();
+      await loadSessionModel();
+    }
+
+    // ---- Sequence export helpers: in-place root + fixed framing ----
+    // Pick the node with the largest horizontal world travel across the loop.
+    // Candidates: nodes with position tracks + skeleton root bones.
+    function findRootMotionNode(framesPerDir) {
+      if (!mixer || !currentAction || !modelRoot) return { node: null, travel: 0 };
+      const cands = new Set();
+      for (const track of currentAction.getClip().tracks) {
+        if (!track.name.endsWith('.position')) continue;
+        const parsed = THREE.PropertyBinding.parseTrackName(track.name);
+        const node = THREE.PropertyBinding.findNode(modelRoot, parsed.nodeName);
+        if (node && node.parent) cands.add(node);
+      }
+      modelRoot.traverse((o) => {
+        if (o.isSkinnedMesh && o.skeleton) {
+          for (const bone of o.skeleton.bones) {
+            if (bone.parent && !bone.parent.isBone && bone.parent !== o) cands.add(bone);
+          }
+        }
+      });
+      const list = [...cands];
+      if (!list.length) return { node: null, travel: 0 };
+      const dur = currentAction.getClip().duration || 1;
+      const samples = list.map(() => []);
+      currentAction.paused = true;
+      for (let f = 0; f < framesPerDir; f++) {
+        currentAction.time = (f / framesPerDir) * dur;
+        mixer.update(0);
+        modelRoot.updateMatrixWorld(true);
+        list.forEach((n, i) => samples[i].push(n.getWorldPosition(new THREE.Vector3())));
+      }
+      // Root motion lives on the top-most bone that travels: limbs/fingers swing more
+      // but only because they ride on that root. Pick the shallowest node above epsilon.
+      const depthOf = (n) => { let d = 0; for (let o = n; o && o !== modelRoot; o = o.parent) d++; return d; };
+      const size = new THREE.Box3().setFromObject(modelRoot).getSize(new THREE.Vector3()).length() || 1;
+      const eps = size * 0.01;
+      let best = null, bestTravel = 0, bestDepth = Infinity;
+      list.forEach((n, i) => {
+        const pts = samples[i];
+        const xs = pts.map((v) => v.x), zs = pts.map((v) => v.z);
+        const travel = Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+        const d = depthOf(n);
+        if (travel > eps && d < bestDepth) { best = n; bestTravel = travel; bestDepth = d; }
+      });
+      return { node: best, travel: bestTravel };
+    }
+
+    function poseExportFrame(f, framesPerDir, ctx) {
+      if (mixer && currentAction) {
+        const dur = currentAction.getClip().duration || 1;
+        currentAction.paused = true;
+        currentAction.time = (f / framesPerDir) * dur;
+        mixer.update(0);
+        modelRoot.updateMatrixWorld(true);
+        const node = ctx.rootNode;
+        if (node) {
+          const wp = node.getWorldPosition(new THREE.Vector3());
+          if (!ctx.baseWorld) ctx.baseWorld = wp.clone();
+          // Lock horizontal root motion (world X/Z); keep vertical (jumps, bobbing).
+          wp.x = ctx.baseWorld.x;
+          wp.z = ctx.baseWorld.z;
+          node.position.copy(node.parent.worldToLocal(wp));
+          modelRoot.updateMatrixWorld(true);
+        }
+      } else if (modelRoot) {
+        modelRoot.rotation.x = Math.sin(f * 0.8) * 0.15;
+        modelRoot.updateMatrixWorld(true);
+      }
+    }
+
+    // Box3.setFromObject ignores skinning (rest-pose geometry bounds), so skin vertices explicitly.
+    function computePosedBounds() {
+      const box = new THREE.Box3();
+      const v = new THREE.Vector3();
+      modelRoot.updateMatrixWorld(true);
+      modelRoot.traverse((o) => {
+        if (!o.isMesh || !o.geometry || !o.visible) return;
+        const pos = o.geometry.attributes.position;
+        if (!pos) return;
+        if (o.isSkinnedMesh && typeof o.boneTransform === 'function') {
+          o.skeleton.update();
+          for (let i = 0; i < pos.count; i++) {
+            v.fromBufferAttribute(pos, i);
+            o.boneTransform(i, v);
+            box.expandByPoint(v.applyMatrix4(o.matrixWorld));
+          }
+        } else {
+          if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+          box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
+        }
+      });
+      return box;
+    }
+
+    // Union bounds over all frames -> one fixed ortho framing shared by every frame/direction.
+    function computeExportFraming(framesPerDir, ctx) {
+      const union = new THREE.Box3();
+      for (let f = 0; f < framesPerDir; f++) {
+        poseExportFrame(f, framesPerDir, ctx);
+        const b = computePosedBounds();
+        if (!b.isEmpty()) union.union(b);
+      }
+      if (union.isEmpty()) union.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+      const center = union.getCenter(new THREE.Vector3());
+      // Sphere radius is rotation-invariant: no clipping for any direction/elevation.
+      const radius = (union.getSize(new THREE.Vector3()).length() / 2) * 1.08 || 1;
+      const foot = new THREE.Vector3(center.x, union.min.y, center.z);
+      return { center, radius, foot };
+    }
+
+    document.getElementById('render-btn').onclick = async () => {
+      document.getElementById('loading-overlay').classList.add('open');
+
+      const view = document.getElementById('view-angle').value;
+      const directions = DIRECTIONS_BY_VIEW[view] || ['right'];
+      const frameW = parseInt(document.getElementById('frame-w').value) || 128;
+      const frameH = parseInt(document.getElementById('frame-h').value) || 128;
+      const fps = parseInt(document.getElementById('target-fps').value) || 10;
+      const framesPerDir = 8; // standard walk cycle frames
+
+      const totalFrames = Math.min(240, directions.length * framesPerDir);
+      const grid = closestSquareAtlasGrid(totalFrames, frameW, frameH);
+
+      const atlasCanvas = document.createElement('canvas');
+      atlasCanvas.width = grid.columns * frameW;
+      atlasCanvas.height = grid.rows * frameH;
+      const aCtx = atlasCanvas.getContext('2d');
+
+      const manifestFrames = {};
+      const offRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      offRenderer.setSize(frameW, frameH);
+      offRenderer.setClearColor(0x000000, 0);
+      if (THREE.sRGBEncoding !== undefined) offRenderer.outputEncoding = THREE.sRGBEncoding;
+      if (THREE.ACESFilmicToneMapping !== undefined) offRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const mainBackground = scene.background;
+      scene.background = null;
+      const mainEnv = scene.environment;
+      scene.environment = window.AsxModel3DLoader.createStudioEnvironment(THREE, offRenderer);
+
+      const savedRotX = modelRoot ? modelRoot.rotation.x : 0;
+      const savedRotY = modelRoot ? modelRoot.rotation.y : 0;
+      if (modelRoot) modelRoot.rotation.set(0, 0, 0);
+
+      const inPlace = document.getElementById('in-place-root').checked;
+      const rootInfo = inPlace ? findRootMotionNode(framesPerDir) : { node: null, travel: 0 };
+      console.info('[plaiers-asynx-3d] in-place root:', inPlace, 'node:', rootInfo.node && rootInfo.node.name, 'travel:', rootInfo.travel);
+      const poseCtx = { rootNode: rootInfo.node, baseWorld: null };
+      const framing = computeExportFraming(framesPerDir, poseCtx);
+      const halfH = framing.radius;
+      const halfW = halfH * (frameW / frameH);
+      const camDist = framing.radius * 4;
+      const orthoCamera = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.01, camDist * 2 + framing.radius * 2);
+      const pivots = {};
+
+      let frameCounter = 0;
+      for (const dir of directions) {
+        const azimuth = MODEL_DIRECTION_AZIMUTHS[dir] ?? 0;
+        const rad = (azimuth * Math.PI) / 180;
+        const elevRad = view.startsWith('isometric') ? 0.6154 : view.startsWith('topdown') ? 1.4 : 0;
+
+        orthoCamera.position.set(
+          framing.center.x + Math.cos(rad) * Math.cos(elevRad) * camDist,
+          framing.center.y + Math.sin(elevRad) * camDist,
+          framing.center.z + Math.sin(rad) * Math.cos(elevRad) * camDist
+        );
+        orthoCamera.lookAt(framing.center);
+        orthoCamera.updateMatrixWorld(true);
+        const ndc = framing.foot.clone().project(orthoCamera);
+        pivots[dir] = {
+          x: Math.round(((ndc.x + 1) / 2) * frameW * 100) / 100,
+          y: Math.round(((1 - ndc.y) / 2) * frameH * 100) / 100,
+        };
+
+        for (let f = 0; f < framesPerDir; f++) {
+          if (frameCounter >= 240) break;
+          poseExportFrame(f, framesPerDir, poseCtx);
+          offRenderer.render(scene, orthoCamera);
+
+          const c = frameCounter % grid.columns;
+          const r = Math.floor(frameCounter / grid.columns);
+          const x = c * frameW;
+          const y = r * frameH;
+
+          aCtx.drawImage(offRenderer.domElement, x, y);
+          const frameName = `frame-${String(frameCounter).padStart(4, '0')}.png`;
+          manifestFrames[frameName] = {
+            frame: { x, y, w: frameW, h: frameH },
+            rotated: false,
+            trimmed: false,
+            direction: dir,
+            pivot: pivots[dir],
+            sourceSize: { w: frameW, h: frameH },
+            duration: 1.0 / fps,
+          };
+          frameCounter++;
+        }
+      }
+
+      if (modelRoot) {
+        modelRoot.rotation.x = savedRotX;
+        modelRoot.rotation.y = savedRotY;
+      }
+      if (currentAction) currentAction.paused = false;
+      if (scene.environment && scene.environment !== mainEnv) scene.environment.dispose();
+      scene.environment = mainEnv;
+      scene.background = mainBackground;
+      offRenderer.dispose();
+
+      const atlasDataUrl = atlasCanvas.toDataURL('image/png');
+      const manifest = {
+        frames: manifestFrames,
+        meta: {
+          app: 'plaiers-asynx-3d',
+          version: '1.0',
+          image: 'atlas.png',
+          view: view,
+          directions: directions,
+          frame_count: frameCounter,
+          columns: grid.columns,
+          rows: grid.rows,
+          fps: fps,
+          in_place_root: !!poseCtx.rootNode,
+          root_node: poseCtx.rootNode ? poseCtx.rootNode.name : null,
+          root_travel: rootInfo.travel,
+          pixels_per_unit: frameH / (2 * halfH),
+          pivots: pivots,
+        },
+      };
+
+      const submitRes = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Asx-Session-Token': token },
+        body: JSON.stringify({
+          mode: 'model3d_render_sequence',
+          ...(paramSourcePath ? { source_path: paramSourcePath } : {}),
+          ...(isEmbedded ? { keep_alive: true } : {}),
+          atlas: atlasDataUrl,
+          manifest,
+          metadata: { view, directions },
+        }),
+      });
+      const submitData = await submitRes.json();
+      if (submitRes.ok && submitData.ok) {
+        if (isEmbedded && window.parent !== window) {
+          document.getElementById('loading-overlay').classList.remove('open');
+          window.parent.postMessage({ type: 'asx-workbench-complete', result: submitData.result }, '*');
+          return;
+        }
+        document.getElementById('loading-text').textContent = '图集已导出，正在交回给 Agent…';
+        setTimeout(() => window.close(), 1000);
+      } else {
+        plToast('导出失败：' + (submitData.error?.message || '未知错误'), 'err', 6000);
+        document.getElementById('loading-overlay').classList.remove('open');
+      }
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !isEmbedded || window.parent === window) return;
+      window.parent.postMessage({ type: 'asx-workbench-cancel' }, '*');
+    });
+
+    document.getElementById('cancel-btn').onclick = async () => {
+      if (isEmbedded && window.parent !== window) {
+        window.parent.postMessage({ type: 'asx-workbench-cancel' }, '*');
+        return;
+      }
+      await fetch('/api/cancel', { method: 'POST', headers: { 'X-Asx-Session-Token': token } });
+      window.close();
+    };
+
+    init();
+  </script>
+</body>
+</html>

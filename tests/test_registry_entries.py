@@ -16,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src import registry_entries as reg  # noqa: E402
 
-SLUGS = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-asset-manager")
+SLUGS = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-workbench")
 
 
 class RegistryEntriesTest(unittest.TestCase):
@@ -48,7 +48,7 @@ class RegistryEntriesTest(unittest.TestCase):
     def test_core_entries_exclude_workbench_files(self) -> None:
         for slug in SLUGS[:4]:
             self.assertFalse(any("/ui/" in p or p.endswith("ui_server.py") or "/local_" in p for p in self.entries[slug]["files"]), slug)
-        self.assertIn("scripts/asxlib/ui_server.py", self.entries["asynx-asset-manager"]["files"])
+        self.assertIn("scripts/asxlib/ui_server.py", self.entries["asynx-workbench"]["files"])
 
     def test_predicted_version_is_deterministic_and_origin_normalized(self) -> None:
         entry = self.entries["asynx-image-pro"]

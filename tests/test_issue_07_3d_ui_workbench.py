@@ -137,7 +137,7 @@ class Test3DUIWorkbench(unittest.TestCase):
                     }
                 },
                 "meta": {
-                    "app": "asynx-3d",
+                    "app": "plaiers-asynx-3d",
                     "version": "1.0",
                     "image": "atlas.png",
                     "view": "isometric_8way",

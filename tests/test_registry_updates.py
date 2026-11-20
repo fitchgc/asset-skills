@@ -26,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
 SKILL_ID = "plaiers/asynx-image-pro"
 V1 = hashlib.sha256(b"v1").hexdigest()
 V2 = hashlib.sha256(b"v2").hexdigest()
-SKILLS = ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d", "asynx-asset-manager")
+SKILLS = ("plaiers-asynx-image-pro", "plaiers-asynx-audio", "plaiers-asynx-video", "plaiers-asynx-3d", "plaiers-asynx-workbench")
 
 
 class FakeRegistry:
@@ -86,7 +86,7 @@ class RegistryUpdateTest(unittest.TestCase):
         self.registry = FakeRegistry()
         # A copy of the built skill, installed the way the Plaiers installer leaves it.
         self.skill = self.temp / "skills" / "plaiers-asynx-image-pro"
-        shutil.copytree(REPO_ROOT / "skills" / "asynx-image-pro", self.skill, ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(REPO_ROOT / "skills" / "plaiers-asynx-image-pro", self.skill, ignore=shutil.ignore_patterns("__pycache__"))
         self.bridge_dir = self.temp / "plaiers-community" / "scripts"
         self.write_context(self.registry.origin)
         self.env = {

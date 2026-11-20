@@ -52,7 +52,7 @@ class TestAsynxAudioSkill(unittest.TestCase):
         }
         self.server, self.gateway_url, self.thread = run_fake_gateway()
         self.env["ASYNX_BASE_URL"] = self.gateway_url
-        self.asynx_bin = REPO_ROOT / "skills" / "asynx-audio" / "scripts" / "asynx.py"
+        self.asynx_bin = REPO_ROOT / "skills" / "plaiers-asynx-audio" / "scripts" / "asynx.py"
 
         # Provide a fake audio asset on gateway
         self.server.asset_data["task_1:0"] = self.fixture_wav.read_bytes()

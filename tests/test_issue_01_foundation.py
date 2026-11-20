@@ -244,7 +244,7 @@ class TestSharedFoundationAndMigration(unittest.TestCase):
 class TestAsynxImageCLIEndToEnd(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        # Build asynx-image-pro skill
+        # Build plaiers-asynx-image-pro skill
         from src.build_skills import build_skill
         build_skill("image")
 
@@ -274,7 +274,7 @@ class TestAsynxImageCLIEndToEnd(unittest.TestCase):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     def run_cli(self, *args: str) -> dict[str, Any]:
-        asynx_py = REPO_ROOT / "skills" / "asynx-image-pro" / "scripts" / "asynx.py"
+        asynx_py = REPO_ROOT / "skills" / "plaiers-asynx-image-pro" / "scripts" / "asynx.py"
         proc = subprocess.run(
             [sys.executable, str(asynx_py), *with_consent(args)],
             capture_output=True,

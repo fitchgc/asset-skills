@@ -2,7 +2,7 @@
 
 Core packages (image/audio/video/3d) ship only generation, query and download. Browser workbenches
 and local editing (`ui ...`, `image|audio|video|model3d <local op>`) live once in the workbench
-package, which is the asset-manager package (ADR-0007). It is a separate registry capability that
+package (`plaiers-asynx-workbench`, which also carries the asset manager; ADR-0007). It is a separate registry capability that
 the user installs only when wanted.
 
 When a workbench feature is requested, the workbench's ``scripts/asxlib`` directory is appended to
@@ -21,9 +21,9 @@ from . import __path__ as _package_path
 from .constants import VERSION
 from .errors import AsxError
 
-# Registry ID and directory names of the workbench package. Final IDs wait on PR #10 Q2.
-WORKBENCH_SKILL_ID = "plaiers/asynx-asset-manager"
-WORKBENCH_DIR_NAMES = ("plaiers-asynx-asset-manager", "asynx-asset-manager")
+# Registry ID and installed directory name of the workbench package (confirmed on PR #10, Q2).
+WORKBENCH_SKILL_ID = "plaiers/asynx-workbench"
+WORKBENCH_DIR_NAMES = ("plaiers-asynx-workbench",)
 WORKBENCH_DIR_ENV = "ASYNX_WORKBENCH_DIR"
 _MARKER = "ui_server.py"
 _HERE = Path(__file__).resolve().parent

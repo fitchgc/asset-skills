@@ -88,10 +88,10 @@ class TestAssetManagerPackagingDeterminism(unittest.TestCase):
         from src.build_skills import package_skill
 
         zip_path, manifest_1 = package_skill("asset_manager")
-        install_receipt_1 = (REPO_ROOT / "skills" / "asynx-asset-manager" / ".asx-install.json").read_text(encoding="utf-8")
+        install_receipt_1 = (REPO_ROOT / "skills" / "plaiers-asynx-workbench" / ".asx-install.json").read_text(encoding="utf-8")
         sha_1 = json.loads(manifest_1.read_text(encoding="utf-8"))["sha256"]
         package_skill("asset_manager")
-        install_receipt_2 = (REPO_ROOT / "skills" / "asynx-asset-manager" / ".asx-install.json").read_text(encoding="utf-8")
+        install_receipt_2 = (REPO_ROOT / "skills" / "plaiers-asynx-workbench" / ".asx-install.json").read_text(encoding="utf-8")
         sha_2 = json.loads(manifest_1.read_text(encoding="utf-8"))["sha256"]
         self.assertEqual(install_receipt_1, install_receipt_2)
         self.assertEqual(sha_1, sha_2)
@@ -102,32 +102,32 @@ class TestAssetManagerPackagingDeterminism(unittest.TestCase):
         self.assertFalse(any("__pycache__" in n or n.endswith((".pyc", ".pyo")) for n in names))
 
         expected_modules = (
-            "asynx-asset-manager/scripts/asxlib/cli.py",
-            "asynx-asset-manager/scripts/asxlib/scanner.py",
-            "asynx-asset-manager/scripts/asxlib/actions.py",
-            "asynx-asset-manager/scripts/asxlib/images.py",
-            "asynx-asset-manager/scripts/asxlib/local_images.py",
-            "asynx-asset-manager/scripts/asxlib/image_results.py",
-            "asynx-asset-manager/scripts/asxlib/reference_media.py",
-            "asynx-asset-manager/scripts/asxlib/audio_tasks.py",
-            "asynx-asset-manager/scripts/asxlib/local_audio.py",
-            "asynx-asset-manager/scripts/asxlib/video_tasks.py",
-            "asynx-asset-manager/scripts/asxlib/local_video.py",
-            "asynx-asset-manager/scripts/asxlib/model3d_tasks.py",
-            "asynx-asset-manager/scripts/asxlib/local_model3d.py",
-            "asynx-asset-manager/scripts/asxlib/ui/index.html",
-            "asynx-asset-manager/scripts/asxlib/ui/account-bar.js",
-            "asynx-asset-manager/scripts/asxlib/ui/model3d-loader.js",
-            "asynx-asset-manager/scripts/asxlib/ui/image/index.html",
-            "asynx-asset-manager/scripts/asxlib/ui/video/index.html",
-            "asynx-asset-manager/scripts/asxlib/ui/3d/index.html",
+            "plaiers-asynx-workbench/scripts/asxlib/cli.py",
+            "plaiers-asynx-workbench/scripts/asxlib/scanner.py",
+            "plaiers-asynx-workbench/scripts/asxlib/actions.py",
+            "plaiers-asynx-workbench/scripts/asxlib/images.py",
+            "plaiers-asynx-workbench/scripts/asxlib/local_images.py",
+            "plaiers-asynx-workbench/scripts/asxlib/image_results.py",
+            "plaiers-asynx-workbench/scripts/asxlib/reference_media.py",
+            "plaiers-asynx-workbench/scripts/asxlib/audio_tasks.py",
+            "plaiers-asynx-workbench/scripts/asxlib/local_audio.py",
+            "plaiers-asynx-workbench/scripts/asxlib/video_tasks.py",
+            "plaiers-asynx-workbench/scripts/asxlib/local_video.py",
+            "plaiers-asynx-workbench/scripts/asxlib/model3d_tasks.py",
+            "plaiers-asynx-workbench/scripts/asxlib/local_model3d.py",
+            "plaiers-asynx-workbench/scripts/asxlib/ui/index.html",
+            "plaiers-asynx-workbench/scripts/asxlib/ui/account-bar.js",
+            "plaiers-asynx-workbench/scripts/asxlib/ui/model3d-loader.js",
+            "plaiers-asynx-workbench/scripts/asxlib/ui/image/index.html",
+            "plaiers-asynx-workbench/scripts/asxlib/ui/video/index.html",
+            "plaiers-asynx-workbench/scripts/asxlib/ui/3d/index.html",
         )
         for item in expected_modules:
             self.assertIn(item, names, f"Missing bundled asset in zip: {item}")
 
-        # Verify cli.py inside asynx-asset-manager is asset_manager/cli.py, not overwritten by another modality
+        # Verify cli.py inside plaiers-asynx-workbench is asset_manager/cli.py, not overwritten by another modality
         with zipfile.ZipFile(zip_path, "r") as zf:
-            cli_src = zf.read("asynx-asset-manager/scripts/asxlib/cli.py").decode("utf-8")
+            cli_src = zf.read("plaiers-asynx-workbench/scripts/asxlib/cli.py").decode("utf-8")
         self.assertIn('"scan"', cli_src)
         self.assertIn('"lineage"', cli_src)
 
@@ -717,7 +717,7 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
         env.pop("ASYNX_PARTNER_TOKEN", None)
         env.pop("ASYNX_BASE_URL", None)
 
-        asynx_py = skills_dir / "asynx-asset-manager" / "scripts" / "asynx.py"
+        asynx_py = skills_dir / "plaiers-asynx-workbench" / "scripts" / "asynx.py"
         proc = subprocess.Popen(
             [sys.executable, str(asynx_py), "ui", "--root", str(workspace), "--no-open"],
             cwd=str(temp_dir),

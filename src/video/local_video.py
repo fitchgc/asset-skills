@@ -178,7 +178,7 @@ def video_spritesheet(
     manifest = {
         "frames": manifest_frames,
         "meta": {
-            "app": "asynx-video",
+            "app": "plaiers-asynx-video",
             "version": "1.0",
             "image": "atlas.png",
             "format": "RGBA8888",

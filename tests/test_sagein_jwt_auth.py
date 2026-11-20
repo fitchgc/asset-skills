@@ -285,8 +285,8 @@ class TestInstalledSkillCli(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.gw, self.gw_url, _ = run_fake_gateway()
         self.sagein, self.origin, _ = run_fake_sagein_server(self.gw_url)
-        self.skill = self.tmp / "Agent Skills" / "asynx-audio"
-        shutil.copytree(REPO_ROOT / "skills" / "asynx-audio", self.skill)
+        self.skill = self.tmp / "Agent Skills" / "plaiers-asynx-audio"
+        shutil.copytree(REPO_ROOT / "skills" / "plaiers-asynx-audio", self.skill)
         self.env = {k: v for k, v in os.environ.items() if k not in _ENV_KEYS}
         self.env.update({
             "ASYNX_CONFIG_PATH": str(self.tmp / "config.json"),

@@ -7,9 +7,8 @@ The validation mirrors the publisher (``lib/skill-registry-publish.mjs`` ``valid
 ``safeSkillPath`` and the 4 MiB payload limit) and adds a credential scan, so a bad package fails
 here, before anything is uploaded.
 
-The final IDs and names wait on PR #10 Q2. They come only from ``ID_PREFIX`` / ``NAME_PREFIX`` and
-``PACKAGES`` below. The source ``SKILL.md`` keeps its current ``name``; the entry's copy has its
-frontmatter ``name`` set to ``metadata.name``.
+IDs follow the namespace confirmed on PR #10 (Q2): ``plaiers/asynx-*`` with ``name`` and the installed
+directory ``plaiers-asynx-*``, which is also the package directory name under ``skills/``.
 """
 
 from __future__ import annotations
@@ -28,9 +27,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from src import build_skills  # noqa: E402
 
-# Pending Q2: the single place that decides registry IDs and installed directory names.
+# Registry ID = ID_PREFIX + slug; name / directory = NAME_PREFIX + slug (PR #10 Q2).
 ID_PREFIX = "plaiers/"
 NAME_PREFIX = "plaiers-"
+
+
+def slug_for(key: str) -> str:
+    return build_skills.MODALITIES[key]["skill_name"].removeprefix(NAME_PREFIX)
 REGISTRY_DIR = build_skills.DIST_DIR / "registry"
 DEV_ORIGIN = "https://dev.plaiers.ai"
 AUTHOR = "Asynx Asset Skills (fitchgc/asset-skills)"
@@ -97,12 +100,6 @@ def _frontmatter_description(text: str) -> str:
     return found.group(1).strip()
 
 
-def _rename_frontmatter(text: str, name: str) -> str:
-    updated, count = re.subn(r"\A(---\n(?:.*?\n)?)name:[^\n]*\n", lambda m: f"{m.group(1)}name: {name}\n", text, count=1, flags=re.DOTALL)
-    if not count:
-        raise RegistryEntryError("SKILL.md has no frontmatter name")
-    return updated
-
 
 def validate_entry(entry: dict[str, Any]) -> None:
     """Mirror of the publisher's checks, plus a credential scan. Raises RegistryEntryError."""
@@ -149,8 +146,10 @@ def validate_entry(entry: dict[str, Any]) -> None:
 
 def entry_for(key: str, skill_dir: Path) -> dict[str, Any]:
     info = PACKAGES[key]
-    slug = build_skills.MODALITIES[key]["skill_name"]
+    slug = slug_for(key)
     skill_id, name = ID_PREFIX + slug, NAME_PREFIX + slug
+    if name != skill_dir.name:
+        raise RegistryEntryError(f"{skill_id}: package directory {skill_dir.name} != {name}")
     files: dict[str, str] = {}
     for path in sorted(skill_dir.rglob("*")):
         if not path.is_file() or build_skills._is_cache_artifact(path):
@@ -162,7 +161,8 @@ def entry_for(key: str, skill_dir: Path) -> dict[str, Any]:
             files[rel] = path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise RegistryEntryError(f"{skill_id}: Non-text file: {rel}") from exc
-    files["SKILL.md"] = _rename_frontmatter(files["SKILL.md"], name)
+    if f"name: {name}\n" not in files["SKILL.md"].split("---", 2)[1] + "\n":
+        raise RegistryEntryError(f"{skill_id}: SKILL.md frontmatter name must be {name}")
     metadata = {
         "id": skill_id,
         "name": name,
@@ -197,7 +197,7 @@ def build_registry_entries(out_dir: Path = REGISTRY_DIR, *, rebuild: bool = True
     for key in PACKAGES:
         skill_dir = build_skills.build_skill(key) if rebuild else build_skills.SKILLS_DIR / build_skills.MODALITIES[key]["skill_name"]
         entry = entry_for(key, skill_dir)
-        slug = build_skills.MODALITIES[key]["skill_name"]
+        slug = slug_for(key)
         text = json.dumps(entry, ensure_ascii=False, indent=1) + "\n"
         (out_dir / f"{slug}.json").write_text(text, encoding="utf-8")
         report.append({"id": entry["metadata"]["id"], "name": entry["metadata"]["name"], "files": len(entry["files"]),

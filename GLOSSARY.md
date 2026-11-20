@@ -1,6 +1,6 @@
 # Agent Asset Skills
 
-面向 AI Agent 的多模态与游戏创作资产（图像、音频、视频、序列帧、3D）生成、编辑、后处理、管线管理与项目资产浏览的同构技能集合（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`）。
+面向 AI Agent 的多模态与游戏创作资产（图像、音频、视频、序列帧、3D）生成、编辑、后处理、管线管理与项目资产浏览的同构技能集合（`plaiers-asynx-image-pro`、`plaiers-asynx-audio`、`plaiers-asynx-video`、`plaiers-asynx-3d`、`plaiers-asynx-workbench`）。
 
 ## Language
 
@@ -13,13 +13,13 @@ _Avoid_: 资源文件、附件、通用数字资产
 _Avoid_: 资产类型、文件格式、频道
 
 **Asset Skill（资产技能）**:
-面向 AI Agent 的特定资产模态创作、处理或项目资产管理能力单元（`asynx-image-pro`、`asynx-audio`、`asynx-video`、`asynx-3d`、`asynx-asset-manager`），作为 Plaiers 技能库的 `kind: "capability"` 按锁定版本分发，包含声明式工作流引导与自包含 CLI 脚本。分为**核心包**和**工作台包**。
+面向 AI Agent 的特定资产模态创作、处理或项目资产管理能力单元（`plaiers-asynx-image-pro`、`plaiers-asynx-audio`、`plaiers-asynx-video`、`plaiers-asynx-3d`、`plaiers-asynx-workbench`），作为 Plaiers 技能库的 `kind: "capability"` 按锁定版本分发，包含声明式工作流引导与自包含 CLI 脚本。分为**核心包**和**工作台包**。
 
 **核心包（Core Package）**:
 单一模态的 Asset Skill（图片、音频、视频、3D），只含生成、查询、下载所需的纯文本文件；不含浏览器工作台、本地后处理模块、字体或第三方库。
 
 **工作台包（Workbench Package）**:
-可选安装的 `asynx-asset-manager`，同时承载资产管理器、全部 Local UI Workbench 和各模态 Local Post-Processing，只打包一次。核心包在用户调用这些功能时从同一 Skills 目录加载它，并要求版本一致；未安装时返回 `workbench_not_installed`。
+可选安装的 `plaiers-asynx-workbench`，同时承载资产管理器、全部 Local UI Workbench 和各模态 Local Post-Processing，只打包一次。核心包在用户调用这些功能时从同一 Skills 目录加载它，并要求版本一致；未安装时返回 `workbench_not_installed`。
 _Avoid_: UI 插件、扩展包
 
 **共享运行环境（Shared Runtime）**:

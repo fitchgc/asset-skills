@@ -122,13 +122,13 @@ class PillowFreeCase(unittest.TestCase):
 class TestCoreFlowsNeverImportPillow(PillowFreeCase):
     def test_image_text_generation_status_wait_download(self) -> None:
         self.server.asset_data["task_1:0"] = png_bytes(64, 32)
-        self.task_lifecycle("asynx-image-pro", ["generate", "--prompt", "a lantern"])
+        self.task_lifecycle("plaiers-asynx-image-pro", ["generate", "--prompt", "a lantern"])
         self.assertEqual(self.pil_imports(), [])
 
     def test_image_remote_reference_needs_no_decoding(self) -> None:
         self.server.asset_data["task_1:0"] = png_bytes(8, 8)
         self.task_lifecycle(
-            "asynx-image-pro",
+            "plaiers-asynx-image-pro",
             ["generate", "--prompt", "a lantern", "--reference", "https://example.com/ref.png"],
         )
         self.assertEqual(self.pil_imports(), [])
@@ -136,19 +136,19 @@ class TestCoreFlowsNeverImportPillow(PillowFreeCase):
     def test_audio_text_generation_status_wait_download(self) -> None:
         self.server.asset_data["task_1:0"] = b"RIFF\x24\x00\x00\x00WAVEfmt "
         self.server.asset_mimes["task_1:0"] = "audio/wav"
-        self.task_lifecycle("asynx-audio", ["sfx", "--prompt", "sword clash", "--duration", "1.0"])
+        self.task_lifecycle("plaiers-asynx-audio", ["sfx", "--prompt", "sword clash", "--duration", "1.0"])
         self.assertEqual(self.pil_imports(), [])
 
     def test_video_text_generation_status_wait_download(self) -> None:
         self.server.asset_data["task_1:0"] = b"\x00\x00\x00\x18ftypmp42"
         self.server.asset_mimes["task_1:0"] = "video/mp4"
-        self.task_lifecycle("asynx-video", ["generate", "--prompt", "neon street"])
+        self.task_lifecycle("plaiers-asynx-video", ["generate", "--prompt", "neon street"])
         self.assertEqual(self.pil_imports(), [])
 
     def test_3d_text_generation_status_wait_download(self) -> None:
         self.server.asset_data["task_1:0"] = b"glTF\x02\x00\x00\x00\x0c\x00\x00\x00"
         self.server.asset_mimes["task_1:0"] = "model/gltf-binary"
-        self.task_lifecycle("asynx-3d", ["generate", "--prompt", "magic sword"])
+        self.task_lifecycle("plaiers-asynx-3d", ["generate", "--prompt", "magic sword"])
         self.assertEqual(self.pil_imports(), [])
 
     def test_image_batch_pause_resume_and_header_metadata(self) -> None:
@@ -157,16 +157,16 @@ class TestCoreFlowsNeverImportPillow(PillowFreeCase):
         self.server.default_submit_status = "running"
         out_dir = self.temp_dir / "batch"
         created = self.cli(
-            "asynx-image-pro", "batch", "create", "--prompt", "tile", "--total", "2",
+            "plaiers-asynx-image-pro", "batch", "create", "--prompt", "tile", "--total", "2",
             "--aspect-ratio", "2:1", "--output-dir", str(out_dir),
         )
         batch_id = created["batch"]["id"]
-        self.cli("asynx-image-pro", "batch", "pause", batch_id)
-        self.cli("asynx-image-pro", "batch", "resume", batch_id)
+        self.cli("plaiers-asynx-image-pro", "batch", "pause", batch_id)
+        self.cli("plaiers-asynx-image-pro", "batch", "resume", batch_id)
         for task in self.server.tasks.values():
             task["status"] = "succeeded"
             task["result"] = {"assets": [{"index": 0, "download_url": None}]}
-        batch = self.cli("asynx-image-pro", "batch", "wait", batch_id, "--interval", "1", "--max-wait", "20")["batch"]
+        batch = self.cli("plaiers-asynx-image-pro", "batch", "wait", batch_id, "--interval", "1", "--max-wait", "20")["batch"]
         self.assertEqual(batch["status"], "completed", batch)
         self.assertEqual(len(self.server.submissions), 2)
         files = batch["files"]
@@ -192,13 +192,13 @@ class TestCoreFlowsNeverImportPillow(PillowFreeCase):
         self.assertFalse([w for w in warnings if w["code"] == "aspect_ratio_mismatch"], warnings)
 
         # Polling again neither resubmits nor re-downloads.
-        self.cli("asynx-image-pro", "batch", "status", batch_id, "--refresh")
+        self.cli("plaiers-asynx-image-pro", "batch", "status", batch_id, "--refresh")
         self.assertEqual(len(self.server.submissions), 2)
         # Only the optional metadata step tried Pillow.
         self.assertTrue(all(line.startswith("PIL") and "batch " in line for line in self.pil_imports()))
 
     def test_doctor_reports_optional_runtime_not_prepared(self) -> None:
-        for skill in ("asynx-image-pro", "asynx-audio", "asynx-video", "asynx-3d"):
+        for skill in ("plaiers-asynx-image-pro", "plaiers-asynx-audio", "plaiers-asynx-video", "plaiers-asynx-3d"):
             with self.subTest(skill=skill):
                 report = self.cli(skill, "doctor")
                 runtime = report["optional_runtime"]
@@ -220,39 +220,39 @@ class TestInputsNeedingPillowFailBeforeSubmission(PillowFreeCase):
 
     def test_image_generate_with_local_reference(self) -> None:
         payload = self.cli(
-            "asynx-image-pro", "generate", "--prompt", "x", "--reference", str(self.ref_png),
+            "plaiers-asynx-image-pro", "generate", "--prompt", "x", "--reference", str(self.ref_png),
             expect_ok=False,
         )
         self.assert_dependency_missing(payload)
 
     def test_image_edit_with_mask(self) -> None:
         payload = self.cli(
-            "asynx-image-pro", "edit", "--prompt", "x", "--image", "https://example.com/a.png",
+            "plaiers-asynx-image-pro", "edit", "--prompt", "x", "--image", "https://example.com/a.png",
             "--mask", str(self.mask_png), expect_ok=False,
         )
         self.assert_dependency_missing(payload)
 
     def test_image_batch_with_local_reference(self) -> None:
         payload = self.cli(
-            "asynx-image-pro", "batch", "create", "--operation", "edit", "--prompt", "x",
+            "plaiers-asynx-image-pro", "batch", "create", "--operation", "edit", "--prompt", "x",
             "--image", str(self.ref_png), expect_ok=False,
         )
         self.assert_dependency_missing(payload)
 
     def test_video_generate_with_local_image(self) -> None:
         payload = self.cli(
-            "asynx-video", "generate", "--prompt", "x", "--image", str(self.ref_png),
+            "plaiers-asynx-video", "generate", "--prompt", "x", "--image", str(self.ref_png),
             expect_ok=False,
         )
         self.assert_dependency_missing(payload)
 
     def test_3d_generate_with_local_image(self) -> None:
-        payload = self.cli("asynx-3d", "generate", "--image", str(self.ref_png), expect_ok=False)
+        payload = self.cli("plaiers-asynx-3d", "generate", "--image", str(self.ref_png), expect_ok=False)
         self.assert_dependency_missing(payload)
 
     def test_local_image_processing(self) -> None:
         payload = self.cli(
-            "asynx-image-pro", "image", "resize", str(self.ref_png),
+            "plaiers-asynx-image-pro", "image", "resize", str(self.ref_png),
             "--output", str(self.temp_dir / "o.png"), "--width", "8", "--height", "8",
             expect_ok=False,
         )

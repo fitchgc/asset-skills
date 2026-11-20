@@ -421,7 +421,7 @@
 
       const inPlace = document.getElementById('in-place-root').checked;
       const rootInfo = inPlace ? findRootMotionNode(framesPerDir) : { node: null, travel: 0 };
-      console.info('[asynx-3d] in-place root:', inPlace, 'node:', rootInfo.node && rootInfo.node.name, 'travel:', rootInfo.travel);
+      console.info('[plaiers-asynx-3d] in-place root:', inPlace, 'node:', rootInfo.node && rootInfo.node.name, 'travel:', rootInfo.travel);
       const poseCtx = { rootNode: rootInfo.node, baseWorld: null };
       const framing = computeExportFraming(framesPerDir, poseCtx);
       const halfH = framing.radius;
@@ -488,7 +488,7 @@
       const manifest = {
         frames: manifestFrames,
         meta: {
-          app: 'asynx-3d',
+          app: 'plaiers-asynx-3d',
           version: '1.0',
           image: 'atlas.png',
           view: view,

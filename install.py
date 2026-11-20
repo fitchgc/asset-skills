@@ -16,33 +16,41 @@ ROOT = Path(__file__).resolve().parent
 SKILLS_DIR = ROOT / "skills"
 
 SKILL_NAME_ALIASES: dict[str, str] = {
-    "image": "asynx-image-pro",
-    "img": "asynx-image-pro",
-    "asynx-image": "asynx-image-pro",
-    "asynx-image-pro": "asynx-image-pro",
-    "image-pro": "asynx-image-pro",
-    "audio": "asynx-audio",
-    "snd": "asynx-audio",
-    "asynx-audio": "asynx-audio",
-    "video": "asynx-video",
-    "vid": "asynx-video",
-    "asynx-video": "asynx-video",
-    "3d": "asynx-3d",
-    "model3d": "asynx-3d",
-    "asynx-3d": "asynx-3d",
-    "asset-manager": "asynx-asset-manager",
-    "asset_manager": "asynx-asset-manager",
-    "manager": "asynx-asset-manager",
-    "assets": "asynx-asset-manager",
-    "asynx-asset-manager": "asynx-asset-manager",
+    "image": "plaiers-asynx-image-pro",
+    "img": "plaiers-asynx-image-pro",
+    "asynx-image": "plaiers-asynx-image-pro",
+    "plaiers-asynx-image-pro": "plaiers-asynx-image-pro",
+    "image-pro": "plaiers-asynx-image-pro",
+    "audio": "plaiers-asynx-audio",
+    "snd": "plaiers-asynx-audio",
+    "plaiers-asynx-audio": "plaiers-asynx-audio",
+    "video": "plaiers-asynx-video",
+    "vid": "plaiers-asynx-video",
+    "plaiers-asynx-video": "plaiers-asynx-video",
+    "3d": "plaiers-asynx-3d",
+    "model3d": "plaiers-asynx-3d",
+    "plaiers-asynx-3d": "plaiers-asynx-3d",
+    "workbench": "plaiers-asynx-workbench",
+    "asynx-workbench": "plaiers-asynx-workbench",
+    "asset-manager": "plaiers-asynx-workbench",
+    "asset_manager": "plaiers-asynx-workbench",
+    "manager": "plaiers-asynx-workbench",
+    "assets": "plaiers-asynx-workbench",
+    "plaiers-asynx-workbench": "plaiers-asynx-workbench",
+    # Names before the plaiers- namespace (PR #10 Q2).
+    "asynx-image-pro": "plaiers-asynx-image-pro",
+    "asynx-audio": "plaiers-asynx-audio",
+    "asynx-video": "plaiers-asynx-video",
+    "asynx-3d": "plaiers-asynx-3d",
+    "asynx-asset-manager": "plaiers-asynx-workbench",
 }
 
 ALL_SKILL_NAMES: list[str] = [
-    "asynx-image-pro",
-    "asynx-audio",
-    "asynx-video",
-    "asynx-3d",
-    "asynx-asset-manager",
+    "plaiers-asynx-image-pro",
+    "plaiers-asynx-audio",
+    "plaiers-asynx-video",
+    "plaiers-asynx-3d",
+    "plaiers-asynx-workbench",
 ]
 
 def _resolve_skill_names(selection: str) -> list[str]:
@@ -67,12 +75,12 @@ def _ensure_skill_built(skill_name: str) -> Path:
         build_script = ROOT / "src" / "build_skills.py"
         if build_script.exists():
             modality_map = {
-                "asynx-image-pro": "image",
+                "plaiers-asynx-image-pro": "image",
                 "asynx-image": "image",
-                "asynx-audio": "audio",
-                "asynx-video": "video",
-                "asynx-3d": "3d",
-                "asynx-asset-manager": "asset_manager",
+                "plaiers-asynx-audio": "audio",
+                "plaiers-asynx-video": "video",
+                "plaiers-asynx-3d": "3d",
+                "plaiers-asynx-workbench": "asset_manager",
             }
             modality = modality_map.get(skill_name)
             if modality:
@@ -150,7 +158,7 @@ def _resolve_targets(selection: str, home: Path) -> list[str]:
     return detected or _prompt_target()
 
 
-def _target_path(target: str, home: Path, skill_name: str = "asynx-image-pro") -> Path:
+def _target_path(target: str, home: Path, skill_name: str = "plaiers-asynx-image-pro") -> Path:
     if target == "codex":
         return home / ".agents" / "skills" / skill_name
     if target == "claude":
@@ -174,7 +182,7 @@ def _check_legacy_installations(home: Path, targets: list[str]) -> None:
 
 
 def _check_system_tools(skills: list[str]) -> None:
-    needs_ffmpeg = any(s in {"asynx-audio", "asynx-video"} for s in skills)
+    needs_ffmpeg = any(s in {"plaiers-asynx-audio", "plaiers-asynx-video"} for s in skills)
     if needs_ffmpeg and shutil.which("ffmpeg") is None:
         print(
             "提示：未检测到系统 ffmpeg 工具。音频合成/格式转换与视频高级处理需依赖 ffmpeg。\n"
@@ -219,7 +227,7 @@ def _uninstall_skill(destination: Path) -> bool:
         return True
     if not destination.exists():
         return False
-    if not destination.is_dir() or not destination.name.startswith("asynx-") or destination.parent.name != "skills":
+    if not destination.is_dir() or not destination.name.startswith("plaiers-asynx-") or destination.parent.name != "skills":
         raise RuntimeError(f"该路径不是预期的 Skill 安装目录，未执行删除：{destination}")
     shutil.rmtree(destination)
     return True
@@ -420,24 +428,24 @@ def run(
         print("Codex 中可输入：")
         for skill in target_skills:
             example = {
-                "asynx-image-pro": "$asynx-image-pro 生成一张卡通猫的图片",
-                "asynx-image": "$asynx-image-pro 生成一张卡通猫的图片",
-                "asynx-audio": "$asynx-audio 生成一段雨声音效",
-                "asynx-video": "$asynx-video 生成一段猫咪玩耍的视频",
-                "asynx-3d": "$asynx-3d 生成一个宝箱 3D 模型",
-                "asynx-asset-manager": "$asynx-asset-manager 扫描当前项目的创作资产并查看血缘关系",
+                "plaiers-asynx-image-pro": "$plaiers-asynx-image-pro 生成一张卡通猫的图片",
+                "asynx-image": "$plaiers-asynx-image-pro 生成一张卡通猫的图片",
+                "plaiers-asynx-audio": "$plaiers-asynx-audio 生成一段雨声音效",
+                "plaiers-asynx-video": "$plaiers-asynx-video 生成一段猫咪玩耍的视频",
+                "plaiers-asynx-3d": "$plaiers-asynx-3d 生成一个宝箱 3D 模型",
+                "plaiers-asynx-workbench": "$plaiers-asynx-workbench 扫描当前项目的创作资产并查看血缘关系",
             }.get(skill, f"${skill}")
             print(f"  {example}")
     if "claude" in targets:
         print("Claude Code 中可输入：")
         for skill in target_skills:
             example = {
-                "asynx-image-pro": "/asynx-image-pro 生成一张卡通猫的图片",
-                "asynx-image": "/asynx-image-pro 生成一张卡通猫的图片",
-                "asynx-audio": "/asynx-audio 生成一段雨声音效",
-                "asynx-video": "/asynx-video 生成一段猫咪玩耍的视频",
-                "asynx-3d": "/asynx-3d 生成一个宝箱 3D 模型",
-                "asynx-asset-manager": "/asynx-asset-manager 扫描当前项目的创作资产并查看血缘关系",
+                "plaiers-asynx-image-pro": "/plaiers-asynx-image-pro 生成一张卡通猫的图片",
+                "asynx-image": "/plaiers-asynx-image-pro 生成一张卡通猫的图片",
+                "plaiers-asynx-audio": "/plaiers-asynx-audio 生成一段雨声音效",
+                "plaiers-asynx-video": "/plaiers-asynx-video 生成一段猫咪玩耍的视频",
+                "plaiers-asynx-3d": "/plaiers-asynx-3d 生成一个宝箱 3D 模型",
+                "plaiers-asynx-workbench": "/plaiers-asynx-workbench 扫描当前项目的创作资产并查看血缘关系",
             }.get(skill, f"/{skill}")
             print(f"  {example}")
     return 0
