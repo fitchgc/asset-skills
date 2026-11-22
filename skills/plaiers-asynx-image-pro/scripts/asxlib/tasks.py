@@ -446,6 +446,8 @@ def submit_confirmed(
             gateway=str(client.base_url),
             body=body,
         )
+        from .project_budget import reserve
+        reserve(ledger, idempotency_key)
     finally:
         if connection is None:
             ledger.close()
@@ -879,6 +881,9 @@ def _download_task_result(
         task, request_id, files=files, local_id=local_id, modality=modality
     )
     payload["download_status"] = "failed" if download_error else "downloaded"
+    if files:
+        payload["project_workbench"] = {"optional": True, "args": ["project", "open", "--root", "<项目根目录>"],
+                                        "output_dir": str(Path(output_dir).resolve())}
     if download_error:
         payload["ok"] = False
         payload["error"] = {**download_error, "phase": "download"}

@@ -734,9 +734,13 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
         env.pop("ASYNX_PARTNER_TOKEN", None)
         env.pop("ASYNX_BASE_URL", None)
 
-        asynx_py = skills_dir / "plaiers-asynx-workbench" / "scripts" / "asynx.py"
+        image_zip, _ = package_skill("image")
+        with zipfile.ZipFile(image_zip) as zf:
+            zf.extractall(skills_dir)
+        install_fake_context(skill_dir, login_url)
+        asynx_py = skills_dir / "plaiers-asynx-image-pro" / "scripts" / "asynx.py"
         proc = subprocess.Popen(
-            [sys.executable, str(asynx_py), "ui", "--root", str(workspace), "--no-open"],
+            [sys.executable, str(asynx_py), "project", "open", "--root", str(workspace), "--no-open"],
             cwd=str(temp_dir),
             env=env,
             stdout=subprocess.PIPE,

@@ -7,9 +7,13 @@ description: 通过 Asynx 生成 3D 资产、检查可绑定性 (rig-check)、�
 
 使用本 Skill 的 `scripts/asynx.py` 完成 3D 模型生成、角色骨骼绑定、动画重定向与纯 Python 离线模型后处理。下文 `<skill-dir>` 替换为当前 Skill 的绝对路径；纯 Python 检查无需安装 Blender。
 
+## 项目资产交接
+
+先与用户确定项目根目录，把生成结果的输出目录设在其中。用本 Skill 的 `project budget --root "<项目根目录>" --currency USD --limit <金额>` 设置本身份的项目预算，省略上限参数可查逐任务预占与累计实扣。下载后向用户提供 `python3 "<skill-dir>/scripts/asynx.py" project open --root "<项目根目录>"`，在本机查看、挑选或编辑同项目素材；已打开时可复用该项目与身份的本地窗口。共享运行环境用 `runtime status` 检查，经同意后用 `runtime prepare` 准备。工作台按需打开。
+
 ## 积分消耗确认（付费确认）
 
-生成任务会消耗**积分**（资产服务的充值额度；与社区原有积分体系、玩造币相互独立，不互转）。每次提交生成任务或批次之前都要先让用户确认预计消耗。**授权 `skill_jwt`、登录或安装本 Skill 都不代表用户同意消耗积分。** PAT、JWT 是访问凭据（令牌），不是积分。
+生成任务会消耗**资产积分**（资产服务的充值额度；与社区原有积分体系、玩造币相互独立，不互转）。每次提交生成任务或批次之前都要先让用户确认预计消耗。**授权 `skill_jwt`、登录或安装本 Skill 都不代表用户同意消耗积分。** PAT、JWT 是访问凭据（令牌），不是积分。
 
 1. 第一次运行生成命令时，不要带 `--confirmed-quote`。CLI 只报价，不提交任务，并返回 `confirmation_required`。`details` 里有本次任务数（`units`）、预计消耗（`total_amount`，单位 `currency`）和剩余积分（`budget`）。数值和单位按接口返回原样展示，不自行换算，也不要把模型的输入/输出 token 数当成积分。
 2. 把模型、数量、预计消耗和剩余积分告诉用户，请用户确认**这一次**请求或批次。

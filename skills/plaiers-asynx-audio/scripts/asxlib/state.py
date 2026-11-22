@@ -1390,7 +1390,7 @@ def list_all_assets(
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = connection.execute(
         "SELECT a.*, t.remote_task_id, t.operation AS task_operation, t.model, "
-        "t.modality, t.request_json, t.output_dir, t.base_url "
+        "t.modality, t.request_json, t.output_dir, t.base_url, t.billing, t.remote_json "
         "FROM assets AS a JOIN tasks AS t ON t.local_id = a.local_task_id"
         f"{where} ORDER BY a.updated_at DESC, a.rowid DESC",
         tuple(params),
@@ -1398,6 +1398,8 @@ def list_all_assets(
     results: list[dict[str, Any]] = []
     for row in rows:
         item = _asset_row_dict(row)
+        remote = _decode(item.pop("remote_json")) or {}
+        item["billing"] = remote.get("billing") or _decode(item["billing"])
         if "request_json" in item:
             item["request"] = _decode(item["request_json"])
         results.append(item)

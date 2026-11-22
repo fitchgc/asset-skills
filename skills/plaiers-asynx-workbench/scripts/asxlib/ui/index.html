@@ -737,6 +737,7 @@
             ${asset.model ? `<div class="meta-k">模型</div><div class="meta-v">${escapeHtml(asset.model)}</div>` : ''}
             ${asset.operation ? `<div class="meta-k">操作</div><div class="meta-v">${escapeHtml(asset.operation)}</div>` : ''}
             ${asset.prompt ? `<div class="meta-k">Prompt</div><div class="meta-v">${escapeHtml(asset.prompt)}</div>` : ''}
+            ${asset.billing ? `<div class="meta-k">来源任务费用</div><div class="meta-v">${escapeHtml([asset.billing.charge_status, asset.billing.currency, asset.billing.actual_amount ?? '待对账'].filter(Boolean).join(' '))}</div>` : ''}
             ${asset.task_id ? `<div class="meta-k">Task ID</div><div class="meta-v">${escapeHtml(asset.task_id)}</div>` : ''}
             ${asset.artifact_id ? `<div class="meta-k">Artifact ID</div><div class="meta-v">${escapeHtml(asset.artifact_id)}</div>` : ''}
             <div class="meta-k">SHA-256</div><div class="meta-v mono">${escapeHtml((asset.sha256 || '--').slice(0, 24))}...</div>

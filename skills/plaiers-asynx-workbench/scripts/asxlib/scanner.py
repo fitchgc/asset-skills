@@ -369,6 +369,7 @@ def _relink_if_moved(
         for task_key in (
             "remote_task_id",
             "task_operation",
+            "billing",
             "model",
             "modality",
             "request",
@@ -590,6 +591,7 @@ def scan_workspace(
                     "source_kind": source_kind,
                     "artifact_id": artifact_id,
                     "task_id": task_id,
+                    "billing": ledger_row.get("billing") if ledger_row else None,
                     "local_task_id": local_task_id,
                     "remote_task_id": remote_task_id,
                     "model": model,

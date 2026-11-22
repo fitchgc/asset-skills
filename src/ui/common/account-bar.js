@@ -29,9 +29,9 @@
   function formatBudget(identity) {
     if (!identity || !identity.budget) return '--';
     const rem = identity.budget.remaining_amount;
-    if (rem === null || rem === undefined || rem === '') return '不限额';
-    const n = Number(rem);
-    return Number.isFinite(n) ? `$${n.toFixed(2)}` : `$${rem}`;
+    if (rem === null) return '不限额';
+    if (rem === undefined || rem === '') return '--';
+    return [identity.budget.currency, rem].filter(v => v != null).join(' ');
   }
 
   function formatConcurrency(identity) {
@@ -102,12 +102,17 @@
         </button>
       `;
     } else {
+      const id = auth.identity || {};
+      const b = id.budget || {};
+      const details = [auth.origin, `账号 ${id.subject ?? '--'}`, `账户额度 ${b.quota === null ? '不限额' : b.quota ?? '--'} ${b.currency ?? ''}`,
+        `可用 ${formatBudget(id)}`, `预占 ${b.reserved_amount ?? '--'}`, `已用 ${b.used_amount ?? '--'}`,
+        `查询时间 ${_state.checkedAt}`].join(' · ');
       root.innerHTML = `
-        <button type="button" class="asx-acct-pill" id="asx-acct-refresh" title="点击刷新">
+        <details><summary class="asx-acct-pill" aria-label="查看账户资产积分明细">
           <span class="asx-acct-avatar">A</span>
-          <span class="asx-acct-budget" title="剩余积分">${escapeHtml(formatBudget(auth.identity))}</span>
+          <span class="asx-acct-budget" aria-label="可用资产积分">${escapeHtml(formatBudget(auth.identity))}</span>
           <span class="asx-acct-meta" title="并发任务数">${escapeHtml(formatConcurrency(auth.identity))}</span>
-        </button>
+        </summary><p>${escapeHtml(details)}</p><button type="button" id="asx-acct-refresh">刷新资产积分</button></details>
       `;
       root.querySelector('#asx-acct-refresh').onclick = () => refresh();
     }
@@ -118,6 +123,7 @@
   async function refresh() {
     try {
       const data = await apiJson('/api/auth/status', 'GET');
+      _state.checkedAt = new Date().toLocaleString();
       _state.auth = data;
       render();
       if (typeof _state.onAuthChange === 'function') {

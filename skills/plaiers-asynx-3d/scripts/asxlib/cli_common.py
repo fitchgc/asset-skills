@@ -12,6 +12,16 @@ def add_auth_commands(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
     subparsers.add_parser("whoami", help="查看当前 Asynx 剩余积分/并发状态（通过 SageIn Agent 授权换取 JWT）")
+    project = subparsers.add_parser("project", help="打开本项目工作台或管理项目预算")
+    actions = project.add_subparsers(dest="project_action", required=True)
+    for action in ("open", "budget"):
+        cmd = actions.add_parser(action)
+        cmd.add_argument("--root", required=True, help="用户选定的项目目录")
+        if action == "open":
+            cmd.add_argument("--no-open", action="store_true")
+        else:
+            cmd.add_argument("--limit", help="设置该项目的累计资产积分上限")
+            cmd.add_argument("--currency", default="USD")
     runtime = subparsers.add_parser(
         "runtime", help="管理所有 Asset Skill 共用的可选运行环境（Pillow），只在用户同意后准备"
     )
@@ -40,6 +50,22 @@ def add_auth_commands(
 
 
 def handle_auth_command(args: argparse.Namespace) -> tuple[dict[str, Any], int] | None:
+    if getattr(args, "command", None) == "project":
+        from pathlib import Path
+        from .errors import AsxError
+        root = Path(args.root).expanduser().resolve()
+        if not root.is_dir():
+            raise AsxError("项目目录不存在", code="invalid_project_root")
+        session = load_auth_session()
+        if args.project_action == "budget":
+            from .project_budget import configure
+            return {**configure(root, args.limit, args.currency), "identity": session.identity}, 0
+        from .workbench import workbench_ui_dir
+        static = workbench_ui_dir("本项目工作台", None)
+        from .ui_server import launch_workbench
+        return launch_workbench(mode="asset_manager", output_dir=str(root / "generated-assets"),
+                                static_dir=static, metadata={"workspace_root": str(root)},
+                                open_browser=not args.no_open)
     if getattr(args, "command", None) == "runtime":
         from . import runtime_env
 
