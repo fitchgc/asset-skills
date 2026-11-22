@@ -66,6 +66,17 @@
       .asx-acct-root.off .asx-acct-pill { color: var(--n300); }
       .asx-acct-budget { font-family: var(--en); font-weight: 400; font-size: 15px; letter-spacing: .03em; color: var(--coin); }
       .asx-acct-meta { color: var(--n400); font-weight: 500; font-variant-numeric: tabular-nums; }
+      .asx-acct-root summary { list-style: none; }
+      .asx-acct-root summary::-webkit-details-marker { display: none; }
+      .asx-acct-details {
+        position: absolute; right: 0; top: calc(100% + 12px); z-index: 80;
+        width: min(360px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px;
+        white-space: normal; overflow-wrap: anywhere; color: var(--text);
+        background: var(--n900); border: 2px solid var(--n700); border-radius: var(--r-lg);
+        box-shadow: 4px 4px 0 var(--hard); font: 400 13px/1.7 var(--cn);
+      }
+      .asx-acct-details p { margin: 0 0 16px; }
+      .asx-acct-details .keycap { min-height: 44px; }
     `;
     document.head.appendChild(style);
   }
@@ -112,7 +123,7 @@
           <span class="asx-acct-avatar">A</span>
           <span class="asx-acct-budget" aria-label="可用资产积分">${escapeHtml(formatBudget(auth.identity))}</span>
           <span class="asx-acct-meta" title="并发任务数">${escapeHtml(formatConcurrency(auth.identity))}</span>
-        </summary><p>${escapeHtml(details)}</p><button type="button" id="asx-acct-refresh">刷新资产积分</button></details>
+        </summary><div class="asx-acct-details"><p>${escapeHtml(details)}</p><button type="button" class="keycap ghost sm" id="asx-acct-refresh">刷新资产积分</button></div></details>
       `;
       root.querySelector('#asx-acct-refresh').onclick = () => refresh();
     }

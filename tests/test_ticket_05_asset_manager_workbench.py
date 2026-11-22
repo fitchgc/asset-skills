@@ -737,7 +737,7 @@ class TestStandalonePackagedAssetManagerWorkbench(unittest.TestCase):
         image_zip, _ = package_skill("image")
         with zipfile.ZipFile(image_zip) as zf:
             zf.extractall(skills_dir)
-        install_fake_context(skill_dir, login_url)
+        # Project browsing and local editing must start without cloud credentials.
         asynx_py = skills_dir / "plaiers-asynx-image-pro" / "scripts" / "asynx.py"
         proc = subprocess.Popen(
             [sys.executable, str(asynx_py), "project", "open", "--root", str(workspace), "--no-open"],

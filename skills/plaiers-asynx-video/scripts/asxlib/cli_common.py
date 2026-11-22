@@ -56,8 +56,8 @@ def handle_auth_command(args: argparse.Namespace) -> tuple[dict[str, Any], int] 
         root = Path(args.root).expanduser().resolve()
         if not root.is_dir():
             raise AsxError("项目目录不存在", code="invalid_project_root")
-        session = load_auth_session()
         if args.project_action == "budget":
+            session = load_auth_session()
             from .project_budget import configure
             return {**configure(root, args.limit, args.currency), "identity": session.identity}, 0
         from .workbench import workbench_ui_dir
