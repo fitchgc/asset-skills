@@ -5,7 +5,10 @@ import importlib
 import importlib.util
 import json
 import math
+import os
 import secrets
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
@@ -132,6 +135,69 @@ def _require_existing_file(raw_path: Any, workspace_root: Path, *, field: str = 
     if not resolved.is_file():
         raise AsxError(f"File not found: {resolved}", code="file_not_found")
     return resolved
+
+
+def _run_desktop_command(argv: list[str], *, env: dict[str, str] | None = None) -> int:
+    """Run a desktop integration command (file manager / trash) with an argument list, never a shell string."""
+    try:
+        res = subprocess.run(
+            argv,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            env={**os.environ, **env} if env else None,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise AsxError(f"Desktop command failed: {argv[0]}: {exc}", code="desktop_command_failed") from exc
+    return res.returncode
+
+
+def _reveal_in_file_manager(path: Path) -> None:
+    if sys.platform == "darwin":
+        argv = ["/usr/bin/open", "-R", str(path)]
+    elif sys.platform == "win32":
+        # "/select," and the path are separate argv items so a path with spaces is quoted on its own.
+        # explorer.exe exits with 1 even when it succeeds, so its return code is not checked.
+        _run_desktop_command(["explorer", "/select,", str(path)])
+        return
+    else:
+        argv = ["xdg-open", str(path.parent)]
+    if _run_desktop_command(argv) != 0:
+        raise AsxError(f"Could not reveal file: {path}", code="desktop_command_failed")
+
+
+def _move_to_trash(path: Path) -> None:
+    """Move one file to the OS trash / Recycle Bin. Never deletes permanently: no trash tool means an error."""
+    env = None
+    if sys.platform == "darwin":
+        if Path("/usr/bin/trash").is_file():
+            argv = ["/usr/bin/trash", str(path)]
+        else:
+            # The path goes in through argv, so it is never interpolated into AppleScript source.
+            argv = [
+                "/usr/bin/osascript",
+                "-e", "on run argv",
+                "-e", "set target to (POSIX file (item 1 of argv)) as alias",
+                "-e", 'tell application "Finder" to delete target',
+                "-e", "end run",
+                str(path),
+            ]
+    elif sys.platform == "win32":
+        # The path goes in through an environment variable, so it is never interpolated into PowerShell source.
+        env = {"ASX_TRASH_PATH": str(path)}
+        argv = [
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            "Add-Type -AssemblyName Microsoft.VisualBasic; "
+            "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($env:ASX_TRASH_PATH, 'OnlyErrorDialogs', 'SendToRecycleBin')",
+        ]
+    elif shutil.which("gio"):
+        argv = ["gio", "trash", str(path)]
+    elif shutil.which("trash-put"):
+        argv = ["trash-put", str(path)]
+    else:
+        raise AsxError("No trash tool found (install gio or trash-cli)", code="trash_unavailable")
+    if _run_desktop_command(argv, env=env) != 0 or path.exists():
+        raise AsxError(f"Could not move file to trash: {path}", code="trash_failed")
 
 
 def _resolve_output_dir(workspace_root: Path, body: dict[str, Any], *, subdir: str = "generated-assets") -> Path:
@@ -381,6 +447,24 @@ def _dispatch_manager_action(
 
     root = Path(workspace_root).expanduser().resolve()
     source_path = _require_existing_file(body.get("source_path"), root, field="source_path")
+
+    # ------------------------------------------------------------------
+    # File manager actions (context menu)
+    # ------------------------------------------------------------------
+    if action == "reveal_in_file_manager":
+        _reveal_in_file_manager(source_path)
+        return {"ok": True, "action": action, "created_files": [], "result": {"path": str(source_path)}}
+
+    if action == "move_to_trash":
+        # A frame sequence is an atlas plus its manifest; trash both so no half-asset is left behind.
+        targets = [source_path]
+        if body.get("manifest_path"):
+            manifest = _require_existing_file(body["manifest_path"], root, field="manifest_path")
+            if manifest != source_path:
+                targets.append(manifest)
+        for target in targets:
+            _move_to_trash(target)
+        return {"ok": True, "action": action, "created_files": [], "result": {"trashed": [str(t) for t in targets]}}
 
     # ------------------------------------------------------------------
     # Image actions

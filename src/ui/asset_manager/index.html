@@ -87,7 +87,7 @@
     .meta-v { color: var(--text); word-break: break-word; }
     .meta-v.mono { font: 12px/1.5 var(--mono); color: var(--n300); }
 
-    /* 血缘 */
+    /* 文件版本 */
     .lineage-label { font-size: 13px; color: var(--n400); }
     .lineage-label.next { margin-top: 8px; }
     .min0 { min-width: 0; }
@@ -145,6 +145,25 @@
     #embedded-modal { padding: 16px; }
     .modal-shell { width: 100%; height: 100%; display: flex; flex-direction: column; }
     .modal-shell iframe { flex: 1; width: 100%; border: 0; background: var(--n950); }
+
+    /* 查看窗口：放大显示检查器里的预览 */
+    #viewer-modal { padding: 24px; }
+    .viewer-shell { width: min(1200px, 100%); height: 100%; display: flex; flex-direction: column; }
+    .viewer-body { flex: 1; min-height: 0; display: flex; padding: 16px; overflow: auto; background: var(--n950); }
+    .viewer-body .preview-stage { flex: 1; max-height: none; border: 0; }
+    .viewer-body .preview-stage img, .viewer-body .preview-stage video { max-height: calc(100vh - 170px); }
+    .viewer-body #sprite-canvas { width: auto; height: min(calc(100vh - 300px), 512px); max-height: none; image-rendering: pixelated; }
+    .viewer-body .three-wrap { width: min(100%, calc((100vh - 220px) * 21 / 11)); }
+    .viewer-body #three-preview-canvas { height: auto; aspect-ratio: 21 / 11; }
+
+    /* 右键菜单 */
+    .ctx-menu { position: fixed; z-index: 600; min-width: 200px; display: grid; gap: 2px; }
+    .ctx-menu[hidden] { display: none; }
+    .ctx-menu button { display: block; width: 100%; padding: 8px 12px; font: 13px/1.4 var(--cn); color: var(--text); text-align: left; background: none; border: 0; border-radius: var(--r-sm); cursor: pointer; }
+    .ctx-menu button:hover, .ctx-menu button:focus-visible { background: var(--n850); outline: none; }
+    .ctx-menu button.danger { color: var(--danger); }
+    .ctx-menu button:disabled { color: var(--n500); background: none; cursor: default; }
+    .ctx-menu hr { height: 1px; margin: 4px 2px; border: 0; background: var(--n800); }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
@@ -198,7 +217,7 @@
     <aside class="inspector-pane" id="inspector-pane">
       <div class="inspector-empty pl-empty" id="inspector-empty">
         <strong>还没选资产</strong>
-        <span>点任意卡片，查看预览、血缘关系和可用的编辑操作。</span>
+        <span>点卡片看预览、文件版本和编辑操作；双击放大查看，右键有更多操作。</span>
       </div>
       <div id="inspector-content" hidden></div>
     </aside>
@@ -213,6 +232,18 @@
       <iframe id="embedded-frame" src="about:blank" title="子工作台"></iframe>
     </div>
   </div>
+
+  <div class="pl-scrim" id="viewer-modal">
+    <div class="pl-dialog viewer-shell" role="dialog" aria-modal="true" aria-labelledby="viewer-title">
+      <div class="pl-dialog-head">
+        <h2 id="viewer-title">查看</h2>
+        <button type="button" class="pl-iconbtn" id="viewer-close-btn" aria-label="关闭"><svg class="i sm" aria-hidden="true"><use href="/plaiers-icons.svg#pi-close"></use></svg></button>
+      </div>
+      <div class="viewer-body" id="viewer-body"></div>
+    </div>
+  </div>
+
+  <div class="menu ctx-menu" id="ctx-menu" role="menu" hidden></div>
 
   <script src="/plaiers-ui.js"></script>
   <script src="/account-bar.js"></script>
@@ -234,6 +265,10 @@
       spritePlayer: { timer: null, playing: true, idx: 0, fps: 10, direction: 'all', onionSkin: false, showGrid: false, keys: [], manifest: null, img: null },
       threeCleanup: null,
       busyAction: false,
+      selectSeq: 0, // 只渲染最近一次选中，丢弃过期的文件版本响应
+      selecting: null, // 最近一次 selectAsset 的 Promise，双击查看时等它完成
+      viewer: null, // 查看窗口打开时：{ stage, placeholder }
+      ctxTarget: null, // 右键菜单打开时：{ target, path }
     };
 
     function escapeHtml(str) {
@@ -646,7 +681,7 @@
       }
       grid.onclick = (ev) => {
         const card = ev.target.closest('.asset-card');
-        if (card && grid.contains(card)) selectAsset(card.dataset.path);
+        if (card && grid.contains(card)) onNodeClick(ev, card.dataset.path);
       };
     }
 
@@ -675,6 +710,7 @@
       }
       if (!asset) return;
 
+      const seq = ++state.selectSeq;
       state.selectedPath = asset.path;
       if (!opts || !opts.skipGridRender) {
         document.querySelectorAll('.asset-card').forEach(el => {
@@ -682,11 +718,14 @@
         });
       }
 
+      let lineage;
       try {
-        state.lineage = await apiGet('/api/lineage?target=' + encodeURIComponent(asset.artifact_id || asset.path));
+        lineage = await apiGet('/api/lineage?target=' + encodeURIComponent(asset.artifact_id || asset.path));
       } catch (_) {
-        state.lineage = { asset: null, parents: asset.parents || [], children: asset.children || [], ancestors: [], descendants: [] };
+        lineage = { asset: null, parents: asset.parents || [], children: asset.children || [], ancestors: [], descendants: [] };
       }
+      if (seq !== state.selectSeq) return; // 期间又选了别的资产
+      state.lineage = lineage;
       renderInspector(asset);
     }
 
@@ -695,20 +734,25 @@
       const asset = state.assets.find(a => a.path === state.selectedPath)
         || (state.allAssets || []).find(a => a.path === state.selectedPath);
       if (!asset || !document.getElementById('lineage-body')) return;
+      const seq = state.selectSeq;
+      let lineage;
       try {
-        state.lineage = await apiGet('/api/lineage?target=' + encodeURIComponent(asset.artifact_id || asset.path));
+        lineage = await apiGet('/api/lineage?target=' + encodeURIComponent(asset.artifact_id || asset.path));
       } catch (_) {
         return;
       }
-      if (state.selectedPath !== asset.path) return;
+      if (seq !== state.selectSeq || state.selectedPath !== asset.path) return;
+      state.lineage = lineage;
       renderLineageSection(asset, state.lineage || { parents: [], children: [], ancestors: [], descendants: [] });
     }
 
     function renderInspector(asset) {
+      closeViewer(); // 预览舞台要先放回检查器，再整体重绘
       stopPreviewTimers();
       document.getElementById('inspector-empty').style.display = 'none';
       const panel = document.getElementById('inspector-content');
       panel.hidden = false;
+      panel.dataset.path = asset.path;
 
       const badge = badgeInfo(asset);
       const lin = state.lineage || { parents: [], children: [], ancestors: [], descendants: [] };
@@ -746,8 +790,8 @@
 
         <div class="insp-section">
           <div class="insp-title">
-            <span>血缘关系</span>
-            <div class="pl-seg" role="group" aria-label="血缘视图">
+            <span>文件版本</span>
+            <div class="pl-seg" role="group" aria-label="文件版本视图">
               <button type="button" id="lin-view-cards" aria-pressed="${state.lineageView === 'cards'}">列表</button>
               <button type="button" id="lin-view-graph" aria-pressed="${state.lineageView === 'graph'}">图谱</button>
             </div>
@@ -987,6 +1031,17 @@
         const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
         renderer.setSize(canvas.width, canvas.height, false);
         if (window.AsxModel3DLoader) window.AsxModel3DLoader.setupStudioLighting(THREE, renderer, scene);
+        // 画布在检查器和查看窗口之间移动时尺寸会变，按实际显示尺寸重设绘制缓冲和相机比例
+        const fitRenderer = () => {
+          const w = canvas.clientWidth, h = canvas.clientHeight;
+          if (!w || !h) return;
+          renderer.setPixelRatio(window.devicePixelRatio || 1);
+          renderer.setSize(w, h, false);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        };
+        const resizeObs = window.ResizeObserver ? new ResizeObserver(fitRenderer) : null;
+        if (resizeObs) resizeObs.observe(canvas);
 
         let meshRoot = null;
         let mixer = null;
@@ -1063,6 +1118,7 @@
           disposed = true;
           cancelAnimationFrame(rafId);
           window.removeEventListener('pointerup', onPointerUp);
+          if (resizeObs) resizeObs.disconnect();
           if (meshRoot && loader) loader.disposeObject3D(meshRoot);
           renderer.dispose();
         };
@@ -1112,14 +1168,14 @@
         </div>
       `;
       container.querySelectorAll('.lineage-node-card').forEach(el => {
-        el.onclick = () => selectAsset(el.dataset.target);
+        el.onclick = (ev) => onNodeClick(ev, el.dataset.target, { defer: true });
       });
     }
 
     function renderLineageDag(container, asset, lin) {
       const edges = [...(lin.ancestors || []), ...(lin.descendants || [])];
       if (!edges.length) {
-        container.innerHTML = `<div class="lineage-none">这个资产还没有血缘连线</div>`;
+        container.innerHTML = `<div class="lineage-none">这个资产还没有其他版本</div>`;
         return;
       }
       const nodesMap = new Map();
@@ -1196,10 +1252,172 @@
 
       container.innerHTML = `<div class="dag-box"><svg width="${svgW}" height="${svgH}">${linesSvg}${nodesSvg}</svg></div>`;
       container.querySelectorAll('.dag-node').forEach(g => {
-        g.onclick = () => selectAsset(g.dataset.target);
+        g.onclick = (ev) => onNodeClick(ev, g.dataset.target, { defer: true });
       });
     }
 
+    // ---------- 双击查看 / 右键菜单 ----------
+    const UI_LANG = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    function nodeLabels() {
+      const p = (state.session && state.session.platform) || '';
+      const os = p === 'darwin' ? 'mac' : p === 'win32' ? 'win' : 'other';
+      const L = {
+        zh: {
+          view: '查看', del: '删除',
+          reveal: { mac: '在访达中显示', win: '在资源管理器中显示', other: '在文件管理器中显示' }[os],
+          trash: { mac: '废纸篓', win: '回收站', other: '回收站' }[os],
+        },
+        en: {
+          view: 'View', del: 'Delete',
+          reveal: { mac: 'Reveal in Finder', win: 'Show in Explorer', other: 'Show in File Manager' }[os],
+          trash: { mac: 'Trash', win: 'Recycle Bin', other: 'Trash' }[os],
+        },
+      };
+      return L[UI_LANG];
+    }
+
+    function findAsset(target) {
+      const hit = (a) => a.path === target || a.artifact_id === target;
+      return state.assets.find(hit) || (state.allAssets || []).find(hit) || null;
+    }
+
+    // 检查器当前是否已经渲染出 target 的预览
+    function isInspecting(target) {
+      const asset = findAsset(target);
+      const panel = document.getElementById('inspector-content');
+      return !!asset && !panel.hidden && panel.dataset.path === asset.path && !!document.getElementById('insp-preview-stage');
+    }
+
+    // 选中并放大查看；双击的第一下已经发起的选中要先等它完成
+    async function viewAsset(target) {
+      await state.selecting;
+      if (!isInspecting(target)) {
+        state.selecting = selectAsset(target);
+        await state.selecting;
+      }
+      if (isInspecting(target)) openViewer();
+    }
+
+    // 网格卡片选中时不重绘，可直接用 click 的 detail 判断双击；
+    // 版本节点在检查器里，第一下选中就会把它重绘掉，所以单击延后一点、等等看有没有第二下
+    let pendingNodeClick = null;
+    function onNodeClick(ev, target, opts) {
+      hideContextMenu();
+      if (opts && opts.defer) {
+        if (pendingNodeClick) clearTimeout(pendingNodeClick.timer);
+        if (pendingNodeClick && pendingNodeClick.target === target) {
+          pendingNodeClick = null;
+          viewAsset(target);
+          return;
+        }
+        pendingNodeClick = { target, timer: setTimeout(() => { pendingNodeClick = null; state.selecting = selectAsset(target); }, 250) };
+        return;
+      }
+      if (ev.detail >= 2) { viewAsset(target); return; }
+      state.selecting = selectAsset(target);
+    }
+
+    // 查看窗口直接借用检查器里已初始化的预览舞台（播放器、序列帧、三维场景不重建），关闭时放回原位
+    function openViewer() {
+      if (state.viewer) return;
+      const stage = document.getElementById('insp-preview-stage');
+      const asset = findAsset(state.selectedPath);
+      if (!stage || !asset) return;
+      const placeholder = document.createElement('div');
+      placeholder.className = 'preview-stage';
+      placeholder.innerHTML = `<span class="pl-help">${UI_LANG === 'zh' ? '正在查看窗口中预览' : 'Previewing in viewer'}</span>`;
+      stage.replaceWith(placeholder);
+      document.getElementById('viewer-body').appendChild(stage);
+      document.getElementById('viewer-title').textContent = asset.name;
+      document.getElementById('viewer-modal').classList.add('open');
+      state.viewer = { stage, placeholder };
+      document.getElementById('viewer-close-btn').focus();
+    }
+
+    function closeViewer() {
+      if (!state.viewer) return;
+      const { stage, placeholder } = state.viewer;
+      state.viewer = null;
+      document.getElementById('viewer-modal').classList.remove('open');
+      if (placeholder.isConnected) placeholder.replaceWith(stage);
+      else stage.remove();
+    }
+
+    function hideContextMenu() {
+      const menu = document.getElementById('ctx-menu');
+      if (menu.hidden) return;
+      menu.hidden = true;
+      menu.innerHTML = '';
+      state.ctxTarget = null;
+    }
+
+    function showContextMenu(ev, target) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      clearTimeout(pendingNodeClick && pendingNodeClick.timer);
+      pendingNodeClick = null;
+      const asset = findAsset(target);
+      const L = nodeLabels();
+      state.ctxTarget = { target, path: asset ? asset.path : null };
+      const menu = document.getElementById('ctx-menu');
+      const off = asset ? '' : ' disabled';
+      menu.innerHTML = `
+        <button type="button" role="menuitem" data-cmd="view">${escapeHtml(L.view)}</button>
+        <button type="button" role="menuitem" data-cmd="reveal"${off}>${escapeHtml(L.reveal)}</button>
+        <hr />
+        <button type="button" role="menuitem" class="danger" data-cmd="delete"${off}>${escapeHtml(L.del)}</button>
+      `;
+      menu.hidden = false;
+      const r = menu.getBoundingClientRect();
+      menu.style.left = Math.max(4, Math.min(ev.clientX, window.innerWidth - r.width - 4)) + 'px';
+      menu.style.top = Math.max(4, Math.min(ev.clientY, window.innerHeight - r.height - 4)) + 'px';
+      menu.querySelector('button:not([disabled])').focus();
+    }
+
+    async function runContextCommand(cmd) {
+      const ctx = state.ctxTarget;
+      hideContextMenu();
+      if (!ctx) return;
+      const L = nodeLabels();
+      if (cmd === 'view') { viewAsset(ctx.target); return; }
+      const asset = findAsset(ctx.target);
+      if (!asset) return;
+      if (cmd === 'reveal') {
+        try {
+          await apiAction({ action: 'reveal_in_file_manager', source_path: asset.path });
+        } catch (err) {
+          showToast(L.reveal + (UI_LANG === 'zh' ? '失败: ' : ' failed: ') + err.message, 'error');
+        }
+        return;
+      }
+      if (cmd === 'delete') {
+        const mPath = asset.category === 'frame_sequence' && asset.metadata && asset.metadata.manifest_path;
+        const extra = mPath ? (UI_LANG === 'zh' ? '（连同序列帧 manifest）' : ' (with its frame-sequence manifest)') : '';
+        const question = UI_LANG === 'zh'
+          ? `把「${asset.name}」${extra}移到${L.trash}？\n\n${asset.relative_path}`
+          : `Move "${asset.name}"${extra} to the ${L.trash}?\n\n${asset.relative_path}`;
+        if (!window.confirm(question)) return;
+        try {
+          await apiAction({ action: 'move_to_trash', source_path: asset.path, manifest_path: mPath || undefined });
+        } catch (err) {
+          showToast((UI_LANG === 'zh' ? '删除失败: ' : 'Delete failed: ') + err.message, 'error');
+          return;
+        }
+        if (state.selectedPath === asset.path) {
+          state.selectSeq++;
+          state.selectedPath = null;
+          closeViewer();
+          stopPreviewTimers();
+          const panel = document.getElementById('inspector-content');
+          panel.hidden = true;
+          panel.innerHTML = '';
+          delete panel.dataset.path;
+          document.getElementById('inspector-empty').style.display = '';
+        }
+        showToast(UI_LANG === 'zh' ? `已移到${L.trash}: ${asset.name}` : `Moved to ${L.trash}: ${asset.name}`, 'success');
+        await loadAssets({ refetch: true });
+      }
+    }
     function openEmbeddedWorkbench(title, pathUrl) {
       document.getElementById('embedded-title').textContent = title;
       document.getElementById('embedded-frame').src = pathUrl;
@@ -1230,7 +1448,7 @@
         if (resultSlot) {
           resultSlot.innerHTML = `<div class="action-result-box">${escapeHtml(JSON.stringify(res.result || res, null, 2))}</div>`;
         }
-        // 保持当前选中节点不变，仅局部刷新其血缘关系（新派生资产会出现在子节点中）
+        // 保持当前选中节点不变，仅局部刷新其文件版本（新派生资产会出现在子节点中）
         await loadAssets({ noCache: true, lineageOnly: true });
       } catch (err) {
         if (err.code === 'need_login' || err.status === 401) {
@@ -1761,8 +1979,41 @@
 
       document.getElementById('rescan-btn').onclick = () => loadAssets({ noCache: true });
       document.getElementById('embedded-close-btn').onclick = closeEmbeddedWorkbench;
+      document.getElementById('viewer-close-btn').onclick = closeViewer;
+      document.getElementById('viewer-modal').addEventListener('click', (ev) => {
+        if (ev.target === ev.currentTarget) closeViewer(); // 点遮罩关闭
+      });
+
+      // 右键菜单：网格卡片和文件版本节点（列表 / 图谱）
+      document.addEventListener('contextmenu', (ev) => {
+        const card = ev.target.closest('.asset-card[data-path]');
+        const node = ev.target.closest('.lineage-node-card[data-target], .dag-node[data-target]');
+        if (card) showContextMenu(ev, card.dataset.path);
+        else if (node) showContextMenu(ev, node.dataset.target);
+        else hideContextMenu();
+      });
+      const ctxMenu = document.getElementById('ctx-menu');
+      ctxMenu.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const btn = ev.target.closest('button[data-cmd]');
+        if (btn && !btn.disabled) runContextCommand(btn.dataset.cmd);
+      });
+      ctxMenu.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+        ev.preventDefault();
+        const items = [...ctxMenu.querySelectorAll('button:not([disabled])')];
+        const i = items.indexOf(document.activeElement);
+        items[(i + (ev.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
+      });
+      document.addEventListener('click', hideContextMenu);
+      window.addEventListener('blur', hideContextMenu);
+      window.addEventListener('resize', hideContextMenu);
+      document.addEventListener('scroll', hideContextMenu, true);
+
       document.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Escape') return;
+        if (!document.getElementById('ctx-menu').hidden) { hideContextMenu(); return; }
+        if (state.viewer) { closeViewer(); return; }
         const modal = document.getElementById('embedded-modal');
         if (modal && modal.classList.contains('open')) closeEmbeddedWorkbench();
       });
@@ -1775,7 +2026,7 @@
         }
         if (ev.data.type === 'asx-workbench-complete') {
           closeEmbeddedWorkbench();
-          showToast('子工作台操作完成并已同步血缘关系', 'success');
+          showToast('子工作台操作完成并已同步文件版本', 'success');
           await loadAssets({ noCache: true, lineageOnly: true });
         }
       });

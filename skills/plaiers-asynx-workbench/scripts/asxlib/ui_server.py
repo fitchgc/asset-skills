@@ -9,6 +9,7 @@ import re
 import secrets
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -370,6 +371,7 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     "source_name": Path(effective_source).name if effective_source else None,
                     "metadata": meta,
                     "models": models,
+                    "platform": sys.platform,
                 }
                 self._send_json(session_data)
                 return
