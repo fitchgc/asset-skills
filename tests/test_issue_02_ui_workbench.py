@@ -167,6 +167,10 @@ class TestLocalUIWorkbench(unittest.TestCase):
             self.assertIn("- remove shield logo", inp["prompt"])
             # Verify inputs ordered as [source, annotation_preview]
             self.assertEqual(len(inp["images"]), 2)
+            # Mask/preview only feed the request; nothing but results lands in the output dir.
+            leftovers = [p.name for p in Path(self.temp_dir).rglob("*")
+                         if p.name.startswith(("mask_", "preview_", "source_"))]
+            self.assertEqual(leftovers, [])
         finally:
             server.shutdown()
             server.server_close()

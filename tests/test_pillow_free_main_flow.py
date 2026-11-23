@@ -71,14 +71,14 @@ class PillowFreeCase(unittest.TestCase):
         self.server.server_close()
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def cli(self, skill: str, *args: str, expect_ok: bool = True) -> dict[str, Any]:
+    def cli(self, skill: str, *args: str, expect_ok: bool = True, cwd: Path | None = None) -> dict[str, Any]:
         script = REPO_ROOT / "skills" / skill / "scripts" / "asynx.py"
         proc = subprocess.run(
             [sys.executable, "-S", str(BLOCKER), str(script), *with_consent(args)],
             capture_output=True,
             text=True,
             env=self.env,
-            cwd=self.temp_dir,
+            cwd=cwd or self.temp_dir,
         )
         self.assertTrue(proc.stdout.strip(), f"no JSON output; stderr: {proc.stderr}")
         payload = json.loads(proc.stdout)
@@ -124,6 +124,20 @@ class TestCoreFlowsNeverImportPillow(PillowFreeCase):
         self.server.asset_data["task_1:0"] = png_bytes(64, 32)
         self.task_lifecycle("plaiers-asynx-image-pro", ["generate", "--prompt", "a lantern"])
         self.assertEqual(self.pil_imports(), [])
+
+    def test_default_output_goes_to_cwd_generated_assets(self) -> None:
+        self.server.asset_data["task_1:0"] = png_bytes(8, 8)
+        out = self.cli("plaiers-asynx-image-pro", "generate", "--prompt", "a lantern")
+        for value in out["files"]:
+            self.assertTrue(Path(value).resolve().is_relative_to((self.temp_dir / "generated-assets").resolve()), value)
+
+    def test_output_inside_skill_dir_is_refused_before_submit(self) -> None:
+        skill_dir = REPO_ROOT / "skills" / "plaiers-asynx-image-pro"
+        out = self.cli("plaiers-asynx-image-pro", "generate", "--prompt", "a lantern",
+                       expect_ok=False, cwd=skill_dir)
+        self.assertEqual(out["error"]["code"], "output_dir_in_skill", out)
+        self.assertEqual(self.server.submissions, [])
+        self.assertFalse((skill_dir / "generated-assets").exists())
 
     def test_image_remote_reference_needs_no_decoding(self) -> None:
         self.server.asset_data["task_1:0"] = png_bytes(8, 8)

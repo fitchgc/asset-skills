@@ -85,7 +85,7 @@ def _add_batch_creation_options(parser: argparse.ArgumentParser) -> None:
         help="输出格式",
     )
     parser.add_argument("--total", type=int, default=1, help="批次中的 Task 数量")
-    parser.add_argument("--output-dir", help="输出目录，默认 generated-images/<批次 ID>")
+    parser.add_argument("--output-dir", help="输出目录，默认 generated-assets/<批次 ID>")
     parser.add_argument("--name", help="批次名称")
     parser.add_argument(
         "--limit",

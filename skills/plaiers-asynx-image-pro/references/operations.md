@@ -41,7 +41,7 @@ python3 "<skill-dir>/scripts/asynx.py" batch resume "<batch-id>"
 python3 "<skill-dir>/scripts/asynx.py" batch cancel "<batch-id>"
 ```
 
-返回 `cancel_requested` 时仍需轮询终态；已经开始的任务可能继续执行并计费。单项失败不应重建整个批次。结果默认保存到 `generated-images/<批次 ID>/`。
+返回 `cancel_requested` 时仍需轮询终态；已经开始的任务可能继续执行并计费。单项失败不应重建整个批次。结果默认保存到当前目录下的 `generated-assets/<批次 ID>/`；输出目录落在 Skill 安装目录内时会报 `output_dir_in_skill`，需在项目根目录运行或用 `--output-dir` 指向项目内目录。
 
 ## 任务恢复与取消
 
