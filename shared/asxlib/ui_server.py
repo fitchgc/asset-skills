@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import thumb_cache
+from . import runtime_env, thumb_cache
 from .auth import load_auth_session, load_credential_context
 from .client import AsynxClient
 from .config import load_credentials, read_config
@@ -479,6 +479,21 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
 
         if path == "/api/thumb-cache/clear":
             self._send_json({"ok": True, **thumb_cache.clear()})
+            return
+
+        if path == "/api/runtime/prepare":
+            # Downloads the hash-locked Pillow runtime. Only the page's confirmation dialog sends this,
+            # after the user clicked "confirm"; the agent never calls it on its own.
+            if body.get("user_confirmed") is not True:
+                self._send_json(
+                    {"ok": False, "error": {"code": "confirmation_required", "message": "准备运行环境需要用户在页面上确认"}},
+                    status=409,
+                )
+                return
+            try:
+                self._send_json(runtime_env.prepare_runtime())
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
             return
 
         if path == "/api/manager/action":

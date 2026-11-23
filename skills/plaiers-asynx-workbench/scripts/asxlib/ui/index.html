@@ -1451,12 +1451,16 @@
         // 保持当前选中节点不变，仅局部刷新其文件版本（新派生资产会出现在子节点中）
         await loadAssets({ noCache: true, lineageOnly: true });
       } catch (err) {
-        if (err.code === 'need_login' || err.status === 401) {
-          showToast('云端操作需要 Plaiers Agent 授权（skill_jwt 权限），请经 plaiers-community 授权并用 get_skill 安装本 Skill', 'error');
+        if (err.code === 'runtime_declined') {
+          // 用户没同意准备运行环境：未执行，不算失败
+          showToast(err.message, 'info');
+          if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box">${escapeHtml(err.message)}</div>`;
         } else {
-          showToast(err.message, 'error');
+          showToast(err.code === 'need_login' || err.status === 401
+            ? '云端操作需要 Plaiers Agent 授权（skill_jwt 权限），请经 plaiers-community 授权并用 get_skill 安装本 Skill'
+            : err.message, 'error');
+          if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box err">${escapeHtml(err.message)}</div>`;
         }
-        if (resultSlot) resultSlot.innerHTML = `<div class="action-result-box err">${escapeHtml(err.message)}</div>`;
       } finally {
         state.busyAction = false;
         setActionsBusy(false);

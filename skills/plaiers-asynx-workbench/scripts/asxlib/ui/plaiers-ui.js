@@ -44,13 +44,64 @@
     return lines.join('\n');
   }
 
+  // 缺少共享运行环境（Pillow）：服务端在提交前返回 dependency_missing / runtime_invalid，details 带 prepare_command。
+  // 只有用户在这里点了确认，才请服务端下载并准备；不支持的平台没有 prepare_command，不提供该选项。
+  function plRuntimeMessage(error) {
+    const d = error.details || {};
+    return [
+      error.message || '本地图片处理需要可选依赖 Pillow。',
+      '',
+      '现在下载并准备吗？会联网下载按哈希锁定的 Pillow，装到所有 Asset Skill 共用的运行环境，不修改系统 Python。',
+      `等同于在终端运行：${d.prepare_command}`,
+    ].join('\n');
+  }
+
+  // 结果三选一：declined（用户取消，未联网）、failed（带准备接口自己的 res/data，交给调用方显示）、ready。
+  async function plPrepareRuntime(error, headers) {
+    if (!window.confirm(plRuntimeMessage(error))) return { status: 'declined' };
+    plToast('正在下载并准备运行环境，可能需要一两分钟…', 'ok', 120000);
+    let res;
+    let data;
+    try {
+      res = await fetch('/api/runtime/prepare', {
+        method: 'POST', headers, body: JSON.stringify({ user_confirmed: true }),
+      });
+      data = await res.json();
+    } catch (err) {
+      // 连接断开或返回的不是 JSON：仍给出结构化的失败原因，不退回最初的 dependency_missing
+      data = { ok: false, error: { code: 'runtime_prepare_failed', message: `运行环境准备请求失败：${err.message}` } };
+      res = { ok: false, status: res ? res.status : 0 };
+    }
+    if (!res.ok || !data || !data.ok) {
+      const message = (data && data.error && data.error.message) || `HTTP ${res.status}`;
+      plToast('运行环境准备失败：' + message, 'err', 8000);
+      return { status: 'failed', res, data };
+    }
+    plToast('运行环境已就绪，正在重试…', 'ok');
+    return { status: 'ready' };
+  }
+
   async function plPostWithChargeConsent(url, payload, headers) {
     let body = { ...payload };
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    let prepared = false;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
       const data = await res.json();
       const error = data && data.error;
       const code = error && error.code;
+      if ((code === 'dependency_missing' || code === 'runtime_invalid') && !prepared
+          && error.details && error.details.prepare_command) {
+        const prep = await plPrepareRuntime(error, headers);
+        if (prep.status === 'failed') return { res: prep.res, data: prep.data };
+        if (prep.status === 'declined') {
+          return {
+            res: { ok: false, status: 409 },
+            data: { ok: false, error: { code: 'runtime_declined', message: '已取消：没有准备运行环境（Pillow），未提交任务。' } },
+          };
+        }
+        prepared = true;
+        continue;
+      }
       if (code !== 'confirmation_required' && code !== 'quote_unavailable') return { res, data };
       if (!window.confirm(plChargeMessage(error))) {
         return {
