@@ -210,6 +210,13 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(self.server.get_auth_status())
                 return
 
+            if path == "/api/runtime/status":
+                from .optional_deps import optional_runtime_status
+                import shutil
+                self._send_json({"ok": True, "runtime": optional_runtime_status(),
+                                 "ffmpeg": bool(shutil.which("ffmpeg")), "ffprobe": bool(shutil.which("ffprobe"))})
+                return
+
             if path == "/api/assets":
                 ws_root = self.server.workspace_root()
                 if ws_root is None:
@@ -450,6 +457,18 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": {"code": "invalid_json", "message": "Invalid JSON"}}, status=400)
             return
 
+        if path == "/api/runtime/prepare":
+            # A local session and an explicit user's download consent are required.
+            if not isinstance(body, dict) or body.get("confirm_download") is not True:
+                self._send_json({"ok": False, "error": {"code": "consent_required", "message": "请先同意下载共享 Pillow"}}, status=400)
+                return
+            try:
+                from .runtime_env import prepare_runtime
+                self._send_json(prepare_runtime())
+            except AsxError as exc:
+                self._send_json(exc.payload(), status=400)
+            return
+
         if path == "/api/cancel":
             self._send_json({"ok": True, "canceled": True})
             self.server.result_payload = {
@@ -584,8 +603,11 @@ class WorkbenchServer(ThreadingHTTPServer):
         try:
             session = load_auth_session()
         except AsxError as exc:
-            return {"ok": True, "authenticated": False, "origin": origin, "identity": None,
-                    "error": exc.payload()["error"]}
+            error = exc.payload()["error"]
+            reason = (error.get("details") or {}).get("reason_code")
+            needs_connection = exc.code == "scope_missing" or reason in {"missing_context", "invalid_context", "bridge_unavailable", "gateway_rejected_jwt"}
+            return {"ok": True, "authenticated": False, "auth_state": "needs_connection" if needs_connection else "unavailable",
+                    "origin": origin, "identity": None, "error": error}
         gw_client = AsynxClient(session.base_url, session=session)
         identity = None
         identity_error = None

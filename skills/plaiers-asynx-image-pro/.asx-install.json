@@ -20,7 +20,7 @@
     "scripts/asxlib/image_results.py": "3825a54bad241727e2e99476b7a48181b66034039de4578319eded8e39dfd50e",
     "scripts/asxlib/images.py": "9cde4ddd07b0e9bd10f6c4e7624d882ca49bc59c75807f4ea42f14dcb0aab3b5",
     "scripts/asxlib/ledger.py": "ff79b36d7c6e5fd771c6ccae24c169ce6d9a24aa8271fb41adcda32a2d9481f8",
-    "scripts/asxlib/optional_deps.py": "146d8f53538483a1a2b1f1e1c61c47053f38b32ca0f1860bb045209ba88ff624",
+    "scripts/asxlib/optional_deps.py": "a0f591753932775c4d7e32083caf720142384e95aa84008b11d81507dcd8f56e",
     "scripts/asxlib/output.py": "b3d6a2bd29ae0a12a64046b24c5f315b83fbd62aa830ca7617543acd80e80a5e",
     "scripts/asxlib/project_budget.py": "37cb980b0f1bb317b3e3cb49546c41e269dbbf0706db05c945a98b1da103ec95",
     "scripts/asxlib/reference_media.py": "c1f456a1e79ed8cf16c7f57d9e6e20a2f204814b7baed49d27a13be3133679b8",

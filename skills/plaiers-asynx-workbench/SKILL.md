@@ -72,3 +72,10 @@ python3 "<skill-dir>/scripts/asynx.py" ui --root "/path/to/project"
 - `prepare` 会联网下载按哈希锁定的 Pillow，**运行前必须先征得用户同意**；不要自动运行，也不要改用 `pip install`。
 - 所有 Asset Skill 共用同一份运行环境，已准备时再次 `prepare` 不会重复下载。
 - `python3 scripts/asynx.py runtime status` 只读查看状态；`runtime remove` 删除当前平台的运行环境。
+
+
+## 首次安装与故障恢复
+
+账号栏初次显示“正在检查授权与余额”；网络失败显示可重试状态，不等于撤销。点击账号栏可展开连接指令和 dev 指南。云能力须由当前 Agent 沿原身份补权或重新授权，不能覆盖另一 Agent 的绑定。
+
+本地图片编辑前，在账号栏点“检查本地环境”；缺 Pillow 时勾选下载同意，再点“安装共享 Pillow”。成功后再执行原编辑动作，不自动重试可能付费的操作。FFmpeg/ffprobe 仅在视频处理需要时另行准备。

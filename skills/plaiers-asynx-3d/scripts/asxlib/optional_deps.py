@@ -70,7 +70,7 @@ def dependency_missing(
         details["prepare_command"] = prepare_command()
         message = (
             f"{feature}需要可选依赖 Pillow，当前未准备。请先征得用户同意，再运行 prepare_command "
-            "准备共享运行环境；本次请求未提交。"
+            "准备共享运行环境；工作台可点击右上角账号栏 → 检查本地环境 → 安装共享 Pillow。本次请求未提交。"
         )
     if cause is not None:
         details["cause"] = f"{type(cause).__name__}: {cause}"
