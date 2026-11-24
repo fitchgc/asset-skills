@@ -92,7 +92,8 @@ test('a timed-out status is unavailable and a retry recovers', async () => {
   await mounted;
   assert.match(h.html(), /连接暂不可用/);
   assert.match(h.html(), /不等于授权已撤销/);
-  assert.doesNotMatch(h.html(), /需要连接 Agent|复制给 Agent/);
+  assert.doesNotMatch(h.html(), /需要连接 Agent/);
+  assert.match(h.html(), /复制给 Agent 的连接指令/);
   pending = false;
   await h.bar.refresh();
   assert.match(h.html(), /USD 1.915/);
@@ -108,15 +109,16 @@ test('a server outage shows its exact reason without reconnecting or discarding 
   assert.match(h.html(), /连接暂不可用/);
   assert.match(h.html(), /JWT request failed \(HTTP 429\)/);
   assert.match(h.html(), /account-42/);
-  assert.doesNotMatch(h.html(), /需要连接 Agent|复制给 Agent/);
+  assert.doesNotMatch(h.html(), /需要连接 Agent/);
 });
 
 test('only a confirmed invalid credential exposes the reconnect instruction', async () => {
   const h = harness({'/api/auth/status': async () => json({ok: true, state: 'unauthorized',
     auth_state: 'needs_connection', authenticated: false,
-    error: {code: 'need_login', message: 'Authorization expired or revoked; reconnect explicitly.'}})});
+    identity_error: {code: 'need_login', message: 'Authorization expired or revoked; reconnect explicitly.'}})});
   await h.mount();
   assert.match(h.html(), /需要连接 Agent/);
+  assert.match(h.html(), /Authorization expired or revoked/);
   assert.match(h.html(), /复制给 Agent 的连接指令/);
   assert.match(h.html(), /查看 dev 安装与授权步骤/);
 });
@@ -130,7 +132,7 @@ test('account menu cancellation does not prepare Pillow', async () => {
   await h.mount();
   await h.node('#asx-runtime-check').onclick();
   assert.match(h.html(), /FFmpeg：可用/);
-  assert.match(h.html(), /准备 Pillow/);
+  assert.match(h.html(), /安装共享 Pillow/);
   await h.node('#asx-runtime-prepare').onclick();
   assert.match(harness.lastConfirm, /python3 asynx.py runtime prepare/);
   assert.equal(h.calls.filter(call => call.url === '/api/runtime/prepare').length, 0);

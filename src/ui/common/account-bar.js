@@ -105,7 +105,8 @@
   function render() {
     if (!_state.container) return;
     const auth = _state.auth, verified = auth && auth.authenticated;
-    const needsConnection = !!(auth && (auth.state === 'unauthorized' || auth.auth_state === 'needs_connection'));
+    const needsConnection = _state.phase === 'ready' && !!(auth && (auth.state === 'unauthorized' || auth.auth_state === 'needs_connection'));
+    const authError = needsConnection && (auth.error || auth.identity_error);
     const loading = _state.phase === 'loading';
     const root = document.createElement('div');
     root.className = 'asx-acct-root' + (verified ? '' : ' off');
@@ -128,17 +129,17 @@
       </summary><div class="asx-acct-details">
         <p>${escapeHtml(details)}</p>
         ${_state.error ? `<p role="alert">${escapeHtml(_state.error)}${verified ? ' 上次查询结果仅供参考。' : ''}</p>` : ''}
-        ${auth && auth.error ? `<p>${escapeHtml(auth.error.message)}</p>` : ''}
+        ${authError ? `<p>${escapeHtml(authError.message)}</p>` : ''}
         <button type="button" class="keycap ghost sm" id="asx-acct-refresh">重新检查连接与余额</button>
         <p><a href="https://dev.plaiers.ai/agent-center#asset-setup" target="_blank" rel="noreferrer">查看 dev 安装与授权步骤</a></p>
-        ${needsConnection ? `<button type="button" class="keycap ghost sm" id="asx-connect-copy">复制给 Agent 的连接指令</button>
-        <textarea id="asx-connect-prompt" aria-label="连接修复指令" readonly rows="4">${escapeHtml(prompt)}</textarea>` : ''}
+        <button type="button" class="keycap ghost sm" id="asx-connect-copy">复制给 Agent 的连接指令</button>
+        <textarea id="asx-connect-prompt" aria-label="连接修复指令" readonly rows="4">${escapeHtml(prompt)}</textarea>
         <h3>本地编辑环境</h3>
         <p role="status">${_state.preparing ? '正在准备共享 Pillow，请稍候…' : !runtime ? '点击检查本地环境，查看共享 Pillow 和视频工具。' :
           `Pillow：${ready ? '可用' : state.status === 'unsupported' ? '当前平台无锁定安装包' : state.status === 'invalid' ? '校验失败' : '未安装'}；FFmpeg：${runtime.ffmpeg ? '可用' : '未安装（仅视频处理需要）'}；ffprobe：${runtime.ffprobe ? '可用' : '未安装'}`}</p>
         ${_state.runtimeError ? `<p role="alert">${escapeHtml(_state.runtimeError)}</p>` : ''}
         <button type="button" class="keycap ghost sm" id="asx-runtime-check" ${_state.preparing ? 'disabled' : ''}>检查本地环境</button>
-        ${canPrepare ? `<button type="button" class="keycap sm" id="asx-runtime-prepare" ${_state.preparing ? 'disabled' : ''}>${_state.preparing ? '正在准备…' : '准备 Pillow'}</button>` : ''}
+        ${canPrepare ? `<button type="button" class="keycap sm" id="asx-runtime-prepare" ${_state.preparing ? 'disabled' : ''}>${_state.preparing ? '正在准备…' : '安装共享 Pillow'}</button>` : ''}
         ${runtime && (!runtime.ffmpeg || !runtime.ffprobe) ? '<p>视频处理才需要 FFmpeg/ffprobe。请让 Agent 说明适合当前系统的官方安装来源，确认后再安装；图片编辑不需要。</p>' : ''}
       </div></details>`;
     root.querySelector('details').ontoggle = e => { _state.menuOpen = e.target.open; };

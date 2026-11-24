@@ -1,6 +1,6 @@
 {
   "files": {
-    "SKILL.md": "a6d906f85310604489301e9af109d9599f855dbb488f0ca15b8c64619a579136",
+    "SKILL.md": "cee0da4d2c97ba629149aeebb65fbc7a6d11752738ac9082f67b5e5a0c112318",
     "agents/openai.yaml": "099859f98b5c5e1a39e05a2e7e31deadd5b31075335be3ac437d88ffa3be23a6",
     "references/operations.md": "b9e35ce4ad2a519552c95645ab8c30039cf6487f289c4411d16c8611cec8441d",
     "references/setup.md": "36458992e76ba4f3209ebdb4ee529ebedbbbc2a65bf904304d4175a75f27a6c8",
@@ -38,7 +38,7 @@
     "scripts/asxlib/tasks.py": "febdefd475ec54ae0409a65ce3d87b5284be329e767c4bd2ff5240b8852e8fd5",
     "scripts/asxlib/thumb_cache.py": "0c43ab0fb43185b0fdbe5982c56c0d6755de3c91633174a0c90279bdf83a7338",
     "scripts/asxlib/ui/3d/index.html": "1b2018fe262150aba7ca47d84521624c981529a400cfd5e70aab94a5ce0ae57a",
-    "scripts/asxlib/ui/account-bar.js": "e775c7e8d33b1973141d0a8127a8bcad7fd0acd93ec290d99fc8772bb2e1d981",
+    "scripts/asxlib/ui/account-bar.js": "2dd3e45553663fbdf6e16f9f7c1d53fe3e368551a7ee4ad7a5b77dcd7e97e4a2",
     "scripts/asxlib/ui/image/index.html": "b2a883e88a751627cf833d53bb561d3fe2fc8961ac4086cfe6412ae74e05a5c7",
     "scripts/asxlib/ui/index.html": "71c8feda94566d224f8248928d5f9ebeba8d8d6df55eeb5e5632b76fbac45540",
     "scripts/asxlib/ui/model3d-loader.js": "3ede47786476ce65b288fbcf4c5dc0e257d4b28e5a4baf31c4f52709db9b9f6d",
