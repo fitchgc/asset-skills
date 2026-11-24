@@ -105,13 +105,17 @@
     root.className = 'asx-acct-root' + (!auth || !auth.authenticated ? ' off' : '');
 
     if (!auth || !auth.authenticated) {
-      const reason = (auth && auth.error && auth.error.message) || '请经 plaiers-community 授权（需 skill_jwt 权限）并用 get_skill 安装本 Skill';
+      // 未授权也要能点开：原因写在弹层里，并可重新检查（例如用户刚重新安装或授权完）
+      const reason = !auth
+        ? '正在查询授权状态…'
+        : (auth.error && auth.error.message) || '请经 plaiers-community 授权（需 skill_jwt 权限）并安装本 Skill';
       root.innerHTML = `
-        <button type="button" class="asx-acct-pill" title="${escapeHtml(reason)}">
+        <details><summary class="asx-acct-pill" aria-label="查看未授权原因">
           <span class="asx-acct-avatar">?</span>
           <span>未授权</span>
-        </button>
+        </summary><div class="asx-acct-details"><p>${escapeHtml(reason)}</p><button type="button" class="keycap ghost sm" id="asx-acct-refresh">重新检查</button></div></details>
       `;
+      root.querySelector('#asx-acct-refresh').onclick = () => refresh();
     } else {
       const id = auth.identity || {};
       const b = id.budget || {};
@@ -140,7 +144,8 @@
       if (typeof _state.onAuthChange === 'function') {
         _state.onAuthChange(data);
       }
-    } catch (_) {
+    } catch (err) {
+      _state.auth = { authenticated: false, error: { message: '无法查询授权状态：' + err.message } };
       render();
     }
   }

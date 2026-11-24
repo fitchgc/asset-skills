@@ -209,6 +209,24 @@ class TestBridgeJwtAuth(unittest.TestCase):
         self.assertEqual(ctx.exception.details["reason_code"], "kid_mismatch")
         self.assertEqual(self.jwt_requests(), 0)
 
+    def test_bridge_script_removed_from_temp_dir_is_explained(self) -> None:
+        gone = self.tmp / "cleaned-tmp" / "get-skill-jwt.mjs"
+        self.rewrite_context(jwt_command=["node", str(gone), "--agent-id", "agent-a", "--origin", self.origin])
+        with self.assertRaises(AsxError) as ctx:
+            load_auth_session()
+        self.assertEqual(ctx.exception.code, "need_login")
+        self.assertEqual(ctx.exception.details["reason_code"], "bridge_missing")
+        self.assertEqual(ctx.exception.details["script"], str(gone))
+        self.assertIn("临时目录", ctx.exception.message)
+        self.assertNotIn("at Module", ctx.exception.message, "no stack trace in the user-facing message")
+
+    def test_missing_executable_names_the_launch_environment(self) -> None:
+        self.rewrite_context(jwt_command=[str(self.tmp / "no-such-node"), "x.mjs", "--agent-id", "agent-a", "--origin", self.origin])
+        with self.assertRaises(AsxError) as ctx:
+            load_auth_session()
+        self.assertEqual(ctx.exception.details["reason_code"], "bridge_unavailable")
+        self.assertIn("重新安装", ctx.exception.message)
+
     # --- identity switching (PR #10 P1 scenarios) ---------------------------------------------------
 
     def test_account_switch_env_token_mode(self) -> None:

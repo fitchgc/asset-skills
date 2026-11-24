@@ -1,6 +1,6 @@
 {
   "files": {
-    "SKILL.md": "4f145d3711b4723c85ed7a64fd6ef42c3f56a0ceb93eec9367b3c947a2d302a7",
+    "SKILL.md": "d225c08e41380d663a4321ac36ef7859426aa4e55d47a7fc0f7dae28a01c53a4",
     "agents/openai.yaml": "099859f98b5c5e1a39e05a2e7e31deadd5b31075335be3ac437d88ffa3be23a6",
     "references/operations.md": "b9e35ce4ad2a519552c95645ab8c30039cf6487f289c4411d16c8611cec8441d",
     "references/setup.md": "36458992e76ba4f3209ebdb4ee529ebedbbbc2a65bf904304d4175a75f27a6c8",
@@ -9,7 +9,7 @@
     "scripts/asxlib/actions.py": "e83cbebcf4e42dc43d96514f928bb37151e1cc777151fc5062cc44840d8ef629",
     "scripts/asxlib/artifacts.py": "6624851145cefabe4fbd1f955d0a05b73a0e756d6b9ed39b18f9af46c742fc2e",
     "scripts/asxlib/audio_tasks.py": "3b415a2ca8b62a63a1f549469beb6bf43a34633e0d39e52fe52b35551b4dc141",
-    "scripts/asxlib/auth.py": "c857d0bdc1c2ded8ac7e86ed5116e7b9b255e1b53053f81ac56d29c415171fc6",
+    "scripts/asxlib/auth.py": "7dfd31f64d083518fa3dc2667ad4754226547e6add695b07b46beff244e40c00",
     "scripts/asxlib/batches.py": "81ec8f67ab03e08378d7fe57ff6e5def25665961c25593284b9b22aae0e19012",
     "scripts/asxlib/charge_consent.py": "f6802a24748a7aa97c57d781bfd84f13a16a5a582de54e77a27938838a5d615d",
     "scripts/asxlib/cli.py": "aacf95f1a0328932246f595f0b5fe58b98dda9a7bf9eb0c3ae7584412587a533",
@@ -38,7 +38,7 @@
     "scripts/asxlib/tasks.py": "febdefd475ec54ae0409a65ce3d87b5284be329e767c4bd2ff5240b8852e8fd5",
     "scripts/asxlib/thumb_cache.py": "0c43ab0fb43185b0fdbe5982c56c0d6755de3c91633174a0c90279bdf83a7338",
     "scripts/asxlib/ui/3d/index.html": "1b2018fe262150aba7ca47d84521624c981529a400cfd5e70aab94a5ce0ae57a",
-    "scripts/asxlib/ui/account-bar.js": "91cac0dbbaca2c48417decfc1cd68f4e22993acec131e8d45b7e8b4c5f8cfe4a",
+    "scripts/asxlib/ui/account-bar.js": "6dc0967782e8f1d54f81679b5d321ff4e048ef1cdee3615605b4caf7f0e2c4df",
     "scripts/asxlib/ui/image/index.html": "b2a883e88a751627cf833d53bb561d3fe2fc8961ac4086cfe6412ae74e05a5c7",
     "scripts/asxlib/ui/index.html": "71c8feda94566d224f8248928d5f9ebeba8d8d6df55eeb5e5632b76fbac45540",
     "scripts/asxlib/ui/model3d-loader.js": "3ede47786476ce65b288fbcf4c5dc0e257d4b28e5a4baf31c4f52709db9b9f6d",

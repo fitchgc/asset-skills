@@ -19,3 +19,26 @@ test('preserves service precision, unit, account and query time', async () => {
   await context.window.AsxAccountBar.refresh();
   assert.ok(html.includes('不限额'));
 });
+
+function mountWith(fetchImpl) {
+  const view = {html: ''};
+  const container = {appendChild: node => { view.html = node.innerHTML; }};
+  const context = {window: {}, document: {getElementById: () => true, createElement: () => ({querySelector: () => ({})})}, fetch: fetchImpl};
+  vm.runInNewContext(fs.readFileSync(path.resolve(__dirname, '../src/ui/common/account-bar.js'), 'utf8'), context);
+  return {view, mounted: context.window.AsxAccountBar.mount(container, {token: 'local-fixture'})};
+}
+
+test('unauthorized bar opens to the reason and offers a re-check', async () => {
+  const message = '凭据桥接脚本已不存在：/tmp/x/get-skill-jwt.mjs';
+  const {view, mounted} = mountWith(async () => ({ok: true, json: async () => ({ok: true, authenticated: false, error: {code: 'need_login', message}})}));
+  await mounted;
+  assert.ok(view.html.includes('<details>'), 'clickable disclosure, not a bare button');
+  assert.ok(view.html.includes(message));
+  assert.ok(view.html.includes('重新检查'));
+});
+
+test('a failed status request is shown instead of swallowed', async () => {
+  const {view, mounted} = mountWith(async () => { throw new Error('connection refused'); });
+  await mounted;
+  assert.ok(view.html.includes('无法查询授权状态：connection refused'));
+});

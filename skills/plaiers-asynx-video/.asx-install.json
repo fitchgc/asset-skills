@@ -1,6 +1,6 @@
 {
   "files": {
-    "SKILL.md": "795f2bea8ba95bbc11d68e4129f6affd021796875f165d6da3d6cc69bf9a4bb6",
+    "SKILL.md": "ec24988a8908165c9cdcba30db45b28dc10e614527c8a92b9cb897cbc41a0aa9",
     "agents/openai.yaml": "47a50631849c46312f3e463342f14b425e49cea51261f57450f1f9b2d7952723",
     "references/operations.md": "c5868723ae36c4306cb625f859a21acfffe94db4c64434a718c309e0d77b70de",
     "references/setup.md": "d3f8fae30ef3a490b59f6c7bec77afa09b00531afa3c860aac7425d594857696",
@@ -8,7 +8,7 @@
     "scripts/asx_runtime.py": "6fc808705597429d8f16f2d5485ca038cd5c6638484be8f4f89ce8d459c5835e",
     "scripts/asxlib/__init__.py": "f283daece0b400feea90910f9d05d17dc157454d03924a27decca6e20fec7e12",
     "scripts/asxlib/artifacts.py": "6624851145cefabe4fbd1f955d0a05b73a0e756d6b9ed39b18f9af46c742fc2e",
-    "scripts/asxlib/auth.py": "c857d0bdc1c2ded8ac7e86ed5116e7b9b255e1b53053f81ac56d29c415171fc6",
+    "scripts/asxlib/auth.py": "7dfd31f64d083518fa3dc2667ad4754226547e6add695b07b46beff244e40c00",
     "scripts/asxlib/batches.py": "81ec8f67ab03e08378d7fe57ff6e5def25665961c25593284b9b22aae0e19012",
     "scripts/asxlib/charge_consent.py": "f6802a24748a7aa97c57d781bfd84f13a16a5a582de54e77a27938838a5d615d",
     "scripts/asxlib/cli.py": "cd2b9154624e8462acaef8b577e250a3cb6ddad9af46b1a71509e87a0c446dc0",
