@@ -57,14 +57,16 @@
   }
 
   // 结果三选一：declined（用户取消，未联网）、failed（带准备接口自己的 res/data，交给调用方显示）、ready。
+  // 账户菜单和编辑弹窗都走这一个函数，确认文案、请求体和失败提示完全相同；只有编辑弹窗会在成功后重试原请求。
   async function plPrepareRuntime(error, headers) {
     if (!window.confirm(plRuntimeMessage(error))) return { status: 'declined' };
     plToast('正在下载并准备运行环境，可能需要一两分钟…', 'ok', 120000);
     let res;
     let data;
     try {
+      // 两个字段同义：user_confirmed 是本仓库的写法，confirm_download 是 11 月 23 日 dev 页面的写法
       res = await fetch('/api/runtime/prepare', {
-        method: 'POST', headers, body: JSON.stringify({ user_confirmed: true }),
+        method: 'POST', headers, body: JSON.stringify({ user_confirmed: true, confirm_download: true }),
       });
       data = await res.json();
     } catch (err) {
@@ -120,6 +122,7 @@
   }
 
   window.plPostWithChargeConsent = plPostWithChargeConsent;
+  window.plPrepareRuntime = plPrepareRuntime;
   window.plToast = plToast;
   window.plColor = plColor;
   window.plIcon = plIcon;

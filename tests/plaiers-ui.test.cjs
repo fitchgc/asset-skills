@@ -40,7 +40,8 @@ test('a failed prepare shows the prepare error and does not retry the request', 
   });
   const {res, data} = await post('/api/submit', {a: 1}, {});
   assert.equal(submits(calls), 1, 'original request is not re-sent');
-  assert.deepEqual(calls[1], {url: '/api/runtime/prepare', body: {user_confirmed: true}});
+  // one prepare protocol for every entry: both confirmation field names are sent
+  assert.deepEqual(calls[1], {url: '/api/runtime/prepare', body: {user_confirmed: true, confirm_download: true}});
   assert.equal(res.status, 400);
   assert.equal(data.error.code, 'runtime_hash_mismatch');
   assert.equal(data.error.message, '下载的包与锁定哈希不一致，已拒绝安装');
@@ -66,6 +67,19 @@ test('declining the prepare dialog neither prepares nor retries, and is not repo
   assert.equal(res.ok, false);
   assert.equal(data.error.code, 'runtime_declined');
   assert.ok(!toasts.some(t => t.includes('准备失败')), 'no failure toast');
+});
+
+test('after a successful prepare the edit is retried only once, even if Pillow is still missing', async () => {
+  const {post, calls} = load({
+    routes: {
+      '/api/submit': [{status: 400, body: MISSING}, {status: 400, body: MISSING}],
+      '/api/runtime/prepare': [{status: 200, body: {ok: true, prepared: true}}],
+    },
+    confirms: [true],
+  });
+  const {data} = await post('/api/submit', {a: 1}, {});
+  assert.deepEqual(calls.map(c => c.url), ['/api/submit', '/api/runtime/prepare', '/api/submit']);
+  assert.equal(data.error.code, 'dependency_missing', 'the second answer is shown, no second dialog');
 });
 
 test('a successful prepare re-sends the original request once', async () => {

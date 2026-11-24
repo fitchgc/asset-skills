@@ -77,6 +77,32 @@ def _http_status_for_error(code: str) -> int:
     return 400
 
 
+# The bridge (get-skill-jwt.mjs) reports these when it could not reach the site; the credential is untouched.
+# Node error codes are matched case-sensitively and as whole words ("reconnect" must not match ECONN).
+_BRIDGE_CONNECTION_FAILURE = re.compile(
+    r"(?i:check (?:host )?connectivity|could not verify identity|fetch failed|timed? ?out|aborted|HTTP 5\d\d)"
+    r"|\b(?:ECONN[A-Z]+|ENOTFOUND|EAI_AGAIN|ETIMEDOUT)\b"
+)
+_CREDENTIAL_INVALID_CODES = {"need_login", "scope_missing", "jwt_invalid", "legacy_credentials_removed",
+                             "invalid_partner_token", "http_401"}
+
+
+def _auth_failure_state(exc: AsxError) -> str:
+    """`unauthorized` only when the credential itself is missing, revoked or refused; otherwise `unavailable`.
+
+    A slow or unreachable site, gateway 5xx or bridge timeout leaves the authorization valid, so the page
+    offers a re-check instead of asking the user to reconnect.
+    """
+    if exc.code not in _CREDENTIAL_INVALID_CODES:
+        return "unavailable"
+    reason = exc.details.get("reason_code")
+    if reason == "bridge_timeout":
+        return "unavailable"
+    if reason == "bridge_failed" and _BRIDGE_CONNECTION_FAILURE.search(str(exc.details.get("bridge_error") or "")):
+        return "unavailable"
+    return "unauthorized"
+
+
 def _decode_data_url(data_url: str) -> tuple[bytes, str]:
     if not data_url.startswith("data:"):
         raise AsxError("Invalid data URL", code="invalid_data_url")
@@ -210,6 +236,13 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
 
             if path == "/api/auth/status":
                 self._send_json(self.server.get_auth_status())
+                return
+
+            if path == "/api/runtime/status":
+                # Read-only: lets the account menu offer the same consented prepare as the edit dialog.
+                from .optional_deps import optional_runtime_status
+
+                self._send_json({"ok": True, "runtime": optional_runtime_status()})
                 return
 
             if path == "/api/assets":
@@ -482,9 +515,10 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/runtime/prepare":
-            # Downloads the hash-locked Pillow runtime. Only the page's confirmation dialog sends this,
-            # after the user clicked "confirm"; the agent never calls it on its own.
-            if body.get("user_confirmed") is not True:
+            # The only handler that downloads the hash-locked Pillow runtime. Every page entry (account
+            # menu, edit dialog) sends it after the user clicked "confirm"; the agent never calls it.
+            # `confirm_download` is the field name used by the 2026-11-23 dev pages; both mean the same.
+            if body.get("user_confirmed") is not True and body.get("confirm_download") is not True:
                 self._send_json(
                     {"ok": False, "error": {"code": "confirmation_required", "message": "准备运行环境需要用户在页面上确认"}},
                     status=409,
@@ -599,25 +633,34 @@ class WorkbenchServer(ThreadingHTTPServer):
             origin = load_credential_context()["origin"]
         except AsxError:
             origin = ""
+        # state: authorized | unauthorized (reconnect needed) | unavailable (credential kept, re-check later).
         try:
             session = load_auth_session()
         except AsxError as exc:
-            return {"ok": True, "authenticated": False, "origin": origin, "identity": None,
+            state = _auth_failure_state(exc)
+            return {"ok": True, "state": state, "authenticated": False, "origin": origin, "identity": None,
                     "error": exc.payload()["error"]}
         gw_client = AsynxClient(session.base_url, session=session)
-        identity = None
-        identity_error = None
         try:
             identity, _ = gw_client.partner_identity()
         except AsxError as exc:
-            identity_error = exc.payload()["error"]
+            state = _auth_failure_state(exc)
+            return {
+                "ok": True,
+                "state": state,
+                "authenticated": state != "unauthorized",
+                "origin": session.origin,
+                "asynx": session.asynx,
+                "identity": None,
+                "identity_error": exc.payload()["error"],
+            }
         return {
             "ok": True,
+            "state": "authorized",
             "authenticated": True,
             "origin": session.origin,
             "asynx": session.asynx,
             "identity": identity,
-            **({"identity_error": identity_error} if identity_error else {}),
         }
 
     def workspace_root(self) -> Path | None:

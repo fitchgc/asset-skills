@@ -78,6 +78,36 @@ class TestPrepareEndpoint(_EndpointCase):
         self.assertEqual(data, result)
         prepare.assert_called_once_with()
 
+    def test_one_handler_accepts_either_confirmation_field(self) -> None:
+        """Account menu and edit dialog share one protocol; the 11-23 dev field name is honoured too."""
+        result = {"ok": True, "prepared": True}
+        for body in ({"confirm_download": True}, {"user_confirmed": True, "confirm_download": True}):
+            with self.subTest(body=body), mock.patch.object(runtime_env, "prepare_runtime", return_value=result) as prepare:
+                status, data = self.post(body)
+                self.assertEqual(status, 200)
+                self.assertEqual(data, result)
+                prepare.assert_called_once_with()
+        for body in ({"confirm_download": "yes"}, {"user_confirmed": 1}, {"confirm_download": False}):
+            with self.subTest(body=body), mock.patch.object(runtime_env, "prepare_runtime") as prepare:
+                status, data = self.post(body)
+                self.assertEqual(status, 409)
+                self.assertEqual(data["error"]["code"], "confirmation_required")
+                prepare.assert_not_called()
+
+    def test_runtime_status_is_read_only(self) -> None:
+        state = {"status": "not_prepared", "path": "/x", "requirement": "pillow==12.3.0", "platform": {}}
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.server.server_address[1]}/api/runtime/status",
+            headers={"X-Asx-Session-Token": self.server.session_token},
+        )
+        with mock.patch.object(runtime_env, "inspect_runtime", return_value=state), \
+                mock.patch.object(runtime_env, "prepare_runtime") as prepare, \
+                urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read())
+        self.assertEqual(data["runtime"]["status"], "not_prepared")
+        self.assertIn("prepare_command", data["runtime"])
+        prepare.assert_not_called()
+
 
 class TestPrepareEndpointEnvironmentFailures(_EndpointCase):
     """Real prepare_runtime() behind the endpoint; pip install itself is never run."""
