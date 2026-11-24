@@ -62,7 +62,7 @@ def parser() -> argparse.ArgumentParser:
     list_cmd = commands.add_parser("list", help="scan 的别名：列出工作区分类资产清单")
     _add_scan_arguments(list_cmd)
 
-    lineage_cmd = commands.add_parser("lineage", help="查询指定资产的上下游 Asset Lineage（血缘关系）")
+    lineage_cmd = commands.add_parser("lineage", help="查询指定资产的上下游文件版本（Asset Lineage）")
     lineage_cmd.add_argument("target", help="目标资产的 artifact_id 或文件路径")
     lineage_cmd.add_argument("--root", help="可选工作区根目录，用于解析相对路径")
 

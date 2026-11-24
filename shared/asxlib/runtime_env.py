@@ -20,6 +20,7 @@ Test/offline overrides: ``ASYNX_RUNTIME_LOCK`` (JSON lock file),
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import platform
@@ -206,14 +207,21 @@ def inspect_runtime() -> dict[str, Any]:
 
 
 def activate() -> dict[str, Any]:
-    """Put a verified runtime on ``sys.path`` (once per process); never a partial one."""
+    """Put a verified runtime on ``sys.path``; never a partial one.
+
+    Only a ready runtime is cached: a long-running workbench re-checks on the next call, so a
+    runtime prepared after start-up is picked up without a restart.
+    """
     global _activated
-    if _activated is None:
-        state = inspect_runtime()
-        if state["status"] == "ready" and state["site"] not in sys.path:
+    if _activated is not None:
+        return _activated
+    state = inspect_runtime()
+    if state["status"] == "ready":
+        if state["site"] not in sys.path:
             sys.path.insert(0, state["site"])
+            importlib.invalidate_caches()
         _activated = state
-    return _activated
+    return state
 
 
 # ---------------------------------------------------------------- prepare / remove
@@ -259,6 +267,10 @@ def _wait_lock(path: Path) -> Iterator[None]:
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
 
+PIP_INSTALL_TIMEOUT = 900
+SMOKE_TEST_TIMEOUT = 60
+
+
 def _pip_available() -> bool:
     result = subprocess.run(
         [sys.executable, "-m", "pip", "--version"], capture_output=True, text=True, check=False
@@ -272,17 +284,46 @@ def _smoke_test(site: Path, version: str) -> str | None:
         "assert PIL.__version__ == sys.argv[2], PIL.__version__; assert features.check('webp'); "
         "Image.new('RGB', (1, 1)).close()"
     )
-    result = subprocess.run(
-        [sys.executable, "-I", "-S", "-B", "-c", code, str(site), version],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", "-B", "-c", code, str(site), version],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SMOKE_TEST_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AsxError(
+            f"运行环境自检超过 {SMOKE_TEST_TIMEOUT} 秒仍未完成，未启用",
+            code="runtime_prepare_timeout",
+            exit_code=2,
+            details={"step": "smoke_test", "timeout_seconds": SMOKE_TEST_TIMEOUT},
+        ) from exc
     return None if result.returncode == 0 else (result.stderr or result.stdout)[-2000:]
 
 
 def prepare_runtime() -> dict[str, Any]:
+    """Prepare the shared runtime; expected environment failures surface as ``AsxError``.
+
+    Filesystem failures (e.g. a runtime directory that cannot be created or written) and pip
+    timeouts are reported with a stable code, so the CLI and the workbench endpoint both return a
+    structured error instead of an uncaught exception. Programming errors still propagate.
+    """
+    try:
+        return _prepare_runtime()
+    except OSError as exc:
+        # Reason only: the response goes to the browser, so no local paths, traceback or environment.
+        reason = exc.strerror or type(exc).__name__
+        hint = "运行环境目录无法创建或写入" if isinstance(exc, PermissionError) else "运行环境准备时系统操作失败"
+        raise AsxError(
+            f"{hint}（{reason}），未启用新的运行环境。请检查 XDG_DATA_HOME（未设置时为 ~/.local/share）下 plaiers 目录的写入权限",
+            code="runtime_io_error",
+            exit_code=2,
+            details={"step": "filesystem", "errno": exc.errno, "reason": reason},
+        ) from exc
+
+
+def _prepare_runtime() -> dict[str, Any]:
     lock = load_lock()
     info = platform_info()
     hashes = matching_hashes(lock, info)
@@ -319,7 +360,17 @@ def prepare_runtime() -> dict[str, Any]:
             if find_links:
                 command += ["--no-index", "--find-links", find_links]
             env = {**os.environ, "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_REQUIRE_VIRTUALENV": "0"}
-            result = subprocess.run(command, capture_output=True, text=True, check=False, env=env, timeout=900)
+            try:
+                result = subprocess.run(
+                    command, capture_output=True, text=True, check=False, env=env, timeout=PIP_INSTALL_TIMEOUT
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise AsxError(
+                    f"下载或安装 Pillow 超过 {PIP_INSTALL_TIMEOUT} 秒仍未完成，已停止，未启用新的运行环境",
+                    code="runtime_prepare_timeout",
+                    exit_code=2,
+                    details={"step": "pip_install", "timeout_seconds": PIP_INSTALL_TIMEOUT},
+                ) from exc
             if result.returncode:
                 output = (result.stderr or "") + (result.stdout or "")
                 mismatch = "DO NOT MATCH THE HASHES" in output.upper()

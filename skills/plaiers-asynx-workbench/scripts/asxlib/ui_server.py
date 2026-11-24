@@ -9,6 +9,8 @@ import re
 import secrets
 import socket
 import subprocess
+import sys
+import tempfile
 import threading
 import time
 import webbrowser
@@ -81,6 +83,7 @@ _BRIDGE_CREDENTIAL_FAILURES = (
     "Authorization expired or revoked;",
     "Community token missing, expired or revoked.",
     "No binding for this Agent and site.",
+    "Agent/site/account binding mismatch.",
     "Issued JWT does not match the bound account.",
     "Credential/account conflict.",
     "Credential does not match this site or token format.",
@@ -403,6 +406,7 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
                     "source_name": Path(effective_source).name if effective_source else None,
                     "metadata": meta,
                     "models": models,
+                    "platform": sys.platform,
                 }
                 self._send_json(session_data)
                 return
@@ -781,20 +785,6 @@ class WorkbenchServer(ThreadingHTTPServer):
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         token = secrets.token_hex(6)
-        mask_path = dest_dir / f"mask_{token}.png"
-        preview_path = dest_dir / f"preview_{token}.png"
-        clean_source_path = Path(effective_source)
-
-        if source_data_url:
-            source_bytes, _ = _decode_data_url(source_data_url)
-            clean_source_path = dest_dir / f"source_{token}.png"
-            clean_source_path.write_bytes(source_bytes)
-        if mask_data_url:
-            mask_bytes, _ = _decode_data_url(mask_data_url)
-            mask_path.write_bytes(mask_bytes)
-        if preview_data_url:
-            preview_bytes, _ = _decode_data_url(preview_data_url)
-            preview_path.write_bytes(preview_bytes)
 
         # Build structured prompt
         prompt_parts = []
@@ -807,19 +797,31 @@ class WorkbenchServer(ThreadingHTTPServer):
             prompt_parts.append("Image edit annotations:\n" + "\n".join(instruction_lines))
         final_prompt = "\n\n".join(prompt_parts) or "Edit the marked regions"
 
-        # Prepare images: [source_image, annotation_preview_image]
-        input_paths = [str(clean_source_path)]
-        if preview_data_url and preview_path.is_file():
-            input_paths.append(str(preview_path))
-
+        # Prepare images in a scratch directory so annotation inputs never persist in the project.
         from .reference_media import prepare_inputs
         source_sizes: list[Any] = []
-        images, prepared_mask = prepare_inputs(
-            input_paths,
-            mask=str(mask_path) if (mask_data_url and mask_path.is_file()) else None,
-            keep_original=False,
-            source_sizes=source_sizes,
-        )
+        with tempfile.TemporaryDirectory(prefix="asx-region-") as scratch:
+            scratch_dir = Path(scratch)
+            input_paths = [effective_source]
+            if source_data_url:
+                source_bytes, _ = _decode_data_url(source_data_url)
+                (scratch_dir / "source.png").write_bytes(source_bytes)
+                input_paths = [str(scratch_dir / "source.png")]
+            if preview_data_url:
+                preview_bytes, _ = _decode_data_url(preview_data_url)
+                (scratch_dir / "preview.png").write_bytes(preview_bytes)
+                input_paths.append(str(scratch_dir / "preview.png"))
+            mask_path: str | None = None
+            if mask_data_url:
+                mask_bytes, _ = _decode_data_url(mask_data_url)
+                (scratch_dir / "mask.png").write_bytes(mask_bytes)
+                mask_path = str(scratch_dir / "mask.png")
+            images, prepared_mask = prepare_inputs(
+                input_paths,
+                mask=mask_path,
+                keep_original=False,
+                source_sizes=source_sizes,
+            )
         request_input: dict[str, Any] = {
             "prompt": final_prompt,
             "images": images,

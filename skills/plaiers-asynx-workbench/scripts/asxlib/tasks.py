@@ -50,6 +50,24 @@ from .state import task_paths as ledger_task_paths
 _SAFE_PATH_COMPONENT = re.compile(r"[^A-Za-z0-9._-]+")
 
 
+def _skill_install_dir() -> Path | None:
+    """The installed Skill folder (<skill>/scripts/asxlib/tasks.py); None when run from the source tree."""
+    scripts_dir = Path(__file__).resolve().parents[1]
+    return scripts_dir.parent if (scripts_dir / "asynx.py").is_file() else None
+
+
+def checked_output_dir(directory: Path) -> Path:
+    """Refuse output inside the Skill install folder: results belong to the user's project."""
+    skill_dir = _skill_install_dir()
+    if skill_dir is not None and directory.is_relative_to(skill_dir):
+        raise AsxError(
+            "输出目录位于 Skill 安装目录内；请在项目根目录运行，或用 --output-dir 指向项目内的目录",
+            code="output_dir_in_skill",
+            details={"output_dir": str(directory), "skill_dir": str(skill_dir)},
+        )
+    return directory
+
+
 class TaskStatusClient(Protocol):
     def task(self, task_id: str) -> tuple[dict[str, Any], str | None]: ...
 
@@ -199,7 +217,7 @@ def download_assets(
             code="missing_task_assets",
             task_id=task_id if isinstance(task_id, str) else None,
         )
-    directory = Path(output_dir).expanduser().resolve()
+    directory = checked_output_dir(Path(output_dir).expanduser().resolve())
     directory.mkdir(parents=True, exist_ok=True)
     files: list[str] = completed_files if completed_files is not None else []
     cached_assets: dict[int, dict[str, Any]] = {}
@@ -911,11 +929,11 @@ def _persist_task_intent(
     charge_consent: Mapping[str, Any],
 ) -> dict[str, Any]:
     local_id = f"local_{secrets.token_hex(12)}"
-    resolved_output_dir = (
-        str((Path(DEFAULT_OUTPUT_DIR) / local_id).resolve())
+    resolved_output_dir = str(checked_output_dir(
+        (Path(DEFAULT_OUTPUT_DIR) / local_id).resolve()
         if output_dir == DEFAULT_OUTPUT_DIR
-        else str(Path(output_dir).expanduser().resolve())
-    )
+        else Path(output_dir).expanduser().resolve()
+    ))
     connection = connect_ledger_db()
     try:
         row = create_task_intent(

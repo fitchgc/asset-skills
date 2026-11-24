@@ -55,6 +55,7 @@ from .state import (
 )
 from .tasks import (
     _ensure_partner_quota,
+    checked_output_dir,
     client_identity,
     download_assets,
     index_downloaded_artifacts,
@@ -356,9 +357,9 @@ def create_batch(
         body["_asx_parent_paths"] = parent_paths
     batch_id = _new_batch_id()
     now = utc_now()
-    resolved_output_dir = str(
+    resolved_output_dir = str(checked_output_dir(
         (Path(output_dir).expanduser() if output_dir else Path(DEFAULT_OUTPUT_DIR) / batch_id).resolve()
-    )
+    ))
     batch_name = name.strip() if name and name.strip() else batch_id
     connection = connect_db()
     try:

@@ -121,6 +121,7 @@ python3 "<skill-dir>/scripts/asynx.py" wait "<task-id>"
 
 生成、查询、下载不需要 Pillow。本地参考图、Mask、本地图片处理和图集拼合需要共享运行环境；缺失时命令在提交前返回 `dependency_missing`（或校验失败时返回 `runtime_invalid`），`details.prepare_command` 给出准备命令。
 
-- `prepare` 会联网下载按哈希锁定的 Pillow，**运行前必须先征得用户同意**；不要自动运行，也不要改用 `pip install`。
+- `prepare` 会联网下载按哈希锁定的 Pillow，**Agent 运行前必须先征得用户同意**；不要自动运行，也不要改用 `pip install`。用启动工作台的同一个 Python 运行（运行环境按 Python 版本区分）。
+- 工作台页面遇到缺少 Pillow 时会弹窗询问用户，用户点确认即视为同意，由工作台自行准备并重试；Agent 不要替用户调用该接口。
 - 所有 Asset Skill 共用同一份运行环境，已准备时再次 `prepare` 不会重复下载。
 - `python3 scripts/asynx.py runtime status` 只读查看状态；`runtime remove` 删除当前平台的运行环境。

@@ -156,7 +156,8 @@ def run_jwt_bridge(argv: list[str]) -> str:
         )
     except FileNotFoundError as exc:
         raise AsxError(
-            f"无法启动凭据桥接命令（{argv[0]} 不存在）。{INSTALL_HINT}",
+            f"无法启动凭据桥接命令：找不到 {argv[0]}（启动工作台的环境里没有它，常见于未加载 nvm 的终端或 GUI）。"
+            f"请在能运行 {argv[0]} 的终端里启动工作台，或让 Agent 用新版 plaiers-community 重新安装本 Skill（会记录 node 的绝对路径）。",
             code="need_login",
             exit_code=2,
             details={"reason_code": "bridge_unavailable", "executable": argv[0]},
@@ -170,6 +171,15 @@ def run_jwt_bridge(argv: list[str]) -> str:
         ) from exc
     if proc.returncode != 0:
         message = _redact((proc.stderr or "").strip())[-500:]
+        script = argv[1]
+        if "MODULE_NOT_FOUND" in message and not Path(script).exists():
+            raise AsxError(
+                f"凭据桥接脚本已不存在：{script}。它多半装在已被系统清理的临时目录里。"
+                "请让 Agent 先把 plaiers-community 装到固定目录，再重新安装本 Skill。",
+                code="need_login",
+                exit_code=2,
+                details={"reason_code": "bridge_missing", "script": script, "bridge_error": message},
+            )
         if "skill_jwt" in message:
             raise AsxError(
                 "当前 Plaiers 授权缺少 skill_jwt 权限，请让用户重新授权并勾选该权限。",

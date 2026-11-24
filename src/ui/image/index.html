@@ -1140,6 +1140,12 @@
           'X-Asx-Session-Token': token,
         });
         const taskRes = result.result || {};
+        if (result.error?.code === 'runtime_declined') {
+          // 用户没同意准备运行环境：未提交任务，不算失败
+          document.getElementById('loading-overlay').classList.remove('open');
+          plToast(result.error.message, 'ok', 4500);
+          return;
+        }
         if (!res.ok || !result.ok || taskRes.ok === false) {
           const errMsg = result.error?.message || taskRes.error?.message || '提交失败';
           throw new Error(errMsg);

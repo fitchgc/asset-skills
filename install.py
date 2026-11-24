@@ -430,7 +430,7 @@ def run(
                 "plaiers-asynx-audio": "$plaiers-asynx-audio 生成一段雨声音效",
                 "plaiers-asynx-video": "$plaiers-asynx-video 生成一段猫咪玩耍的视频",
                 "plaiers-asynx-3d": "$plaiers-asynx-3d 生成一个宝箱 3D 模型",
-                "plaiers-asynx-workbench": "$plaiers-asynx-workbench 扫描当前项目的创作资产并查看血缘关系",
+                "plaiers-asynx-workbench": "$plaiers-asynx-workbench 扫描当前项目的创作资产并查看文件版本",
             }.get(skill, f"${skill}")
             print(f"  {example}")
     if "claude" in targets:
@@ -442,7 +442,7 @@ def run(
                 "plaiers-asynx-audio": "/plaiers-asynx-audio 生成一段雨声音效",
                 "plaiers-asynx-video": "/plaiers-asynx-video 生成一段猫咪玩耍的视频",
                 "plaiers-asynx-3d": "/plaiers-asynx-3d 生成一个宝箱 3D 模型",
-                "plaiers-asynx-workbench": "/plaiers-asynx-workbench 扫描当前项目的创作资产并查看血缘关系",
+                "plaiers-asynx-workbench": "/plaiers-asynx-workbench 扫描当前项目的创作资产并查看文件版本",
             }.get(skill, f"/{skill}")
             print(f"  {example}")
     return 0

@@ -353,6 +353,67 @@ class TestAssetManagerWorkbenchBackend(unittest.TestCase):
         finally:
             conn.close()
 
+    def test_context_menu_reveal_and_move_to_trash_actions(self) -> None:
+        from unittest import mock
+
+        from src.asset_manager import actions as manager_actions
+
+        calls: list[list[str]] = []
+
+        def fake_run(argv, **kwargs):
+            calls.append(list(argv))
+            if "trash" in argv[0] or "osascript" in argv[0]:
+                Path(argv[-1]).unlink()  # simulate the OS moving the file to the trash
+            return subprocess.CompletedProcess(argv, 0)
+
+        def post(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+            return _http_json(f"{self.base_url}/api/manager/action", method="POST", token=self.token, body=body)
+
+        with mock.patch.object(manager_actions.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(manager_actions.sys, "platform", "darwin"):
+            # Reveal uses `open -R` with an argument list (no shell) and leaves the file alone.
+            st, res = post({"action": "reveal_in_file_manager", "source_path": str(self.sample_wav)})
+            self.assertEqual(st, 200, res)
+            self.assertEqual(calls[-1], ["/usr/bin/open", "-R", str(self.sample_wav.resolve())])
+            self.assertTrue(self.sample_wav.is_file())
+
+            # Paths outside the workspace are rejected before any command runs.
+            calls.clear()
+            for evil in (str(self.outside_file), "../secret_outside.txt"):
+                for action in ("reveal_in_file_manager", "move_to_trash"):
+                    st, err = post({"action": action, "source_path": evil})
+                    self.assertEqual(st, 403, err)
+                    self.assertEqual(err["error"]["code"], "path_outside_workspace")
+            st, err = post({"action": "move_to_trash", "source_path": str(self.sample_mp4), "manifest_path": str(self.outside_file)})
+            self.assertEqual(st, 403, err)
+            self.assertEqual(calls, [])
+            self.assertTrue(self.outside_file.is_file())
+            self.assertTrue(self.sample_mp4.is_file())
+
+            # Trash moves the file (and a frame-sequence manifest) away; the scan no longer lists it.
+            manifest = self.workspace / "video" / "clip.manifest.json"
+            manifest.write_text("{}", encoding="utf-8")
+            st, res = post({"action": "move_to_trash", "source_path": str(self.sample_mp4), "manifest_path": str(manifest)})
+            self.assertEqual(st, 200, res)
+            self.assertEqual(res["result"]["trashed"], [str(self.sample_mp4.resolve()), str(manifest.resolve())])
+            self.assertFalse(self.sample_mp4.exists())
+            self.assertFalse(manifest.exists())
+
+            st, scan = _http_json(f"{self.base_url}/api/assets?no_cache=1", token=self.token)
+            self.assertEqual(st, 200)
+            self.assertNotIn(str(self.sample_mp4.resolve()), [a["path"] for a in scan["assets"]])
+
+            # A trash tool that fails without moving the file is an error, never a permanent delete.
+            with mock.patch.object(manager_actions.subprocess, "run", return_value=subprocess.CompletedProcess([], 1)):
+                st, err = post({"action": "move_to_trash", "source_path": str(self.sample_wav)})
+            self.assertEqual(st, 400, err)
+            self.assertEqual(err["error"]["code"], "trash_failed")
+            self.assertTrue(self.sample_wav.is_file())
+
+        st, sess = _http_json(f"{self.base_url}/api/session", token=self.token)
+        self.assertEqual(st, 200)
+        self.assertEqual(sess["platform"], sys.platform)
+
     def test_all_cross_skill_actions_from_image_frame_sequence_video_3d_audio(self) -> None:
         self._login_via_workbench()
 
