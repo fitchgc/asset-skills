@@ -92,7 +92,7 @@ test('a gateway outage reported by the server keeps the authorization and shows 
 });
 
 test('only an invalid credential asks to reconnect, with the reason and a re-check', async () => {
-  const message = '凭据桥接脚本已不存在：/tmp/x/get-skill-jwt.mjs';
+  const message = '当前 JWT 已被资产网关拒绝';
   const {view, mounted} = mountWith({'/api/auth/status': async () => json({ok: true, state: 'unauthorized', authenticated: false,
     error: {code: 'need_login', message}})});
   await mounted;
@@ -130,6 +130,16 @@ function mountRuntime(prepare, confirms) {
 }
 
 const settle = () => new Promise(r => setImmediate(r));
+
+test('account menu offers repair for an invalid shared runtime even with interpreter Pillow', async () => {
+  const {view, mounted} = mountWith({
+    '/api/auth/status': async () => json(AUTHORIZED),
+    '/api/runtime/status': async () => json({ok: true, runtime: {...NOT_PREPARED.runtime, status: 'invalid', interpreter_pillow: '12.0'}}),
+  }, {withUi: true});
+  await mounted; await settle();
+  assert.ok(view.html.includes('准备 Pillow'));
+  assert.ok(!view.html.includes('已就绪'));
+});
 
 test('account menu: cancelling the Pillow dialog stops without preparing', async () => {
   const {view, calls, bar, mounted} = mountRuntime(async () => { throw new Error('must not be called'); }, [false]);

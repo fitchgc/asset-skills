@@ -41,7 +41,8 @@ class TestAuthStatusStates(unittest.TestCase):
     def test_invalid_credentials_are_unauthorized(self) -> None:
         cases = [
             AsxError("未找到本机凭据上下文", code="need_login", details={"reason_code": "missing_context"}),
-            AsxError("凭据桥接脚本已不存在", code="need_login", details={"reason_code": "bridge_missing"}),
+            bridge_failed("JWT request failed (HTTP 401)."),
+            bridge_failed("No binding for this Agent and site. Run device-login with the same --agent-id, or explicitly import an existing credential with --account-id."),
             AsxError("缺少 skill_jwt 权限", code="scope_missing"),
             AsxError("账号不一致", code="jwt_invalid", details={"reason_code": "account_mismatch"}),
             bridge_failed("Authorization expired or revoked; reconnect explicitly."),
@@ -59,6 +60,12 @@ class TestAuthStatusStates(unittest.TestCase):
             AsxError("凭据桥接命令超时", code="need_login", details={"reason_code": "bridge_timeout"}),
             bridge_failed("Identity verification failed; check connectivity. No operation was forwarded."),
             bridge_failed("JWT request failed (HTTP 503)."),
+            bridge_failed("JWT request failed (HTTP 429)."),
+            bridge_failed("Invalid JWT response."),
+            bridge_failed("This site does not offer extension skill credentials."),
+            bridge_failed("an unexpected bridge error"),
+            AsxError("凭据桥接命令无法启动", code="need_login", details={"reason_code": "bridge_unavailable"}),
+            AsxError("凭据桥接脚本已不存在", code="need_login", details={"reason_code": "bridge_missing"}),
             bridge_failed("fetch failed"),
             bridge_failed("Non-JSON HTTP 502; check host connectivity/security. Do not retry with browser identities."),
             bridge_failed("connect ECONNREFUSED 127.0.0.1:443"),

@@ -5,7 +5,6 @@ import io
 import json
 import mimetypes
 import os
-import re
 import secrets
 import socket
 import subprocess
@@ -77,30 +76,24 @@ def _http_status_for_error(code: str) -> int:
     return 400
 
 
-# The bridge (get-skill-jwt.mjs) reports these when it could not reach the site; the credential is untouched.
-# Node error codes are matched case-sensitively and as whole words ("reconnect" must not match ECONN).
-_BRIDGE_CONNECTION_FAILURE = re.compile(
-    r"(?i:check (?:host )?connectivity|could not verify identity|fetch failed|timed? ?out|aborted|HTTP 5\d\d)"
-    r"|\b(?:ECONN[A-Z]+|ENOTFOUND|EAI_AGAIN|ETIMEDOUT)\b"
+# Older installed bridges report one exit code. Only explicit credential failures require reconnecting.
+_BRIDGE_CREDENTIAL_ERRORS = (
+    "JWT request failed (HTTP 401).", "Authorization expired or revoked;", "No binding for this Agent and site.",
+    "Agent/site/account binding mismatch.", "Issued JWT does not match the bound account.",
+    "Credential does not match this site or token format.", "Credential/account conflict.",
 )
-_CREDENTIAL_INVALID_CODES = {"need_login", "scope_missing", "jwt_invalid", "legacy_credentials_removed",
-                             "invalid_partner_token", "http_401"}
 
 
 def _auth_failure_state(exc: AsxError) -> str:
-    """`unauthorized` only when the credential itself is missing, revoked or refused; otherwise `unavailable`.
-
-    A slow or unreachable site, gateway 5xx or bridge timeout leaves the authorization valid, so the page
-    offers a re-check instead of asking the user to reconnect.
-    """
-    if exc.code not in _CREDENTIAL_INVALID_CODES:
-        return "unavailable"
-    reason = exc.details.get("reason_code")
-    if reason == "bridge_timeout":
-        return "unavailable"
-    if reason == "bridge_failed" and _BRIDGE_CONNECTION_FAILURE.search(str(exc.details.get("bridge_error") or "")):
-        return "unavailable"
-    return "unauthorized"
+    if exc.code == "need_login":
+        reason = exc.details.get("reason_code")
+        if reason == "bridge_failed":
+            rejected = str(exc.details.get("bridge_error") or "").startswith(_BRIDGE_CREDENTIAL_ERRORS)
+        else:
+            rejected = reason in {"missing_context", "invalid_context", "gateway_rejected_jwt"}
+    else:
+        rejected = exc.code in {"scope_missing", "jwt_invalid", "legacy_credentials_removed", "invalid_partner_token", "http_401"}
+    return "unauthorized" if rejected else "unavailable"
 
 
 def _decode_data_url(data_url: str) -> tuple[bytes, str]:

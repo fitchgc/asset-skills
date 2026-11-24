@@ -79,7 +79,7 @@
       plToast('运行环境准备失败：' + message, 'err', 8000);
       return { status: 'failed', res, data };
     }
-    plToast('运行环境已就绪，正在重试…', 'ok');
+    plToast('运行环境已就绪', 'ok');
     return { status: 'ready' };
   }
 

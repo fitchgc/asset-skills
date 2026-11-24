@@ -127,7 +127,7 @@
     const rt = _state.runtime;
     if (!rt) return '';
     const canPrepare = rt.prepare_command && typeof global.plPrepareRuntime === 'function';
-    const ready = rt.status === 'ready' || rt.interpreter_pillow;
+    const ready = rt.status === 'ready' || (rt.status !== 'invalid' && rt.interpreter_pillow);
     const line = ready
       ? '本地图片编辑（Pillow）：已就绪'
       : rt.status === 'unsupported'
