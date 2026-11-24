@@ -7,7 +7,7 @@
     auth: null,
     menuOpen: false,
     onAuthChange: null,
-    phase: "loading", error: "", requestId: 0, runtime: null, runtimeError: "", preparing: false,
+    phase: "loading", error: "", requestId: 0, timeoutMs: 15000, runtime: null, runtimeError: "", preparing: false,
   };
 
   function getSessionToken() {
@@ -84,7 +84,7 @@
     document.head.appendChild(style);
   }
 
-  async function apiJson(path, method, body) {
+  async function apiJson(path, method, body, timeoutMs) {
     const res = await fetch(path, {
       method: method || 'GET',
       headers: {
@@ -92,7 +92,7 @@
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),
-      signal: AbortSignal.timeout(path === '/api/runtime/prepare' ? 300000 : 15000),
+      signal: AbortSignal.timeout(timeoutMs || (path === '/api/runtime/prepare' ? 300000 : 15000)),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
@@ -105,11 +105,12 @@
   function render() {
     if (!_state.container) return;
     const auth = _state.auth, verified = auth && auth.authenticated;
+    const needsConnection = !!(auth && (auth.state === 'unauthorized' || auth.auth_state === 'needs_connection'));
     const loading = _state.phase === 'loading';
     const root = document.createElement('div');
     root.className = 'asx-acct-root' + (verified ? '' : ' off');
-    const label = loading ? '正在检查授权与余额…' : _state.phase === 'error' ? '连接暂不可用' : verified ?
-      (auth.identity_error ? '已授权 · 余额暂不可用' : formatBudget(auth.identity)) : '需要连接 Agent';
+    const label = loading ? '正在检查授权与余额…' : _state.phase === 'error' ? '连接暂不可用' : needsConnection ? '需要连接 Agent' : verified ?
+      (auth.identity_error ? '已授权 · 余额暂不可用' : formatBudget(auth.identity)) : '连接状态未知';
     const details = verified ? [auth.origin, `账号 ${(auth.identity || {}).subject || '--'}`,
       `账户额度 ${(auth.identity?.budget || {}).quota ?? '--'} ${(auth.identity?.budget || {}).currency ?? ''}`,
       `可用 ${formatBudget(auth.identity)}`, `预占 ${auth.identity?.budget?.reserved_amount ?? '--'}`,
@@ -130,36 +131,52 @@
         ${auth && auth.error ? `<p>${escapeHtml(auth.error.message)}</p>` : ''}
         <button type="button" class="keycap ghost sm" id="asx-acct-refresh">重新检查连接与余额</button>
         <p><a href="https://dev.plaiers.ai/agent-center#asset-setup" target="_blank" rel="noreferrer">查看 dev 安装与授权步骤</a></p>
-        <button type="button" class="keycap ghost sm" id="asx-connect-copy">复制给 Agent 的连接指令</button>
-        <textarea id="asx-connect-prompt" aria-label="连接修复指令" readonly rows="4">${escapeHtml(prompt)}</textarea>
+        ${needsConnection ? `<button type="button" class="keycap ghost sm" id="asx-connect-copy">复制给 Agent 的连接指令</button>
+        <textarea id="asx-connect-prompt" aria-label="连接修复指令" readonly rows="4">${escapeHtml(prompt)}</textarea>` : ''}
         <h3>本地编辑环境</h3>
         <p role="status">${_state.preparing ? '正在准备共享 Pillow，请稍候…' : !runtime ? '点击检查本地环境，查看共享 Pillow 和视频工具。' :
           `Pillow：${ready ? '可用' : state.status === 'unsupported' ? '当前平台无锁定安装包' : state.status === 'invalid' ? '校验失败' : '未安装'}；FFmpeg：${runtime.ffmpeg ? '可用' : '未安装（仅视频处理需要）'}；ffprobe：${runtime.ffprobe ? '可用' : '未安装'}`}</p>
         ${_state.runtimeError ? `<p role="alert">${escapeHtml(_state.runtimeError)}</p>` : ''}
         <button type="button" class="keycap ghost sm" id="asx-runtime-check" ${_state.preparing ? 'disabled' : ''}>检查本地环境</button>
-        ${canPrepare ? `<p><label><input type="checkbox" id="asx-runtime-consent">同意下载并安装共享 Pillow，仅用于本地编辑，不产生资产生成费用。</label></p><button type="button" class="keycap sm" id="asx-runtime-prepare" disabled>安装共享 Pillow</button>` : ''}
+        ${canPrepare ? `<button type="button" class="keycap sm" id="asx-runtime-prepare" ${_state.preparing ? 'disabled' : ''}>${_state.preparing ? '正在准备…' : '准备 Pillow'}</button>` : ''}
         ${runtime && (!runtime.ffmpeg || !runtime.ffprobe) ? '<p>视频处理才需要 FFmpeg/ffprobe。请让 Agent 说明适合当前系统的官方安装来源，确认后再安装；图片编辑不需要。</p>' : ''}
       </div></details>`;
     root.querySelector('details').ontoggle = e => { _state.menuOpen = e.target.open; };
     root.querySelector('#asx-acct-refresh').onclick = () => refresh();
-    root.querySelector('#asx-connect-copy').onclick = async () => {
+    const copyButton = root.querySelector('#asx-connect-copy');
+    if (copyButton) copyButton.onclick = async () => {
       try { await navigator.clipboard.writeText(prompt); }
       catch (_) { root.querySelector('#asx-connect-prompt').select(); }
     };
     root.querySelector('#asx-runtime-check').onclick = () => checkRuntime();
-    if (canPrepare) {
-      const button = root.querySelector('#asx-runtime-prepare'), consent = root.querySelector('#asx-runtime-consent');
-      consent.onchange = () => { button.disabled = !consent.checked || _state.preparing; };
-      button.onclick = async () => {
-        if (!consent.checked || _state.preparing) return;
-        _state.preparing = true; _state.runtimeError = ''; render();
-        try { await apiJson('/api/runtime/prepare', 'POST', {confirm_download: true}); }
-        catch (error) { _state.runtimeError = error.message; }
-        finally { _state.preparing = false; await checkRuntime(); }
-      };
-    }
+    const prepareButton = root.querySelector('#asx-runtime-prepare');
+    if (prepareButton) prepareButton.onclick = () => prepareRuntime(state);
     _state.container.innerHTML = '';
     _state.container.appendChild(root);
+  }
+
+  async function prepareRuntime(state) {
+    if (_state.preparing || !state || !state.prepare_command) return;
+    _state.preparing = true;
+    _state.runtimeError = '';
+    render();
+    try {
+      if (typeof global.plPrepareRuntime !== 'function') throw new Error('共享 Pillow 确认入口不可用');
+      const result = await global.plPrepareRuntime({
+        message: state.message || '本地编辑需要共享 Pillow。',
+        details: {prepare_command: state.prepare_command},
+      }, {'Content-Type': 'application/json', 'X-Asx-Session-Token': getSessionToken()});
+      if (result.status === 'failed') {
+        const error = result.data && result.data.error;
+        _state.runtimeError = '运行环境准备失败：' + (error && error.message || '未知错误');
+      }
+      if (result.status === 'ready') await checkRuntime();
+    } catch (error) {
+      _state.runtimeError = '运行环境准备失败：' + error.message;
+    } finally {
+      _state.preparing = false;
+      render();
+    }
   }
 
   async function checkRuntime() {
@@ -172,15 +189,25 @@
     const requestId = ++_state.requestId;
     _state.phase = 'loading'; _state.error = ''; render();
     try {
-      const data = await apiJson('/api/auth/status', 'GET');
+      const data = await apiJson('/api/auth/status', 'GET', null, _state.timeoutMs);
       if (requestId !== _state.requestId) return;
-      if (data.auth_state === 'unavailable') throw new Error('Temporary authorization check failure');
+      const unavailable = data.state === 'unavailable' || data.auth_state === 'unavailable'
+        || (!data.authenticated && data.state !== 'unauthorized' && data.auth_state !== 'needs_connection');
+      if (unavailable) {
+        const error = data.error || data.identity_error;
+        _state.phase = 'error';
+        _state.error = error && error.message || '连接或余额查询暂时失败；这不等于授权已撤销。';
+        render();
+        return;
+      }
       _state.checkedAt = new Date().toLocaleString(); _state.auth = data; _state.phase = 'ready';
       render();
       if (typeof _state.onAuthChange === 'function') _state.onAuthChange(data);
-    } catch (_) {
+    } catch (error) {
       if (requestId !== _state.requestId) return;
-      _state.phase = 'error'; _state.error = '连接或余额查询暂时失败，请重试。这不等于授权已撤销。'; render();
+      _state.phase = 'error';
+      _state.error = '连接或余额查询暂时失败：' + error.message + '。这不等于授权已撤销。';
+      render();
     }
   }
 
@@ -189,6 +216,7 @@
     const opts = options || {};
     _state.token = opts.token || '';
     _state.onAuthChange = opts.onAuthChange || null;
+    _state.timeoutMs = opts.timeoutMs || 15000;
     _state.container = typeof target === 'string' ? document.querySelector(target) : target;
 
     render();

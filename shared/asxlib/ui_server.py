@@ -75,6 +75,33 @@ def _http_status_for_error(code: str) -> int:
     return 400
 
 
+# Only these bridge failures positively identify a missing, revoked, or mismatched credential.
+_BRIDGE_CREDENTIAL_FAILURES = (
+    "JWT request failed (HTTP 401).",
+    "Authorization expired or revoked;",
+    "Community token missing, expired or revoked.",
+    "No binding for this Agent and site.",
+    "Issued JWT does not match the bound account.",
+    "Credential/account conflict.",
+    "Credential does not match this site or token format.",
+    "Verified account does not match the bound account.",
+    "Verified account does not match --account-id.",
+)
+
+
+def _auth_failure_state(exc: AsxError) -> str:
+    """Return unauthorized only for credential, scope, or identity failures; all other errors are temporary."""
+    if exc.code == "need_login":
+        reason = exc.details.get("reason_code")
+        if reason == "bridge_failed":
+            invalid = str(exc.details.get("bridge_error") or "").startswith(_BRIDGE_CREDENTIAL_FAILURES)
+        else:
+            invalid = reason in {"missing_context", "invalid_context", "gateway_rejected_jwt", "account_changed"}
+    else:
+        invalid = exc.code in {"scope_missing", "jwt_invalid", "legacy_credentials_removed", "invalid_partner_token", "http_401"}
+    return "unauthorized" if invalid else "unavailable"
+
+
 def _decode_data_url(data_url: str) -> tuple[bytes, str]:
     if not data_url.startswith("data:"):
         raise AsxError("Invalid data URL", code="invalid_data_url")
@@ -458,15 +485,18 @@ class WorkbenchRequestHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/runtime/prepare":
-            # A local session and an explicit user's download consent are required.
-            if not isinstance(body, dict) or body.get("confirm_download") is not True:
-                self._send_json({"ok": False, "error": {"code": "consent_required", "message": "请先同意下载共享 Pillow"}}, status=400)
+            # One endpoint serves the account menu and edit dialog; both fields require explicit user consent.
+            if not isinstance(body, dict) or (body.get("user_confirmed") is not True and body.get("confirm_download") is not True):
+                self._send_json(
+                    {"ok": False, "error": {"code": "confirmation_required", "message": "请先同意下载共享 Pillow"}},
+                    status=409,
+                )
                 return
             try:
                 from .runtime_env import prepare_runtime
                 self._send_json(prepare_runtime())
             except AsxError as exc:
-                self._send_json(exc.payload(), status=400)
+                self._send_json(exc.payload(), status=_http_status_for_error(exc.code))
             return
 
         if path == "/api/cancel":
@@ -603,25 +633,39 @@ class WorkbenchServer(ThreadingHTTPServer):
         try:
             session = load_auth_session()
         except AsxError as exc:
-            error = exc.payload()["error"]
-            reason = (error.get("details") or {}).get("reason_code")
-            needs_connection = exc.code == "scope_missing" or reason in {"missing_context", "invalid_context", "bridge_unavailable", "gateway_rejected_jwt"}
-            return {"ok": True, "authenticated": False, "auth_state": "needs_connection" if needs_connection else "unavailable",
-                    "origin": origin, "identity": None, "error": error}
+            state = _auth_failure_state(exc)
+            return {
+                "ok": True,
+                "state": state,
+                "auth_state": "needs_connection" if state == "unauthorized" else "unavailable",
+                "authenticated": False,
+                "origin": origin,
+                "identity": None,
+                "error": exc.payload()["error"],
+            }
         gw_client = AsynxClient(session.base_url, session=session)
-        identity = None
-        identity_error = None
         try:
             identity, _ = gw_client.partner_identity()
         except AsxError as exc:
-            identity_error = exc.payload()["error"]
+            state = _auth_failure_state(exc)
+            return {
+                "ok": True,
+                "state": state,
+                "auth_state": "needs_connection" if state == "unauthorized" else "unavailable",
+                "authenticated": state == "unavailable",
+                "origin": session.origin,
+                "asynx": session.asynx,
+                "identity": None,
+                "identity_error": exc.payload()["error"],
+            }
         return {
             "ok": True,
+            "state": "authorized",
+            "auth_state": "authorized",
             "authenticated": True,
             "origin": session.origin,
             "asynx": session.asynx,
             "identity": identity,
-            **({"identity_error": identity_error} if identity_error else {}),
         }
 
     def workspace_root(self) -> Path | None:

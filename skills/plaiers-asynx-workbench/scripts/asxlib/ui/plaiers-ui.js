@@ -44,14 +44,62 @@
     return lines.join('\n');
   }
 
+  // Pillow 缺失时只有在此处确认后才调用共享运行环境安装端点。
+  function plRuntimeMessage(error) {
+    const details = error.details || {};
+    return [
+      error.message || '本地图片处理需要可选依赖 Pillow。',
+      '',
+      '现在下载并准备吗？会联网下载按哈希锁定的 Pillow，安装到所有 Asset Skill 共用的运行环境，不修改系统 Python。',
+      `等同于在终端运行：${details.prepare_command}`,
+    ].join('\n');
+  }
+
+  async function plPrepareRuntime(error, headers) {
+    if (!window.confirm(plRuntimeMessage(error))) return {status: 'declined'};
+    plToast('正在下载并准备运行环境，可能需要一两分钟…', 'ok', 120000);
+    let res;
+    let data;
+    try {
+      res = await fetch('/api/runtime/prepare', {
+        method: 'POST', headers,
+        body: JSON.stringify({user_confirmed: true, confirm_download: true}),
+      });
+      data = await res.json();
+    } catch (err) {
+      res = {ok: false, status: res ? res.status : 0};
+      data = {ok: false, error: {code: 'runtime_prepare_failed', message: `运行环境准备请求失败：${err.message}`}};
+    }
+    if (!res.ok || !data || !data.ok) {
+      const message = data && data.error && data.error.message || `HTTP ${res.status}`;
+      plToast('运行环境准备失败：' + message, 'err', 8000);
+      return {status: 'failed', res, data};
+    }
+    plToast('运行环境已就绪', 'ok');
+    return {status: 'ready'};
+  }
+
   async function plPostWithChargeConsent(url, payload, headers) {
     let body = { ...payload };
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    let prepared = false;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
       const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
       const data = await res.json();
       const error = data && data.error;
       const code = error && error.code;
-      if (code !== 'confirmation_required' && code !== 'quote_unavailable') return { res, data };
+      if ((code === 'dependency_missing' || code === 'runtime_invalid') && !prepared
+          && error.details && error.details.prepare_command) {
+        const result = await plPrepareRuntime(error, headers);
+        if (result.status === 'failed') return {res: result.res, data: result.data};
+        if (result.status === 'declined') return {
+          res: {ok: false, status: 409},
+          data: {ok: false, error: {code: 'runtime_declined', message: '已取消：没有准备运行环境（Pillow），未提交任务。'}},
+        };
+        prepared = true;
+        body = {...payload};
+        continue;
+      }
+      if (code !== 'confirmation_required' && code !== 'quote_unavailable') return {res, data};
       if (!window.confirm(plChargeMessage(error))) {
         return {
           res: { ok: false, status: 409 },
@@ -69,6 +117,7 @@
   }
 
   window.plPostWithChargeConsent = plPostWithChargeConsent;
+  window.plPrepareRuntime = plPrepareRuntime;
   window.plToast = plToast;
   window.plColor = plColor;
   window.plIcon = plIcon;
